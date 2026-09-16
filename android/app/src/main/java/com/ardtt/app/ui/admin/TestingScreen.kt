@@ -113,7 +113,6 @@ private enum class TestingPane { Storage, History }
 fun TestingScreen(
     profiles: ProfileRepository,
     onBack: (() -> Unit)? = null,
-    embedded: Boolean = false,
 ) {
     val context = LocalContext.current
     val recorder = remember { TelemetryRecorder.get(context) }
@@ -445,52 +444,34 @@ fun TestingScreen(
         )
     }
 
-    if (embedded) {
-        Column(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        ArdttScrollChrome(
+            header = {
+                ArdttTabHeader(
+                    // Same word as the Settings link that leads here.
+                    title = AppDestination.Testing.label,
+                    subtitle = "${BuildConfig.VERSION_NAME} · полная телеметрия и отправка на сервер",
+                    onBack = onBack,
+                )
+            },
+        ) { topPad ->
             ArdttPullRefresh(
                 refreshing = pull.refreshing,
                 onRefresh = pull.onRefresh,
-                modifier = Modifier.weight(1f),
             ) {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = ArdttSpacing.Small),
+                    contentPadding = PaddingValues(
+                        start = ArdttLayout.ScreenPadding,
+                        end = ArdttLayout.ScreenPadding,
+                        top = topPad,
+                        bottom = ArdttBottomChrome.scrollContentPadding(extra = ArdttSpacing.Small),
+                    ),
                     verticalArrangement = Arrangement.spacedBy(ArdttLayout.FeedSpacing),
                     content = testingItems,
                 )
-            }
-            RecordButton()
-        }
-    } else {
-        Box(modifier = Modifier.fillMaxSize()) {
-            ArdttScrollChrome(
-                header = {
-                    ArdttTabHeader(
-                        // Same word as the Diagnostics row and the Settings link that lead here.
-                        title = AppDestination.Testing.label,
-                        subtitle = "${BuildConfig.VERSION_NAME} · полная телеметрия и отправка на сервер",
-                        onBack = onBack,
-                    )
-                },
-            ) { topPad ->
-                ArdttPullRefresh(
-                    refreshing = pull.refreshing,
-                    onRefresh = pull.onRefresh,
-                ) {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(
-                            start = ArdttLayout.ScreenPadding,
-                            end = ArdttLayout.ScreenPadding,
-                            top = topPad,
-                            bottom = ArdttBottomChrome.scrollContentPadding(extra = ArdttSpacing.Small),
-                        ),
-                        verticalArrangement = Arrangement.spacedBy(ArdttLayout.FeedSpacing),
-                        content = testingItems,
-                    )
-                    ArdttStickyBottomBar {
-                        RecordButton()
-                    }
+                ArdttStickyBottomBar {
+                    RecordButton()
                 }
             }
         }
