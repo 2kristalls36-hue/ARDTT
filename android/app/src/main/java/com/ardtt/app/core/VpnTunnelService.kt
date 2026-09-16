@@ -117,6 +117,8 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     @Volatile private var softRestartEpoch: Long = 0L
     @Volatile private var networkChangeEpoch: Long = 0L
     @Volatile private var lastDataSubId: Int = android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID
+    /** Real default-data SIM change: wait VALIDATED on Bypass and keep datapath until then. */
+    @Volatile private var pendingDataSubscriptionChanged = false
     private var dataSubReceiver: BroadcastReceiver? = null
     private var telephonyCallback: android.telephony.TelephonyCallback? = null
     private var notifLiveJob: Job? = null
@@ -631,6 +633,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     evidenceSinceMs = System.currentTimeMillis(),
                     generation = networkChangeEpoch,
                     rebuildTun = underlayChanged,
+                    dataSubscriptionChanged = pendingDataSubscriptionChanged,
                 ),
             )
             AppLog.v(TAG, "handover queued ($reason) — probe/restart busy")
@@ -693,6 +696,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             previousNetworkId = pending.previousNetworkId,
             evidenceSinceMs = pending.evidenceSinceMs,
             stickyUnderlayChanged = pending.underlayChanged,
+            dataSubscriptionChanged = pending.dataSubscriptionChanged,
         )
     }
 
@@ -875,13 +879,31 @@ class VpnTunnelService : VpnService(), TunEstablisher {
     }
 
     private fun onDataSubscriptionChanged(subId: Int, reason: String) {
-        if (subId == android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID) return
-        if (subId == lastDataSubId) return
+        val defaultData = readDefaultDataSubscriptionId()
+        if (
+            !shouldApplyDataSubscriptionHandover(
+                reportedSubId = subId,
+                defaultDataSubId = defaultData,
+                lastAppliedSubId = lastDataSubId,
+            )
+        ) {
+            return
+        }
+        val applied = if (defaultData != android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
+            defaultData
+        } else {
+            subId
+        }
         val previous = lastDataSubId
-        lastDataSubId = subId
+        lastDataSubId = applied
         if (!tunnelSessionActive || userStopRequested || trustedWifiWaiting) return
-        AppLog.v(TAG, "$reason $previous → $subId")
-        scheduleUnderlyingNetworkReconnect("$reason $previous→$subId")
+        AppLog.v(TAG, "$reason $previous → $applied")
+        pendingDataSubscriptionChanged = true
+        scheduleUnderlyingNetworkReconnect(
+            reason = "$reason $previous→$applied",
+            stickyUnderlayChanged = true,
+            dataSubscriptionChanged = true,
+        )
     }
 
     private fun isDeviceInteractive(): Boolean {
@@ -1547,6 +1569,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         previousNetworkId: Long? = null,
         evidenceSinceMs: Long = System.currentTimeMillis(),
         stickyUnderlayChanged: Boolean = false,
+        dataSubscriptionChanged: Boolean = false,
     ) {
         if (trustedWifiWaiting) return
         if (
@@ -1589,11 +1612,16 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     evidenceSinceMs = evidenceSinceMs,
                     generation = networkChangeEpoch,
                     rebuildTun = underlayChanged,
+                    dataSubscriptionChanged = dataSubscriptionChanged || pendingDataSubscriptionChanged,
                 ),
             )
             AppLog.v(TAG, "$reason; handover check already pending — queued")
             return
         }
+        if (dataSubscriptionChanged || pendingHandover?.dataSubscriptionChanged == true) {
+            pendingDataSubscriptionChanged = true
+        }
+        val dds = pendingDataSubscriptionChanged
         pendingHandoverUnderlayChanged = underlayChanged
         stableNetworkWasLost = false
         stableNetworkReconnectPending = true
@@ -1604,7 +1632,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         AppLog.v(
             TAG,
             "$reason — wait VALIDATED then settle ${policy.networkSettleDelayMs}ms " +
-                "path=$path underlayChanged=$underlayChanged",
+                "path=$path underlayChanged=$underlayChanged dds=$dds",
         )
 
         networkChangeEpoch++
@@ -1616,11 +1644,13 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 val skipValidated = shouldSkipValidatedWait(
                     path = path,
                     underlayKind = currentUnderlayKind(),
+                    dataSubscriptionChanged = dds,
                 )
                 val validatedWaitStart = System.currentTimeMillis()
                 val validatedTimeoutMs = validatedWaitTimeoutMs(
                     replacementUnderlayPresent = activeNetworks.isNotEmpty(),
                     skipWait = skipValidated,
+                    dataSubscriptionChanged = dds,
                 )
                 while (
                     shouldKeepWaitingForValidated(
@@ -1632,7 +1662,21 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     delay(VALIDATED_WAIT_POLL_MS)
                 }
                 val validatedWaited = System.currentTimeMillis() - validatedWaitStart
-                if (!hasValidatedRealNetwork()) {
+                val validatedAfterWait = hasValidatedRealNetwork()
+                val settlePath = TunnelSessionHolder.config?.path ?: path
+                if (!shouldTearBypassDatapathOnHandover(settlePath, dds, validatedAfterWait)) {
+                    rebindBypassWhenValidated = true
+                    AppLog.w(
+                        TAG,
+                        "handover: DDS underlay not VALIDATED after ${validatedWaited}ms — " +
+                            "keep Bypass datapath ($reason)",
+                    )
+                    return@launch
+                }
+                if (validatedAfterWait) {
+                    pendingDataSubscriptionChanged = false
+                }
+                if (!validatedAfterWait) {
                     rebindBypassWhenValidated = true
                     if (!skipValidated || validatedWaited >= 200L) {
                         AppLog.w(
@@ -1647,10 +1691,10 @@ class VpnTunnelService : VpnService(), TunEstablisher {
 
                 val (trustedOn, trustedSsids) = runCatching { settingsRepo.trustedWifiSnapshot() }
                     .getOrDefault(false to emptySet())
-                val settlePath = TunnelSessionHolder.config?.path ?: path
                 val skipValidatedSettle = shouldSkipValidatedWait(
                     path = settlePath,
                     underlayKind = currentUnderlayKind(),
+                    dataSubscriptionChanged = dds,
                 )
                 val settleMs = extraNetworkSettleDelayMs(
                     path = settlePath,
@@ -1746,6 +1790,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                                 evidenceSinceMs = stableNetworkEvidenceSinceMs,
                                 generation = myEpoch,
                                 rebuildTun = pendingHandoverUnderlayChanged,
+                                dataSubscriptionChanged = pendingDataSubscriptionChanged,
                             ),
                         )
                     }
@@ -1816,6 +1861,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         pendingHandoverUnderlayChanged = false
         stableNetworkEvidenceSinceMs = 0L
         rebindBypassWhenValidated = false
+        pendingDataSubscriptionChanged = false
         rebuildTunOnNextLaunch = false
         softRestartInProgress = false
         handoverProbeInProgress = false
@@ -2102,6 +2148,15 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         val n = pickBestUnderlayNetwork(this) ?: pickBestUnderlyingNetwork()
         val caps = n?.let { connectivityManager?.getNetworkCapabilities(it) }
         val validated = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+        if (
+            !shouldReplaceVpnUnderlyingPin(
+                validated = validated,
+                holdUntilValidated = pendingDataSubscriptionChanged,
+            )
+        ) {
+            AppLog.i(TAG, "VPN underlying keep previous pin (not VALIDATED)")
+            return
+        }
         // Pin only a VALIDATED underlay. Binding to a half-up LTE (common while
         // the VPN is the default network) blackholes apps; qWDTT never pins.
         val bind = n.takeIf { validated }

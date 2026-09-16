@@ -924,6 +924,162 @@ class NetworkRecoveryPolicyTest {
     }
 
     @Test
+    fun cellularBypassDdsWaitsFullValidatedTimeoutNotFourHundredMs() {
+        assertFalse(
+            shouldSkipValidatedWait(
+                VpnPath.Bypass,
+                UnderlayKind.Cellular,
+                dataSubscriptionChanged = true,
+            ),
+        )
+        assertEquals(
+            VALIDATED_WAIT_TIMEOUT_MS,
+            validatedWaitTimeoutMs(
+                replacementUnderlayPresent = true,
+                skipWait = false,
+                dataSubscriptionChanged = true,
+            ),
+        )
+        assertTrue(
+            shouldKeepWaitingForValidated(
+                validatedPresent = false,
+                waitedMs = VALIDATED_WAIT_WHEN_UNDERLAY_PRESENT_MS,
+                timeoutMs = VALIDATED_WAIT_TIMEOUT_MS,
+            ),
+        )
+        assertEquals(
+            BYPASS_NETWORK_SETTLE_MS,
+            extraNetworkSettleDelayMs(
+                VpnPath.Bypass,
+                validatedPresent = true,
+                skipValidatedWait = false,
+            ),
+        )
+    }
+
+    @Test
+    fun cellularDirectAndSameUnderlayFlapStillSkipValidatedWait() {
+        assertTrue(shouldSkipValidatedWait(VpnPath.Direct, UnderlayKind.Cellular))
+        assertTrue(
+            shouldSkipValidatedWait(
+                VpnPath.Direct,
+                UnderlayKind.Cellular,
+                dataSubscriptionChanged = true,
+            ),
+        )
+        assertTrue(shouldSkipValidatedWait(VpnPath.Bypass, UnderlayKind.Cellular))
+        assertTrue(
+            shouldSkipValidatedWait(
+                VpnPath.Bypass,
+                UnderlayKind.Cellular,
+                dataSubscriptionChanged = false,
+            ),
+        )
+        assertEquals(
+            0L,
+            validatedWaitTimeoutMs(
+                replacementUnderlayPresent = true,
+                skipWait = true,
+            ),
+        )
+        assertEquals(
+            VALIDATED_WAIT_WHEN_UNDERLAY_PRESENT_MS,
+            validatedWaitTimeoutMs(replacementUnderlayPresent = true),
+        )
+    }
+
+    @Test
+    fun sameDefaultDataSubDoesNotApplyHandover() {
+        assertFalse(
+            shouldApplyDataSubscriptionHandover(
+                reportedSubId = 2,
+                defaultDataSubId = 3,
+                lastAppliedSubId = 3,
+            ),
+        )
+        assertFalse(
+            shouldApplyDataSubscriptionHandover(
+                reportedSubId = 3,
+                defaultDataSubId = 3,
+                lastAppliedSubId = 3,
+            ),
+        )
+        assertFalse(
+            shouldApplyDataSubscriptionHandover(
+                reportedSubId = INVALID_DATA_SUB_ID,
+                defaultDataSubId = 3,
+                lastAppliedSubId = 3,
+            ),
+        )
+        assertTrue(
+            shouldApplyDataSubscriptionHandover(
+                reportedSubId = 2,
+                defaultDataSubId = 2,
+                lastAppliedSubId = 3,
+            ),
+        )
+    }
+
+    @Test
+    fun liveBypassDdsDoesNotSwitchToDirect() {
+        assertEquals(
+            NetworkHandoverDecision.SoftRestartSamePath,
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Bypass,
+                probedPath = VpnPath.Direct,
+                bypassAllowed = true,
+                underlayChanged = true,
+                underlayKind = UnderlayKind.Cellular,
+            ),
+        )
+    }
+
+    @Test
+    fun unvalidatedDdsDoesNotTearBypassDatapath() {
+        assertFalse(
+            shouldTearBypassDatapathOnHandover(
+                path = VpnPath.Bypass,
+                dataSubscriptionChanged = true,
+                validatedPresent = false,
+            ),
+        )
+        assertTrue(
+            shouldTearBypassDatapathOnHandover(
+                path = VpnPath.Bypass,
+                dataSubscriptionChanged = true,
+                validatedPresent = true,
+            ),
+        )
+        assertTrue(
+            shouldTearBypassDatapathOnHandover(
+                path = VpnPath.Bypass,
+                dataSubscriptionChanged = false,
+                validatedPresent = false,
+            ),
+        )
+        assertTrue(
+            shouldTearBypassDatapathOnHandover(
+                path = VpnPath.Direct,
+                dataSubscriptionChanged = true,
+                validatedPresent = false,
+            ),
+        )
+        assertFalse(
+            shouldReplaceVpnUnderlyingPin(
+                validated = false,
+                holdUntilValidated = true,
+            ),
+        )
+        assertTrue(
+            shouldReplaceVpnUnderlyingPin(validated = true, holdUntilValidated = true),
+        )
+        assertTrue(
+            shouldReplaceVpnUnderlyingPin(validated = false, holdUntilValidated = false),
+        )
+    }
+
+    @Test
     fun handoverDoesNotRestartStableWhitelistBypass() {
         assertEquals(
             NetworkHandoverDecision.NoAction,

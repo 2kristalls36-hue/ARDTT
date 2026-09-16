@@ -95,8 +95,10 @@ const val VALIDATED_WAIT_POLL_MS = 300L
 fun validatedWaitTimeoutMs(
     replacementUnderlayPresent: Boolean,
     skipWait: Boolean = false,
+    dataSubscriptionChanged: Boolean = false,
 ): Long = when {
     skipWait -> 0L
+    dataSubscriptionChanged -> VALIDATED_WAIT_TIMEOUT_MS
     replacementUnderlayPresent -> VALIDATED_WAIT_WHEN_UNDERLAY_PRESENT_MS
     else -> VALIDATED_WAIT_TIMEOUT_MS
 }
@@ -104,13 +106,59 @@ fun validatedWaitTimeoutMs(
 /**
  * qWDTT reconnects RAW without a VPS probe. On this phone LTE often never
  * becomes VALIDATED while the VPN is up — waiting 2.5s+ only extends the
- * blackhole. Skip that wait on cellular. Do **not** skip on Wi‑Fi: Bypass
- * still has traffic on LTE while home Wi‑Fi validates, and we need Direct.
+ * blackhole. Skip that wait on cellular flaps and on Direct rebind. Do **not**
+ * skip on Wi‑Fi, and do **not** skip a real default-data SIM change on Bypass:
+ * joining VK on half-up LTE after DDS is `channels=0` with a live TUN.
  */
 fun shouldSkipValidatedWait(
     path: VpnPath,
     underlayKind: UnderlayKind,
-): Boolean = path == VpnPath.Direct || underlayKind == UnderlayKind.Cellular
+    dataSubscriptionChanged: Boolean = false,
+): Boolean {
+    if (path == VpnPath.Direct) return true
+    if (underlayKind != UnderlayKind.Cellular) return false
+    return !dataSubscriptionChanged
+}
+
+/** Sentinel matching [android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID]. */
+const val INVALID_DATA_SUB_ID = -1
+
+/**
+ * Dual-SIM phones emit [onActiveDataSubscriptionIdChanged] flaps that are not
+ * a default-data switch. Only a real DDS change may start handover.
+ */
+fun shouldApplyDataSubscriptionHandover(
+    reportedSubId: Int,
+    defaultDataSubId: Int,
+    lastAppliedSubId: Int,
+    invalidSubId: Int = INVALID_DATA_SUB_ID,
+): Boolean {
+    if (reportedSubId == invalidSubId) return false
+    val authoritative = if (defaultDataSubId != invalidSubId) defaultDataSubId else reportedSubId
+    if (authoritative == lastAppliedSubId) return false
+    if (defaultDataSubId != invalidSubId && reportedSubId != defaultDataSubId) return false
+    return true
+}
+
+/**
+ * Real DDS on live Bypass before the new LTE is VALIDATED: keep TUN/workers.
+ * Same-network flaps and Direct still rebind immediately.
+ */
+fun shouldTearBypassDatapathOnHandover(
+    path: VpnPath,
+    dataSubscriptionChanged: Boolean,
+    validatedPresent: Boolean,
+): Boolean {
+    if (path != VpnPath.Bypass) return true
+    if (dataSubscriptionChanged && !validatedPresent) return false
+    return true
+}
+
+/** Pin only a VALIDATED underlay; during DDS hold, do not fall through to default. */
+fun shouldReplaceVpnUnderlyingPin(
+    validated: Boolean,
+    holdUntilValidated: Boolean = false,
+): Boolean = validated || !holdUntilValidated
 
 fun classifyValidatedNetworkTransition(
     previousNetworkId: Long?,
