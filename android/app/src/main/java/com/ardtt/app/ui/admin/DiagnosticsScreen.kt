@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Science
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.runtime.Composable
@@ -25,27 +24,26 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import com.ardtt.app.deploy.ServersRepository
 import com.ardtt.app.profile.ProfileRepository
 import com.ardtt.app.settings.AppSettingsRepository
-import com.ardtt.app.ui.AppDestination
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
 import com.ardtt.app.ui.components.layout.ArdttDestinationRow
 import com.ardtt.app.ui.components.layout.ArdttFeedScaffold
 import com.ardtt.app.ui.components.layout.ArdttScrollChrome
 import com.ardtt.app.ui.components.layout.ArdttTabHeader
-import com.ardtt.app.ui.telemetry.recordingAccentBorder
 import com.ardtt.app.ui.theme.ArdttLayout
 
 @Composable
 fun DiagnosticsScreen(
-    testingVisible: Boolean,
-    isRecording: Boolean = false,
     settings: AppSettingsRepository,
     profiles: ProfileRepository,
     serversRepo: ServersRepository,
     reselectSignal: Int = 0,
 ) {
-    val tools = diagnosticsTools(testingVisible)
-    var expandedName by rememberSaveable { mutableStateOf<String?>(null) }
-    var selectedNames by rememberSaveable { mutableStateOf(listOf<String>()) }
+    val tools = diagnosticsTools()
+    val initial = diagnosticsInitialState()
+    var expandedName by rememberSaveable { mutableStateOf(initial.expanded?.name) }
+    var selectedNames by rememberSaveable {
+        mutableStateOf(tools.filter { it in initial.selected }.map { it.name })
+    }
     val expanded = expandedName?.let { name ->
         DiagnosticsTool.entries.firstOrNull { it.name == name }
     }?.takeIf { it in tools }
@@ -70,8 +68,9 @@ fun DiagnosticsScreen(
     }
     LaunchedEffect(reselectSignal) {
         if (reselectSignal > 0) {
-            expandedName = null
-            selectedNames = emptyList()
+            val reset = diagnosticsInitialState()
+            expandedName = reset.expanded?.name
+            selectedNames = tools.filter { it in reset.selected }.map { it.name }
         }
     }
 
@@ -92,7 +91,6 @@ fun DiagnosticsScreen(
                         DiagnosticsToolRow(
                             tool = tool,
                             expanded = false,
-                            isRecording = isRecording,
                             onClick = { select(tool) },
                         )
                     }
@@ -111,6 +109,11 @@ fun DiagnosticsScreen(
             ArdttTabHeader(
                 title = DiagnosticsCopy.TITLE,
                 subtitle = DiagnosticsCopy.SUBTITLE,
+                actions = if (openTool == DiagnosticsTool.Logs) {
+                    { LogsJournalHeaderActions() }
+                } else {
+                    null
+                },
             )
         },
     ) { topPad ->
@@ -125,14 +128,12 @@ fun DiagnosticsScreen(
                 DiagnosticsToolRow(
                     tool = tool,
                     expanded = false,
-                    isRecording = isRecording,
                     onClick = { select(tool) },
                 )
             }
             DiagnosticsToolRow(
                 tool = openTool,
                 expanded = true,
-                isRecording = isRecording,
                 onClick = { select(openTool) },
             )
             Box(
@@ -149,17 +150,12 @@ fun DiagnosticsScreen(
                         embedded = true,
                     )
                     DiagnosticsTool.Logs -> LogsScreen(embedded = true)
-                    DiagnosticsTool.Testing -> TestingScreen(
-                        profiles = profiles,
-                        embedded = true,
-                    )
                 }
             }
             layout.trailing.forEach { tool ->
                 DiagnosticsToolRow(
                     tool = tool,
                     expanded = false,
-                    isRecording = isRecording,
                     onClick = { select(tool) },
                 )
             }
@@ -172,7 +168,6 @@ fun DiagnosticsScreen(
 private fun DiagnosticsToolRow(
     tool: DiagnosticsTool,
     expanded: Boolean,
-    isRecording: Boolean,
     onClick: () -> Unit,
 ) {
     val spec = diagnosticsToolSpec(tool)
@@ -182,11 +177,6 @@ private fun DiagnosticsToolRow(
         subtitle = spec.subtitle,
         onClick = onClick,
         expanded = expanded,
-        border = if (tool == DiagnosticsTool.Testing) {
-            recordingAccentBorder(isRecording)
-        } else {
-            null
-        },
     )
 }
 
@@ -207,17 +197,11 @@ private fun diagnosticsToolSpec(tool: DiagnosticsTool): DiagnosticsToolSpec = wh
         title = "Журнал",
         subtitle = DiagnosticsCopy.LOGS_SUBTITLE,
     )
-    DiagnosticsTool.Testing -> DiagnosticsToolSpec(
-        icon = Icons.Outlined.Science,
-        title = AppDestination.Testing.label,
-        subtitle = DiagnosticsCopy.TESTING_SUBTITLE,
-    )
 }
 
 internal object DiagnosticsCopy {
     const val TITLE = "Диагностика"
-    const val SUBTITLE = "Сеть, журнал и проверка клиента"
+    const val SUBTITLE = "Сеть и журнал"
     const val NETWORK_SUBTITLE = "Карта пути и задержки"
     const val LOGS_SUBTITLE = "События туннеля и деплоя"
-    const val TESTING_SUBTITLE = "Запись и отправка журналов автору"
 }

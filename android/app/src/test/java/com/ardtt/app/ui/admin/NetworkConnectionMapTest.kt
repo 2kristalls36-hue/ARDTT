@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.Color
 import com.ardtt.app.core.ConnState
 import com.ardtt.app.core.IpApiInfo
 import com.ardtt.app.core.VpnPath
+import com.ardtt.app.core.isConfirmedConnected
 import com.ardtt.app.deploy.DeployHop
 import com.ardtt.app.deploy.DeployTarget
 import com.ardtt.app.deploy.ProvisionAdminApi
@@ -20,6 +21,7 @@ class NetworkConnectionMapTest {
         publicHost: String = "",
         cascadeEnabled: Boolean = false,
         cascadeHost: String = "",
+        cascadeProvisionPort: Int = 9100,
         lastDeployedAtMs: Long = 0L,
         id: String = host,
     ) = DeployTarget(
@@ -29,6 +31,7 @@ class NetworkConnectionMapTest {
         publicHost = publicHost,
         cascadeEnabled = cascadeEnabled,
         cascadeHost = cascadeHost,
+        cascadeProvisionPort = cascadeProvisionPort,
         lastDeployedAtMs = lastDeployedAtMs,
     )
 
@@ -77,6 +80,12 @@ class NetworkConnectionMapTest {
         assertFalse(networkMapShowsVpnHops(ConnState.PausedTrustedWifi))
         assertFalse(networkMapShowsVpnHops(ConnState.Error))
         assertTrue(networkMapShowsVpnHops(ConnState.Connected))
+        ConnState.entries.forEach { state ->
+            assertEquals(
+                state.isConfirmedConnected(),
+                networkMapShowsVpnHops(state),
+            )
+        }
     }
 
     @Test
@@ -405,6 +414,36 @@ class NetworkConnectionMapTest {
                     cascadeEnabled = true,
                     cascadeHost = "45.129.2.3",
                 ),
+            ),
+        )
+    }
+
+    @Test
+    fun tunnelAndNetworkMapShareWarpExitProvision() {
+        val server = server(
+            host = "45.129.2.3",
+            cascadeEnabled = true,
+            cascadeHost = "2.26.125.160",
+            cascadeProvisionPort = 9200,
+        )
+        val vps2 = layout(
+            profileHost = "45.129.2.3",
+            server = server,
+            hideIp = true,
+        ).vps2Host
+        val tunnelExit = DeployHop.exitProvisionUrl(server)
+        val mapExit = DeployHop.warpExitProvisionUrl(server, vps2)
+        assertEquals("http://2.26.125.160:9200", tunnelExit)
+        assertEquals(tunnelExit, mapExit)
+        assertEquals(
+            tunnelExit,
+            DeployHop.warpExitProvisionUrl(server, liveExitHost = "8.8.8.8"),
+        )
+        assertEquals(
+            "http://8.8.8.8:9100",
+            DeployHop.warpExitProvisionUrl(
+                server(host = "45.129.2.3"),
+                liveExitHost = "8.8.8.8",
             ),
         )
     }

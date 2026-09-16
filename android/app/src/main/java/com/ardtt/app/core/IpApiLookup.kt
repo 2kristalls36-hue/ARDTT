@@ -4,9 +4,13 @@ import android.content.Context
 import android.net.Network
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
@@ -26,18 +30,104 @@ data class PublicIpPair(
     val tunnel: IpApiInfo,
 )
 
+private data class IpApiHopMemo(
+    val key: String,
+    val info: IpApiInfo,
+)
+
 /**
  * Public IP + ISP/location via ip-api.com.
  * Provider path binds to underlay; tunnel path uses provision / WARP then geo lookup by IP.
  * [fetchPublicIps] is the single entry for both addresses (parallel).
+ * Tunnel and Network map share hop keys via [com.ardtt.app.deploy.DeployHop.warpExitProvisionUrl]
+ * and the geo cache in [lookupAddress].
  */
 object IpApiLookup {
     private const val FIELDS = "status,message,query,isp,city,country,countryCode"
     private const val LOOKUP_ENDPOINT = "http://ip-api.com/json/?fields=$FIELDS"
 
+    private val underlayHop = AtomicReference<IpApiHopMemo?>(null)
+    private val tunnelHop = AtomicReference<IpApiHopMemo?>(null)
+    private val addressCache = ConcurrentHashMap<String, IpApiInfo>()
+    private val underlayLock = Mutex()
+    private val tunnelLock = Mutex()
+    private val addressLocks = ConcurrentHashMap<String, Mutex>()
+
+    internal fun underlayHopKey(underlayId: String): String = underlayId
+
+    internal fun tunnelHopKey(
+        hideIp: Boolean,
+        provisionBaseUrl: String?,
+        exitProvisionBaseUrl: String?,
+        deviceId: String?,
+        viaVpn: Boolean,
+    ): String = listOf(
+        if (hideIp) "warp" else "egress",
+        provisionBaseUrl.orEmpty(),
+        exitProvisionBaseUrl.orEmpty(),
+        deviceId.orEmpty(),
+        viaVpn,
+    ).joinToString("|")
+
+    internal fun rememberUnderlayHop(key: String, info: IpApiInfo) {
+        underlayHop.set(IpApiHopMemo(key, info))
+    }
+
+    internal fun rememberTunnelHop(key: String, info: IpApiInfo) {
+        tunnelHop.set(IpApiHopMemo(key, info))
+    }
+
+    internal fun peekUnderlayHop(key: String, force: Boolean): IpApiInfo? =
+        peekHop(underlayHop, key, force)
+
+    internal fun peekTunnelHop(key: String, force: Boolean): IpApiInfo? =
+        peekHop(tunnelHop, key, force)
+
+    internal fun clearPublicIpHopCache() {
+        underlayHop.set(null)
+        tunnelHop.set(null)
+        addressCache.clear()
+    }
+
+    internal fun rememberAddress(ip: String, info: IpApiInfo) {
+        val key = ip.trim()
+        if (key.isBlank() || info.ip.isBlank()) return
+        addressCache[key] = info
+    }
+
+    internal fun peekAddress(ip: String, force: Boolean): IpApiInfo? {
+        if (force) return null
+        return addressCache[ip.trim()]
+    }
+
+    private fun peekHop(
+        slot: AtomicReference<IpApiHopMemo?>,
+        key: String,
+        force: Boolean,
+    ): IpApiInfo? {
+        if (force) return null
+        return slot.get()?.takeIf { it.key == key }?.info
+    }
+
     suspend fun fetchUnderlay(
         context: Context,
         rejectIps: Collection<String> = emptyList(),
+        force: Boolean = false,
+    ): IpApiInfo {
+        val key = underlayHopKey(underlayIdentity(context))
+        peekUnderlayHop(key, force)?.let { return it }
+        return underlayLock.withLock {
+            peekUnderlayHop(key, force)?.let { return it }
+            val info = probeUnderlay(context, rejectIps, force = force)
+            rememberUnderlayHop(key, info)
+            info
+        }
+    }
+
+    private suspend fun probeUnderlay(
+        context: Context,
+        rejectIps: Collection<String>,
+        force: Boolean,
     ): IpApiInfo = withContext(Dispatchers.IO) {
         val bound = runCatching { fetchJson(LOOKUP_ENDPOINT, pickBestUnderlayNetwork(context)) }
             .getOrElse { IpApiInfo.Empty.copy(error = friendlyError(it.message)) }
@@ -61,7 +151,7 @@ object IpApiLookup {
                 error = bound.error ?: friendlyError(EgressIpProbe.lastUnderlayError),
             )
         }
-        lookupAddress(context, ip)
+        lookupAddress(context, ip, force = force)
     }
 
     /**
@@ -81,19 +171,33 @@ object IpApiLookup {
     /**
      * Geo lookup for an already known public address. On geo failure the IP is
      * still returned so the Network map never blanks a hop that we already know.
+     * Cached by IP so Tunnel and the map share one ip-api hit.
      */
-    suspend fun lookupAddress(context: Context, address: String): IpApiInfo = withContext(Dispatchers.IO) {
+    suspend fun lookupAddress(
+        context: Context,
+        address: String,
+        force: Boolean = false,
+    ): IpApiInfo {
         val ip = address.trim()
         if (ip.isBlank()) {
-            return@withContext IpApiInfo.Empty.copy(error = friendlyError(null))
+            return IpApiInfo.Empty.copy(error = friendlyError(null))
         }
-        val geo = runCatching { fetchJson(lookupEndpoint(ip), pickBestUnderlayNetwork(context)) }
-            .getOrElse { IpApiInfo.Empty.copy(error = friendlyError(it.message)) }
-        when {
-            geo.ip.isNotBlank() -> geo.copy(
-                ip = if (EgressIpProbe.looksLikeIp(ip)) ip else geo.ip,
-            )
-            else -> IpApiInfo(ip = ip, subtitle = "")
+        peekAddress(ip, force)?.let { return it }
+        val lock = addressLocks.getOrPut(ip) { Mutex() }
+        return lock.withLock {
+            peekAddress(ip, force)?.let { return it }
+            val info = withContext(Dispatchers.IO) {
+                val geo = runCatching { fetchJson(lookupEndpoint(ip), pickBestUnderlayNetwork(context)) }
+                    .getOrElse { IpApiInfo.Empty.copy(error = friendlyError(it.message)) }
+                when {
+                    geo.ip.isNotBlank() -> geo.copy(
+                        ip = if (EgressIpProbe.looksLikeIp(ip)) ip else geo.ip,
+                    )
+                    else -> IpApiInfo(ip = ip, subtitle = "")
+                }
+            }
+            rememberAddress(ip, info)
+            info
         }
     }
 
@@ -110,14 +214,22 @@ object IpApiLookup {
         viaVpn: Boolean,
         rejectIps: Collection<String> = emptyList(),
         probeTunnel: Boolean,
+        force: Boolean = false,
     ): PublicIpPair = supervisorScope {
         val provider = async {
-            runCatching { fetchUnderlay(context, rejectIps) }
+            runCatching { fetchUnderlay(context, rejectIps, force) }
                 .getOrElse { IpApiInfo.Empty.copy(error = friendlyError(it.message)) }
         }
         val tunnel = async {
+            val tunnelKey = tunnelHopKey(
+                hideIp = hideIp,
+                provisionBaseUrl = provisionBaseUrl,
+                exitProvisionBaseUrl = exitProvisionBaseUrl,
+                deviceId = deviceId,
+                viaVpn = viaVpn,
+            )
             when {
-                !probeTunnel -> cachedTunnelInfo()
+                !probeTunnel -> peekTunnelHop(tunnelKey, force = false) ?: cachedTunnelInfo()
                 hideIp -> runCatching {
                     fetchWarpEgress(
                         context = context,
@@ -126,6 +238,7 @@ object IpApiLookup {
                         deviceId = deviceId,
                         viaVpn = viaVpn,
                         hideIp = true,
+                        force = force,
                     )
                 }.getOrElse { IpApiInfo.Empty.copy(error = friendlyError(it.message)) }
                 else -> runCatching {
@@ -136,6 +249,7 @@ object IpApiLookup {
                         exitProvisionBaseUrl = exitProvisionBaseUrl,
                         deviceId = deviceId,
                         viaVpn = viaVpn,
+                        force = force,
                     )
                 }.getOrElse { IpApiInfo.Empty.copy(error = friendlyError(it.message)) }
             }
@@ -154,6 +268,40 @@ object IpApiLookup {
         deviceId: String?,
         viaVpn: Boolean,
         hideIp: Boolean,
+        force: Boolean = false,
+    ): IpApiInfo {
+        val key = tunnelHopKey(
+            hideIp = hideIp,
+            provisionBaseUrl = entryProvision,
+            exitProvisionBaseUrl = exitProvision,
+            deviceId = deviceId,
+            viaVpn = viaVpn,
+        )
+        peekTunnelHop(key, force)?.let { return it }
+        return tunnelLock.withLock {
+            peekTunnelHop(key, force)?.let { return it }
+            val info = probeWarpEgress(
+                context = context,
+                entryProvision = entryProvision,
+                exitProvision = exitProvision,
+                deviceId = deviceId,
+                viaVpn = viaVpn,
+                hideIp = hideIp,
+                force = force,
+            )
+            rememberTunnelHop(key, info)
+            info
+        }
+    }
+
+    private suspend fun probeWarpEgress(
+        context: Context,
+        entryProvision: String?,
+        exitProvision: String?,
+        deviceId: String?,
+        viaVpn: Boolean,
+        hideIp: Boolean,
+        force: Boolean,
     ): IpApiInfo = withContext(Dispatchers.IO) {
         val urls = linkedSetOf<String>()
         exitProvision?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }?.let { urls += it }
@@ -171,12 +319,12 @@ object IpApiLookup {
             lastIp = ip
             if (EgressIpProbe.isLikelyCloudflare(ip) || urls.size == 1) {
                 if (hideIp) EgressIpProbe.remember(ip, "provision/warp")
-                return@withContext lookupAddress(context, ip)
+                return@withContext lookupAddress(context, ip, force = force)
             }
         }
         if (!lastIp.isNullOrBlank()) {
             if (hideIp) EgressIpProbe.remember(lastIp, "provision/warp")
-            return@withContext lookupAddress(context, lastIp)
+            return@withContext lookupAddress(context, lastIp, force = force)
         }
         IpApiInfo.Empty.copy(error = "Не удалось определить IP")
     }
@@ -192,6 +340,40 @@ object IpApiLookup {
         deviceId: String?,
         viaVpn: Boolean,
         exitProvisionBaseUrl: String? = null,
+        force: Boolean = false,
+    ): IpApiInfo {
+        val key = tunnelHopKey(
+            hideIp = hideIp,
+            provisionBaseUrl = provisionBaseUrl,
+            exitProvisionBaseUrl = exitProvisionBaseUrl,
+            deviceId = deviceId,
+            viaVpn = viaVpn,
+        )
+        peekTunnelHop(key, force)?.let { return it }
+        return tunnelLock.withLock {
+            peekTunnelHop(key, force)?.let { return it }
+            val info = probeTunnelEgress(
+                context = context,
+                hideIp = hideIp,
+                provisionBaseUrl = provisionBaseUrl,
+                deviceId = deviceId,
+                viaVpn = viaVpn,
+                exitProvisionBaseUrl = exitProvisionBaseUrl,
+                force = force,
+            )
+            rememberTunnelHop(key, info)
+            info
+        }
+    }
+
+    private suspend fun probeTunnelEgress(
+        context: Context,
+        hideIp: Boolean,
+        provisionBaseUrl: String?,
+        deviceId: String?,
+        viaVpn: Boolean,
+        exitProvisionBaseUrl: String?,
+        force: Boolean,
     ): IpApiInfo = withContext(Dispatchers.IO) {
         val ip = EgressIpProbe.refresh(
             hideIp = hideIp,
@@ -208,12 +390,7 @@ object IpApiLookup {
                 error = friendlyError(EgressIpProbe.lastError),
             )
         }
-        val geo = fetchJson(lookupEndpoint(ip), pickBestUnderlayNetwork(context))
-        IpApiInfo(
-            ip = ip,
-            subtitle = geo.subtitle,
-            error = null,
-        )
+        lookupAddress(context, ip, force = force)
     }
 
     internal fun lookupEndpoint(ip: String): String =

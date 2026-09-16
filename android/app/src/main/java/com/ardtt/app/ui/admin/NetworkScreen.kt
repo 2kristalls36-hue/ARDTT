@@ -18,8 +18,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -158,8 +156,8 @@ fun NetworkScreen(
         ),
     )
 
-    suspend fun refreshAll() {
-        val inputs = refreshInputs.value
+    suspend fun refreshAll(force: Boolean = false) {
+        val inputs = refreshInputs.value.copy(force = force)
         val current = mapSession.snapshot.value
         val entryHealth = if (inputs.sessionUp) {
             fetchEntryHealth(inputs.entryProvision)
@@ -179,8 +177,7 @@ fun NetworkScreen(
             liveCascade = live,
         )
         val pings = if (inputs.sessionUp) {
-            val exitUrl = DeployHop.exitProvisionUrl(inputs.server)
-                ?: provisionUrlForHost(resolved.vps2Host)
+            val exitUrl = DeployHop.warpExitProvisionUrl(inputs.server, resolved.vps2Host)
             val exitPing = when {
                 resolved.vps2Host.isNullOrBlank() -> -1L
                 sameProvisionBase(inputs.entryProvision, exitUrl) -> entryHealth.pingMs
@@ -218,10 +215,10 @@ fun NetworkScreen(
         if (shouldSkipNetworkMapAutoload(ui.state, snap.key, cacheKey, snap.hops)) {
             return@LaunchedEffect
         }
-        refreshAll()
+        refreshAll(force = false)
     }
 
-    val pull = rememberPullRefresh { refreshAll() }
+    val pull = rememberPullRefresh { refreshAll(force = true) }
 
     @Composable
     fun NetworkHops() {
@@ -258,19 +255,6 @@ fun NetworkScreen(
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState()),
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                ) {
-                    ArdttButton(
-                        onClick = pull.onRefresh,
-                        enabled = !pull.refreshing,
-                        variant = ArdttButtonVariant.Icon,
-                        icon = Icons.Filled.Refresh,
-                        contentDescription = "Обновить карту сети",
-                        contentColor = MaterialTheme.colorScheme.primary,
-                    )
-                }
                 NetworkHops()
             }
         }
@@ -285,16 +269,6 @@ fun NetworkScreen(
                 title = "Сеть",
                 subtitle = NetworkMapCopy.SUBTITLE,
                 onBack = onBack,
-                actions = {
-                    ArdttButton(
-                        onClick = pull.onRefresh,
-                        enabled = !pull.refreshing,
-                        variant = ArdttButtonVariant.Icon,
-                        icon = Icons.Filled.Refresh,
-                        contentDescription = "Обновить карту сети",
-                        contentColor = MaterialTheme.colorScheme.primary,
-                    )
-                },
             )
         },
     ) {
@@ -312,6 +286,7 @@ private data class NetworkRefreshInputs(
     val deviceId: String?,
     val viaVpn: Boolean,
     val cacheKey: NetworkMapCacheKey,
+    val force: Boolean = false,
     val layout: NetworkMapLayout = buildNetworkMapLayout(
         profileHost = profileHost,
         server = server,
@@ -321,7 +296,7 @@ private data class NetworkRefreshInputs(
     ),
 ) {
     val exitProvision: String?
-        get() = provisionUrlForHost(layout.vps2Host)
+        get() = DeployHop.warpExitProvisionUrl(server, layout.vps2Host)
 }
 
 private data class EntryHealthSnapshot(
@@ -363,7 +338,7 @@ private suspend fun loadHopViews(
     val jobs = inputs.layout.hops.map { hop ->
         async {
             val old = previous.firstOrNull { it.hop.kind == hop.kind }
-            val info = loadHop(context, hop, inputs, old?.info ?: IpApiInfo.Empty)
+            val info = loadHop(context, hop, inputs, old?.info ?: IpApiInfo.Empty, force = inputs.force)
             val view = NetworkMapHopView(hop = hop, info = info, loading = false)
             onHop(view)
             view
@@ -377,15 +352,17 @@ private suspend fun loadHop(
     hop: NetworkMapHop,
     inputs: NetworkRefreshInputs,
     previous: IpApiInfo,
+    force: Boolean,
 ): IpApiInfo {
     val loaded = try {
         when (hop.kind) {
             NetworkMapHopKind.Provider -> IpApiLookup.fetchUnderlay(
                 context,
                 rejectIps = inputs.layout.hops.mapNotNull { hopHost(it.knownHost) },
+                force = force,
             )
             NetworkMapHopKind.Vps, NetworkMapHopKind.Vps1, NetworkMapHopKind.Vps2 ->
-                loadKnownHost(context, hop.knownHost)
+                loadKnownHost(context, hop.knownHost, force = force)
             NetworkMapHopKind.Cloudflare -> IpApiLookup.fetchWarpEgress(
                 context = context,
                 entryProvision = inputs.entryProvision,
@@ -393,6 +370,7 @@ private suspend fun loadHop(
                 deviceId = inputs.deviceId,
                 viaVpn = inputs.viaVpn,
                 hideIp = inputs.hideIp,
+                force = force,
             )
         }
     } catch (e: CancellationException) {
@@ -415,13 +393,13 @@ private fun mergeHopInfo(previous: IpApiInfo, loaded: IpApiInfo): IpApiInfo {
     return loaded
 }
 
-private suspend fun loadKnownHost(context: Context, host: String?): IpApiInfo {
+private suspend fun loadKnownHost(context: Context, host: String?, force: Boolean): IpApiInfo {
     val ip = hopHost(host)
     if (ip.isNullOrBlank()) {
         return IpApiInfo.Empty.copy(error = "Не удалось определить IP")
     }
     return try {
-        IpApiLookup.lookupAddress(context, ip)
+        IpApiLookup.lookupAddress(context, ip, force = force)
     } catch (e: CancellationException) {
         throw e
     } catch (_: Exception) {
