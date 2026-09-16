@@ -1,6 +1,9 @@
 package com.ardtt.app.core
 
+import com.ardtt.app.deploy.DeployHop
+import com.ardtt.app.deploy.DeployTarget
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -102,25 +105,60 @@ class IpApiLookupTest {
 
     @Test
     fun tunnelAndNetworkMapShareTheSameHopKeys() {
-        assertEquals(
-            "wifi:home",
-            IpApiLookup.underlayHopKey("wifi:home"),
+        val server = DeployTarget(
+            id = "entry",
+            name = "entry",
+            host = "45.129.2.3",
+            cascadeEnabled = true,
+            cascadeHost = "2.26.125.160",
+            cascadeProvisionPort = 9200,
+        )
+        val tunnelExit = DeployHop.exitProvisionUrl(server)
+        val mapExit = DeployHop.warpExitProvisionUrl(
+            server,
+            liveExitHost = "2.26.125.160",
+        )
+        val shared = IpApiLookup.tunnelHopKey(
+            hideIp = true,
+            provisionBaseUrl = "http://45.129.2.3:9100",
+            exitProvisionBaseUrl = tunnelExit,
+            deviceId = "dev",
+            viaVpn = true,
         )
         assertEquals(
+            shared,
             IpApiLookup.tunnelHopKey(
                 hideIp = true,
-                provisionBaseUrl = "http://vps:9100",
-                exitProvisionBaseUrl = "http://exit:9100",
+                provisionBaseUrl = "http://45.129.2.3:9100",
+                exitProvisionBaseUrl = mapExit,
                 deviceId = "dev",
                 viaVpn = true,
             ),
+        )
+        assertNotEquals(
+            shared,
             IpApiLookup.tunnelHopKey(
                 hideIp = true,
-                provisionBaseUrl = "http://vps:9100",
-                exitProvisionBaseUrl = "http://exit:9100",
+                provisionBaseUrl = "http://45.129.2.3:9100",
+                exitProvisionBaseUrl = "http://2.26.125.160:9100",
                 deviceId = "dev",
                 viaVpn = true,
             ),
         )
+        assertEquals("wifi:home", IpApiLookup.underlayHopKey("wifi:home"))
+    }
+
+    @Test
+    fun addressCacheReusesUntilForceOrClear() {
+        IpApiLookup.clearPublicIpHopCache()
+        val geo = IpApiInfo(ip = "2.26.125.160", subtitle = "VPS · Ashburn, US")
+        IpApiLookup.rememberAddress("2.26.125.160", geo)
+
+        assertEquals(geo, IpApiLookup.peekAddress("2.26.125.160", force = false))
+        assertNull(IpApiLookup.peekAddress("2.26.125.160", force = true))
+        assertNull(IpApiLookup.peekAddress("8.8.8.8", force = false))
+
+        IpApiLookup.clearPublicIpHopCache()
+        assertNull(IpApiLookup.peekAddress("2.26.125.160", force = false))
     }
 }

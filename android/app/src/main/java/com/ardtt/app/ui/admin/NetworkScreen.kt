@@ -177,8 +177,7 @@ fun NetworkScreen(
             liveCascade = live,
         )
         val pings = if (inputs.sessionUp) {
-            val exitUrl = DeployHop.exitProvisionUrl(inputs.server)
-                ?: provisionUrlForHost(resolved.vps2Host)
+            val exitUrl = DeployHop.warpExitProvisionUrl(inputs.server, resolved.vps2Host)
             val exitPing = when {
                 resolved.vps2Host.isNullOrBlank() -> -1L
                 sameProvisionBase(inputs.entryProvision, exitUrl) -> entryHealth.pingMs
@@ -297,7 +296,7 @@ private data class NetworkRefreshInputs(
     ),
 ) {
     val exitProvision: String?
-        get() = provisionUrlForHost(layout.vps2Host)
+        get() = DeployHop.warpExitProvisionUrl(server, layout.vps2Host)
 }
 
 private data class EntryHealthSnapshot(
@@ -363,7 +362,7 @@ private suspend fun loadHop(
                 force = force,
             )
             NetworkMapHopKind.Vps, NetworkMapHopKind.Vps1, NetworkMapHopKind.Vps2 ->
-                loadKnownHost(context, hop.knownHost)
+                loadKnownHost(context, hop.knownHost, force = force)
             NetworkMapHopKind.Cloudflare -> IpApiLookup.fetchWarpEgress(
                 context = context,
                 entryProvision = inputs.entryProvision,
@@ -394,13 +393,13 @@ private fun mergeHopInfo(previous: IpApiInfo, loaded: IpApiInfo): IpApiInfo {
     return loaded
 }
 
-private suspend fun loadKnownHost(context: Context, host: String?): IpApiInfo {
+private suspend fun loadKnownHost(context: Context, host: String?, force: Boolean): IpApiInfo {
     val ip = hopHost(host)
     if (ip.isNullOrBlank()) {
         return IpApiInfo.Empty.copy(error = "Не удалось определить IP")
     }
     return try {
-        IpApiLookup.lookupAddress(context, ip)
+        IpApiLookup.lookupAddress(context, ip, force = force)
     } catch (e: CancellationException) {
         throw e
     } catch (_: Exception) {

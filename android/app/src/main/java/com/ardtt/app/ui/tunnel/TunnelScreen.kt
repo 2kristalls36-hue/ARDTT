@@ -59,6 +59,7 @@ import com.ardtt.app.core.EgressIpProbe
 import com.ardtt.app.core.IpApiLookup
 import com.ardtt.app.core.VpnPath
 import com.ardtt.app.core.holdsUserSession
+import com.ardtt.app.core.isConfirmedConnected
 import com.ardtt.app.core.readUnderlayAccessLabel
 import com.ardtt.app.core.readUnderlaySignal
 import com.ardtt.app.core.UnderlaySignalReading
@@ -162,7 +163,7 @@ fun TunnelScreen(
         DeployHop.matchingServer(servers, profileHost)
     }
     val exitProvisionUrl = remember(matchingServer) {
-        DeployHop.exitProvisionUrl(matchingServer)
+        DeployHop.warpExitProvisionUrl(matchingServer)
     }
     val rejectProviderIps = remember(profileHost, matchingServer) {
         DeployHop.knownPublicHosts(profileHost, matchingServer)
@@ -207,6 +208,7 @@ fun TunnelScreen(
     val pausedTrusted = ui.state == ConnState.PausedTrustedWifi
     val connected = ui.state == ConnState.Connected
     val sessionUp = connected || pausedTrusted
+    val viaVpn = ui.state.isConfirmedConnected()
     val disconnecting = ui.state == ConnState.Disconnecting
     val showDonateBanner = DonateSupport.bannerVisible(donateBannerDismissed, ui.state)
     val vpnLocked = connectionControlsLocked(
@@ -225,6 +227,7 @@ fun TunnelScreen(
             profile?.provisionBaseUrl.orEmpty(),
             exitProvisionUrl.orEmpty(),
             profile?.deviceId.orEmpty(),
+            viaVpn,
             probeTunnelIp,
         ).joinToString("|")
         if (!force && key == lastIpFetchKey) {
@@ -248,7 +251,7 @@ fun TunnelScreen(
                 provisionBaseUrl = profile?.provisionBaseUrl,
                 exitProvisionBaseUrl = exitProvisionUrl,
                 deviceId = profile?.deviceId,
-                viaVpn = sessionUp,
+                viaVpn = viaVpn,
                 rejectIps = rejectProviderIps,
                 probeTunnel = probeTunnelIp,
                 force = force,
@@ -299,6 +302,7 @@ fun TunnelScreen(
         profile?.provisionBaseUrl,
         exitProvisionUrl,
         profile?.deviceId,
+        viaVpn,
         probeTunnelIp,
     ) {
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
