@@ -23,6 +23,8 @@ import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.SignalCellularAlt
+import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -39,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -54,13 +57,14 @@ import com.ardtt.app.core.ConnState
 import com.ardtt.app.core.ConnectionManager
 import com.ardtt.app.core.EgressIpProbe
 import com.ardtt.app.core.IpApiLookup
-import com.ardtt.app.core.NetcheckClient
-import com.ardtt.app.core.NetcheckReport
-import com.ardtt.app.core.NetcheckTone
-import com.ardtt.app.core.NetcheckUiRow
 import com.ardtt.app.core.VpnPath
 import com.ardtt.app.core.holdsUserSession
 import com.ardtt.app.core.readUnderlayAccessLabel
+import com.ardtt.app.core.readUnderlaySignal
+import com.ardtt.app.core.UnderlaySignalReading
+import com.ardtt.app.core.formatUnderlaySignalDbm
+import com.ardtt.app.core.underlaySignalCellularEmphasized
+import com.ardtt.app.core.underlaySignalWifiEmphasized
 import com.ardtt.app.core.underlayIdentity
 import com.ardtt.app.deploy.DeployHop
 import com.ardtt.app.deploy.ServersRepository
@@ -108,8 +112,6 @@ import com.ardtt.app.ui.tunnelStickyCtaEnabled
 import com.ardtt.app.ui.tunnelStickyCtaIsDestructive
 import com.ardtt.app.ui.tunnelStickyCtaLabel
 import com.ardtt.app.ui.vpnSessionBlocksProfileSwitch
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -172,6 +174,7 @@ fun TunnelScreen(
     var showBypassMethodDialog by remember { mutableStateOf(false) }
     var highlightBypassDialog by remember { mutableStateOf(false) }
     var accessLabel by remember { mutableStateOf(readUnderlayAccessLabel(context)) }
+    var signal by remember { mutableStateOf(readUnderlaySignal(context)) }
     var lastUnderlayId by remember { mutableStateOf("") }
     var lastIpFetchKey by remember { mutableStateOf("") }
 
@@ -210,13 +213,11 @@ fun TunnelScreen(
         sessionActive = ui.state.holdsUserSession(),
         unlockWhileConnected = unlockConnControls,
     )
-    var netcheck by remember { mutableStateOf<NetcheckReport?>(null) }
-    /** Service probes only while the tunnel is up — not on pause / idle. */
-    val netcheckActive = connected
     val probeTunnelIp = connecting || connected
 
     suspend fun refreshPublicIps(force: Boolean) {
         accessLabel = readUnderlayAccessLabel(context)
+        signal = readUnderlaySignal(context)
         val id = underlayIdentity(context)
         val key = listOf(
             id,
@@ -250,6 +251,7 @@ fun TunnelScreen(
                 viaVpn = sessionUp,
                 rejectIps = rejectProviderIps,
                 probeTunnel = probeTunnelIp,
+                force = force,
             )
         }.getOrElse {
             AppLog.w("Tunnel", "public ip lookup failed: ${it.message}")
@@ -269,26 +271,6 @@ fun TunnelScreen(
         }
         val tunnelAddress = snapshot.tunnel.ip.takeIf { it.isNotBlank() }
         publicIp = tunnelAddress ?: EgressIpProbe.current()
-    }
-
-    suspend fun refreshNetcheck(force: Boolean) {
-        if (!netcheckActive) {
-            netcheck = null
-            return
-        }
-        val report = NetcheckClient.fetch(
-            context = context,
-            provisionBaseUrl = profile?.provisionBaseUrl,
-            deviceId = profile?.deviceId,
-            hideIp = hideIp,
-            refresh = force,
-        )
-        netcheck = report ?: NetcheckReport(
-            ok = false,
-            viaWarp = hideIp,
-            cached = false,
-            items = emptyList(),
-        )
     }
 
     // Both pollers pause while the activity is stopped: LaunchedEffect alone
@@ -351,10 +333,6 @@ fun TunnelScreen(
         refreshPublicIps(force = true)
     }
 
-    LaunchedEffect(netcheckActive, hideIp, profile?.provisionBaseUrl, profile?.deviceId) {
-        refreshNetcheck(force = false)
-    }
-
     val buttonColor by animateColorAsState(
         targetValue = when {
             sessionUp -> MaterialTheme.colorScheme.error
@@ -365,12 +343,7 @@ fun TunnelScreen(
     )
 
     val pull = rememberPullRefresh {
-        coroutineScope {
-            val ips = async { refreshPublicIps(force = true) }
-            val nc = async { refreshNetcheck(force = true) }
-            ips.await()
-            nc.await()
-        }
+        refreshPublicIps(force = true)
         val skipProbe = connecting || connected || pausedTrusted || disconnecting
         if (!skipProbe) {
             conn.startInitialProbe()
@@ -585,6 +558,7 @@ fun TunnelScreen(
                     null
                 },
                 accessLabel = accessLabel,
+                signal = signal,
                 providerIp = when {
                     !providerIp.isNullOrBlank() -> providerIp!!
                     !providerIpError.isNullOrBlank() -> "не удалось определить"
@@ -611,7 +585,6 @@ fun TunnelScreen(
                 provisionLine = profile?.let { p ->
                     p.provisionBaseUrl?.let { base -> "$base · host ${p.hostId}" }
                 },
-                netcheckRows = NetcheckClient.summaryRows(netcheck, probeActive = netcheckActive),
                 softInfo = ui.softInfo?.takeIf { it.isNotBlank() },
                 errorText = ui.lastError?.takeIf { ui.state == ConnState.Error && it.isNotBlank() },
             )
@@ -736,6 +709,7 @@ private fun TunnelStatusPanel(
     ipPending: Boolean = false,
     onIpClick: (() -> Unit)? = null,
     accessLabel: String,
+    signal: UnderlaySignalReading,
     providerIp: String,
     providerIpPending: Boolean = false,
     providerIpFailed: Boolean = false,
@@ -746,7 +720,6 @@ private fun TunnelStatusPanel(
     directEndpoint: String?,
     bypassPeer: String?,
     provisionLine: String?,
-    netcheckRows: List<NetcheckUiRow>,
     softInfo: String?,
     errorText: String?,
 ) {
@@ -775,6 +748,7 @@ private fun TunnelStatusPanel(
 
         Column(verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus)) {
             StatusFactRow(label = "Оператор", value = accessLabel)
+            StatusSignalRow(signal = signal)
             StatusFactRow(
                 label = "IP провайдера",
                 value = providerIp,
@@ -818,29 +792,6 @@ private fun TunnelStatusPanel(
             }
         }
 
-        HorizontalDivider(color = dividerColor)
-        Column(verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus)) {
-            Text(
-                "Проверка сети",
-                style = MaterialTheme.typography.labelLarge,
-                color = muted,
-                fontWeight = FontWeight.Medium,
-            )
-            netcheckRows.forEach { row ->
-                StatusFactRow(
-                    label = row.label,
-                    value = row.value,
-                    pending = row.pending,
-                    valueColor = when (row.tone) {
-                        NetcheckTone.Ok -> connectedStatusColor()
-                        NetcheckTone.Warn -> warningStatusColor()
-                        NetcheckTone.Error -> MaterialTheme.colorScheme.error
-                        NetcheckTone.Neutral -> null
-                    },
-                )
-            }
-        }
-
         softInfo?.let { info ->
             Text(
                 info,
@@ -855,6 +806,72 @@ private fun TunnelStatusPanel(
                 color = MaterialTheme.colorScheme.error,
             )
         }
+    }
+}
+
+@Composable
+private fun StatusSignalRow(signal: UnderlaySignalReading) {
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    val wifiOn = underlaySignalWifiEmphasized(signal.wifiConnected)
+    val cellOn = underlaySignalCellularEmphasized(signal.wifiConnected, signal.cellularConnected)
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(
+            modifier = Modifier.weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Large),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SignalMetric(
+                icon = Icons.Outlined.Wifi,
+                text = formatUnderlaySignalDbm(signal.wifiDbm),
+                emphasized = wifiOn,
+                contentDescription = "Wi‑Fi",
+            )
+            SignalMetric(
+                icon = Icons.Outlined.SignalCellularAlt,
+                text = formatUnderlaySignalDbm(signal.cellularDbm),
+                emphasized = cellOn,
+                contentDescription = "Сотовая сеть",
+            )
+        }
+        Text(
+            "Сигнал",
+            style = MaterialTheme.typography.bodyMedium,
+            color = muted,
+        )
+    }
+}
+
+@Composable
+private fun SignalMetric(
+    icon: ImageVector,
+    text: String,
+    emphasized: Boolean,
+    contentDescription: String,
+) {
+    val color = if (emphasized) {
+        MaterialTheme.colorScheme.onSurface
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = ArdttAlpha.Muted)
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Tiny),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = color,
+            modifier = Modifier.size(ArdttSize.IconSmall),
+        )
+        Text(
+            text,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = if (emphasized) FontWeight.SemiBold else FontWeight.Normal,
+            color = color,
+        )
     }
 }
 

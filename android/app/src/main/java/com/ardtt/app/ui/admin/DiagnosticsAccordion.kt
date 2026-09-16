@@ -31,6 +31,12 @@ fun diagnosticsTools(): List<DiagnosticsTool> = listOf(
     DiagnosticsTool.Logs,
 )
 
+internal fun diagnosticsInitialState(): DiagnosticsAccordionState =
+    DiagnosticsAccordionState(
+        expanded = DiagnosticsTool.Network,
+        selected = setOf(DiagnosticsTool.Network),
+    )
+
 fun DiagnosticsAccordionState.open(
     tool: DiagnosticsTool,
     tools: List<DiagnosticsTool>,

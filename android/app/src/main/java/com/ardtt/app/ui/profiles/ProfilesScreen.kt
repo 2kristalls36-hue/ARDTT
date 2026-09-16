@@ -12,17 +12,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.VpnKey
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -87,7 +84,6 @@ import com.ardtt.app.ui.theme.ArdttColors
 import com.ardtt.app.ui.theme.connectedStatusColor
 import com.ardtt.app.ui.theme.warningStatusColor
 import com.ardtt.app.ui.theme.ArdttLayout
-import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
 import com.ardtt.app.ui.util.copyToClipboard
 import com.ardtt.app.ui.util.readClipboardText
@@ -516,7 +512,8 @@ private fun ProfileCard(
         ClientExpiresTone.Expired -> colors.error
     }
     ArdttCompactCard(
-        // One option of the profile list: TalkBack reads «выбрано» for the active card.
+        // Same compact identity preset as ServerCard (`ArdttLayout.CompactCardPadding`).
+        contentPadding = ArdttLayout.CompactCardPadding,
         modifier = Modifier.selectable(
             selected = active,
             enabled = !selectionLocked,
@@ -556,14 +553,6 @@ private fun ProfileCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    if (active) {
-                        Icon(
-                            Icons.Filled.CheckCircle,
-                            contentDescription = "Активен",
-                            tint = connectedStatusColor(),
-                            modifier = Modifier.size(ArdttSize.IconCompact),
-                        )
-                    }
                     Box {
                         ArdttButton(
                             onClick = { menu = true },

@@ -9,6 +9,14 @@ class DiagnosticsAccordionTest {
     private val tools = diagnosticsTools()
 
     @Test
+    fun diagnosticsStartsWithNetworkExpanded() {
+        val layout = diagnosticsInitialState().layout(tools)
+        assertEquals(DiagnosticsTool.Network, layout.expanded)
+        assertTrue(layout.leading.isEmpty())
+        assertEquals(listOf(DiagnosticsTool.Logs), layout.trailing)
+    }
+
+    @Test
     fun hubKeepsNetworkAndLogs() {
         val layout = DiagnosticsAccordionState().layout(tools)
         assertNull(layout.expanded)

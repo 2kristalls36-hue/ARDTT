@@ -1,16 +1,12 @@
 package com.ardtt.app.ui.admin
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -20,7 +16,6 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Icon
@@ -29,20 +24,13 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -53,17 +41,12 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.ardtt.app.core.AppLog
 import com.ardtt.app.core.ConnState
 import com.ardtt.app.core.ConnectionManager
-import com.ardtt.app.core.VpnLiveStats
 import com.ardtt.app.ui.components.control.ArdttButton
-import com.ardtt.app.ui.components.control.ArdttButtonSize
 import com.ardtt.app.ui.components.control.ArdttButtonVariant
-import com.ardtt.app.ui.components.control.ArdttOverflowMenu
-import com.ardtt.app.ui.components.control.ArdttOverflowMenuItem
-import com.ardtt.app.ui.components.control.ArdttTextField
+import com.ardtt.app.ui.components.feedback.ArdttEmptyState
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
 import com.ardtt.app.ui.components.layout.ArdttScrollChrome
 import com.ardtt.app.ui.components.layout.ArdttTabHeader
-import com.ardtt.app.ui.components.feedback.ArdttEmptyState
 import com.ardtt.app.ui.components.surface.ArdttConfirmDialog
 import com.ardtt.app.ui.components.surface.ArdttSectionCard
 import com.ardtt.app.ui.components.surface.terminalCardColor
@@ -82,8 +65,6 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-
 
 @Composable
 fun LogsScreen(
@@ -98,21 +79,7 @@ fun LogsScreen(
     val fmt = remember { SimpleDateFormat("HH:mm:ss.SSS", Locale.US) }
     val isDark = isDarkSurface()
     val terminalBg = terminalCardColor()
-    val scope = rememberCoroutineScope()
-    val navReserve = ArdttBottomChrome.navigationReserve()
-    val imeBottom = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
-    val bottomReserve = maxOf(navReserve, imeBottom)
-
-    var query by remember { mutableStateOf("") }
-    var levelFilter by remember { mutableStateOf<AppLog.Level?>(null) }
-    var levelMenu by remember { mutableStateOf(false) }
-    val followState = remember { mutableStateOf(true) }
-    var follow by followState
-    var lastSeenId by remember { mutableIntStateOf(0) }
-
-    val visible = remember(entries, query, levelFilter) {
-        LogsCatalog.visible(entries, query, levelFilter)
-    }
+    val bottomReserve = ArdttBottomChrome.navigationReserve()
 
     val sessionUp = ui.state == ConnState.Connected || ui.state == ConnState.PausedTrustedWifi
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -120,7 +87,6 @@ fun LogsScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(sessionUp, lifecycleOwner) {
         if (!sessionUp) return@LaunchedEffect
-        // Uptime ticks only while the screen is actually on screen.
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
             while (true) {
                 nowMs = System.currentTimeMillis()
@@ -129,76 +95,20 @@ fun LogsScreen(
         }
     }
 
-    val pinnedStats = remember(ui.state, ui.activePath, ui.statusText, nowMs) {
-        if (ui.state == ConnState.Connected || ui.state == ConnState.Connecting) {
-            val rates = VpnLiveStats.formatRateLine(VpnLiveStats.downBps, VpnLiveStats.upBps)
-            val path = when (ui.activePath?.name) {
-                "Direct" -> "прямое"
-                "Bypass" -> "обход"
-                else -> ui.statusText.take(24)
-            }
-            "$rates · $path"
-        } else {
-            null
-        }
-    }
     val uptimeText = remember(sessionUp, nowMs, entries.firstOrNull()?.id) {
         if (!sessionUp) null else formatUptimeRough(entries, nowMs)
     }
 
-    val atEnd by remember {
-        derivedStateOf {
-            val info = listState.layoutInfo
-            val last = info.visibleItemsInfo.lastOrNull() ?: return@derivedStateOf true
-            last.index >= info.totalItemsCount - 1
+    LaunchedEffect(entries.lastOrNull()?.id) {
+        if (entries.isNotEmpty()) {
+            listState.scrollToItem(entries.lastIndex)
         }
     }
-    val followConnection = remember(followState) {
-        object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (source == NestedScrollSource.UserInput && available.y > 0f) {
-                    followState.value = false
-                }
-                return Offset.Zero
-            }
-        }
-    }
-    LaunchedEffect(atEnd) {
-        if (atEnd) follow = true
-    }
-    LaunchedEffect(visible.lastOrNull()?.id, follow) {
-        val lastId = visible.lastOrNull()?.id ?: return@LaunchedEffect
-        if (LogsCatalog.shouldFollow(follow) && visible.isNotEmpty()) {
-            listState.scrollToItem(visible.lastIndex)
-            lastSeenId = lastId
-        }
-    }
-    val unseen = LogsCatalog.unseenCount(lastSeenId, visible)
 
-    fun dumpBody(): String = buildString {
-        pinnedStats?.let { appendLine("[СТАТИСТИКА] $it") }
-        append(visible.joinToString("\n") { it.displayLine(fmt) }.ifBlank { AppLog.dumpText() })
-    }.trim()
-
-    fun jumpToLatest() {
-        follow = true
-        scope.launch {
-            if (visible.isNotEmpty()) {
-                listState.scrollToItem(visible.lastIndex)
-                lastSeenId = visible.last().id
-            }
-        }
-    }
+    fun dumpBody(): String =
+        entries.joinToString("\n") { it.displayLine(fmt) }.ifBlank { AppLog.dumpText() }
 
     val logActions: @Composable RowScope.() -> Unit = {
-        ArdttButton(
-            onClick = { showClearConfirm = true },
-            variant = ArdttButtonVariant.Icon,
-            icon = Icons.Default.Delete,
-            contentDescription = LogsCopy.CLEAR,
-            enabled = entries.isNotEmpty(),
-            contentColor = MaterialTheme.colorScheme.primary,
-        )
         ArdttButton(
             onClick = { copyToClipboard(context, dumpBody(), "ARDTT logs") },
             variant = ArdttButtonVariant.Icon,
@@ -210,7 +120,15 @@ fun LogsScreen(
             onClick = { shareText(context, dumpBody(), "ARDTT logs", "Экспорт логов") },
             variant = ArdttButtonVariant.Icon,
             icon = Icons.Default.Share,
-            contentDescription = "Поделиться",
+            contentDescription = "Расшарить",
+            contentColor = MaterialTheme.colorScheme.primary,
+        )
+        ArdttButton(
+            onClick = { showClearConfirm = true },
+            variant = ArdttButtonVariant.Icon,
+            icon = Icons.Default.Delete,
+            contentDescription = LogsCopy.CLEAR,
+            enabled = entries.isNotEmpty(),
             contentColor = MaterialTheme.colorScheme.primary,
         )
     }
@@ -222,11 +140,12 @@ fun LogsScreen(
                 .fillMaxSize()
                 .padding(top = topContentPadding, bottom = bottomContentPadding)
                 .padding(horizontal = if (embedded) ArdttSpacing.None else ArdttSpacing.Large),
-            verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
         ) {
             ui.lastError?.takeIf { it.isNotBlank() }?.let { fatal ->
                 Surface(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = ArdttSpacing.Small),
                     color = MaterialTheme.colorScheme.errorContainer,
                     shape = ArdttShapes.Row,
                 ) {
@@ -251,7 +170,7 @@ fun LogsScreen(
                 shadowElevation = terminalCardElevation(),
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
-                    if (pinnedStats != null || uptimeText != null) {
+                    if (uptimeText != null) {
                         Surface(
                             color = MaterialTheme.colorScheme.primary.copy(
                                 alpha = if (isDark) ArdttAlpha.Fill else ArdttAlpha.FillSoft,
@@ -270,66 +189,34 @@ fun LogsScreen(
                                         vertical = ArdttSpacing.SmallPlus,
                                     ),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
+                                horizontalArrangement = Arrangement.Start,
                             ) {
-                                if (pinnedStats != null) {
-                                    Text(
-                                        text = pinnedStats,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        style = ArdttTerminalTextStyle,
-                                        fontWeight = FontWeight.SemiBold,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                } else {
-                                    androidx.compose.foundation.layout.Spacer(modifier = Modifier.weight(1f))
-                                }
-                                if (uptimeText != null) {
-                                    Icon(
-                                        Icons.Default.Timer,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurface,
-                                    )
-                                    Text(
-                                        uptimeText,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        style = ArdttTerminalTextStyle,
-                                        fontWeight = FontWeight.SemiBold,
-                                    )
-                                }
+                                Icon(
+                                    Icons.Default.Timer,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Text(
+                                    uptimeText,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    style = ArdttTerminalTextStyle,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(start = ArdttSpacing.Small),
+                                )
                             }
                         }
                     }
 
-                    if (visible.isEmpty()) {
-                        if (entries.isEmpty()) {
-                            ArdttEmptyState(
-                                title = LogsCopy.EMPTY_TITLE,
-                                description = LogsCopy.EMPTY_BODY,
-                            )
-                        } else {
-                            ArdttEmptyState(
-                                title = LogsCopy.FILTER_EMPTY_TITLE,
-                                description = LogsCopy.FILTER_EMPTY_BODY,
-                                action = {
-                                    ArdttButton(
-                                        text = LogsCopy.RESET_FILTER,
-                                        onClick = {
-                                            query = ""
-                                            levelFilter = null
-                                        },
-                                        variant = ArdttButtonVariant.Outlined,
-                                        size = ArdttButtonSize.Compact,
-                                        fillMaxWidth = false,
-                                    )
-                                },
-                            )
-                        }
+                    if (entries.isEmpty()) {
+                        ArdttEmptyState(
+                            title = LogsCopy.EMPTY_TITLE,
+                            description = LogsCopy.EMPTY_BODY,
+                        )
                     } else {
                         LazyColumn(
                             state = listState,
                             modifier = Modifier
                                 .fillMaxSize()
-                                .nestedScroll(followConnection)
                                 .padding(
                                     horizontal = ArdttSpacing.Medium,
                                     vertical = ArdttSpacing.SmallPlus,
@@ -337,90 +224,11 @@ fun LogsScreen(
                             contentPadding = PaddingValues(bottom = ArdttSpacing.Large),
                             verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Tiny),
                         ) {
-                            items(visible, key = { it.id }) { e ->
+                            items(entries, key = { it.id }) { e ->
                                 LogEventRow(entry = e, fmt = fmt)
                             }
                         }
                     }
-                }
-            }
-
-            ArdttSectionCard(
-                contentPadding = PaddingValues(
-                    horizontal = ArdttSpacing.Medium,
-                    vertical = ArdttSpacing.SmallPlus,
-                ),
-                verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
-            ) {
-                ArdttTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    label = "Поиск",
-                    trailingIcon = {
-                        if (query.isNotBlank()) {
-                            ArdttButton(
-                                onClick = { query = "" },
-                                variant = ArdttButtonVariant.Icon,
-                                icon = Icons.Default.Delete,
-                                contentDescription = "Очистить поиск",
-                            )
-                        }
-                    },
-                )
-                Box {
-                    ArdttButton(
-                        text = LogsCatalog.levelFilterLabel(levelFilter),
-                        onClick = { levelMenu = true },
-                        variant = ArdttButtonVariant.Outlined,
-                        size = ArdttButtonSize.Compact,
-                        fillMaxWidth = true,
-                    )
-                    ArdttOverflowMenu(
-                        expanded = levelMenu,
-                        onDismissRequest = { levelMenu = false },
-                    ) {
-                        ArdttOverflowMenuItem(
-                            text = "Все уровни",
-                            onClick = {
-                                levelFilter = null
-                                levelMenu = false
-                            },
-                        )
-                        listOf(AppLog.Level.I, AppLog.Level.W, AppLog.Level.E).forEach { level ->
-                            ArdttOverflowMenuItem(
-                                text = LogsCatalog.levelName(level),
-                                onClick = {
-                                    levelFilter = level
-                                    levelMenu = false
-                                },
-                            )
-                        }
-                    }
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
-                ) {
-                    ArdttButton(
-                        text = if (follow) "Автопрокрутка вкл" else "Автопрокрутка",
-                        onClick = {
-                            follow = !follow
-                            if (follow) jumpToLatest()
-                        },
-                        variant = if (follow) ArdttButtonVariant.Tonal else ArdttButtonVariant.Outlined,
-                        size = ArdttButtonSize.Compact,
-                        fillMaxWidth = false,
-                        modifier = Modifier.weight(1f),
-                    )
-                    ArdttButton(
-                        text = if (unseen > 0) "К последним ($unseen)" else "К последним",
-                        onClick = { jumpToLatest() },
-                        variant = ArdttButtonVariant.Outlined,
-                        size = ArdttButtonSize.Compact,
-                        fillMaxWidth = false,
-                        icon = Icons.Default.KeyboardArrowDown,
-                        modifier = Modifier.weight(1f),
-                    )
                 }
             }
         }
@@ -471,13 +279,10 @@ fun LogsScreen(
 
 /** Strings of the Logs screen that are not derived from state. */
 internal object LogsCopy {
-    const val CLEAR = "Очистить"
+    const val CLEAR = "Удалить"
     const val CLEAR_TITLE = "Очистить журнал?"
     const val EMPTY_TITLE = "Пока пусто"
     const val EMPTY_BODY = "Нажмите «Сеть» или «Подключить» — сюда пойдут probe / туннель / go_client."
-    const val FILTER_EMPTY_TITLE = "Нет записей по фильтру"
-    const val FILTER_EMPTY_BODY = "Сбросьте поиск или уровень."
-    const val RESET_FILTER = "Сбросить фильтр"
     const val UPTIME_TICK_MS = 1_000L
 
     fun clearBody(count: Int): String =
@@ -507,7 +312,6 @@ private fun LogEventRow(
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(top = ArdttSpacing.Hairline),
         )
-        // Each line is selectable so one entry can be copied without the whole dump.
         SelectionContainer(modifier = Modifier.weight(1f)) {
             Text(
                 text = entry.displayLine(fmt),

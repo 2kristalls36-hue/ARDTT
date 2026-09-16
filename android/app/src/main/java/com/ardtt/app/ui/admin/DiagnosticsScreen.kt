@@ -39,8 +39,11 @@ fun DiagnosticsScreen(
     reselectSignal: Int = 0,
 ) {
     val tools = diagnosticsTools()
-    var expandedName by rememberSaveable { mutableStateOf<String?>(null) }
-    var selectedNames by rememberSaveable { mutableStateOf(listOf<String>()) }
+    val initial = diagnosticsInitialState()
+    var expandedName by rememberSaveable { mutableStateOf(initial.expanded?.name) }
+    var selectedNames by rememberSaveable {
+        mutableStateOf(tools.filter { it in initial.selected }.map { it.name })
+    }
     val expanded = expandedName?.let { name ->
         DiagnosticsTool.entries.firstOrNull { it.name == name }
     }?.takeIf { it in tools }
@@ -65,8 +68,9 @@ fun DiagnosticsScreen(
     }
     LaunchedEffect(reselectSignal) {
         if (reselectSignal > 0) {
-            expandedName = null
-            selectedNames = emptyList()
+            val reset = diagnosticsInitialState()
+            expandedName = reset.expanded?.name
+            selectedNames = tools.filter { it in reset.selected }.map { it.name }
         }
     }
 

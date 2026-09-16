@@ -80,4 +80,47 @@ class IpApiLookupTest {
             ),
         )
     }
+
+    @Test
+    fun hopCacheReusesUntilForceOrKeyChange() {
+        IpApiLookup.clearPublicIpHopCache()
+        val underlay = IpApiInfo(ip = "203.0.113.10", subtitle = "ISP")
+        val tunnel = IpApiInfo(ip = "104.16.1.1", subtitle = "Cloudflare")
+        IpApiLookup.rememberUnderlayHop("wifi:home", underlay)
+        IpApiLookup.rememberTunnelHop("warp|dev", tunnel)
+
+        assertEquals(underlay, IpApiLookup.peekUnderlayHop("wifi:home", force = false))
+        assertEquals(tunnel, IpApiLookup.peekTunnelHop("warp|dev", force = false))
+        assertNull(IpApiLookup.peekUnderlayHop("wifi:home", force = true))
+        assertNull(IpApiLookup.peekUnderlayHop("cell:1", force = false))
+        assertNull(IpApiLookup.peekTunnelHop("direct|dev", force = false))
+
+        IpApiLookup.clearPublicIpHopCache()
+        assertNull(IpApiLookup.peekUnderlayHop("wifi:home", force = false))
+        assertNull(IpApiLookup.peekTunnelHop("warp|dev", force = false))
+    }
+
+    @Test
+    fun tunnelAndNetworkMapShareTheSameHopKeys() {
+        assertEquals(
+            "wifi:home",
+            IpApiLookup.underlayHopKey("wifi:home"),
+        )
+        assertEquals(
+            IpApiLookup.tunnelHopKey(
+                hideIp = true,
+                provisionBaseUrl = "http://vps:9100",
+                exitProvisionBaseUrl = "http://exit:9100",
+                deviceId = "dev",
+                viaVpn = true,
+            ),
+            IpApiLookup.tunnelHopKey(
+                hideIp = true,
+                provisionBaseUrl = "http://vps:9100",
+                exitProvisionBaseUrl = "http://exit:9100",
+                deviceId = "dev",
+                viaVpn = true,
+            ),
+        )
+    }
 }
