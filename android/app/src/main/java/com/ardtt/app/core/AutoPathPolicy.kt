@@ -299,9 +299,12 @@ fun decideAutoPath(input: AutoPathInput): AutoDecision {
     }
 
     if (mayReuseCall(input)) {
+        val deadDirectOpenInternet = internetOk &&
+            input.directNegative?.reason == "direct-no-rx"
         val resumeBypass = whitelistLikely ||
             input.parkedRawAlive ||
-            input.lastConfirmedPath == VpnPath.Bypass
+            input.lastConfirmedPath == VpnPath.Bypass ||
+            deadDirectOpenInternet
         if (resumeBypass) {
             return AutoDecision.StartBypass(reuseCall = true, reason = "cellular-direct-failed")
         }

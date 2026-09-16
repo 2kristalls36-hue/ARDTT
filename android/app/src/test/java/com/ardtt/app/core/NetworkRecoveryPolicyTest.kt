@@ -1140,7 +1140,7 @@ class NetworkRecoveryPolicyTest {
             ),
         )
         assertEquals(
-            DeadDirectDecision.KeepWatching,
+            DeadDirectDecision.MeasureUnderlay,
             decideDeadDirectAction(
                 ConnPathMode.Auto,
                 bypassAllowed = true,
@@ -1234,6 +1234,145 @@ class NetworkRecoveryPolicyTest {
                 handshakeLive = false,
             ),
         )
+    }
+
+    @Test
+    fun deadDirectWithoutFreshWhitelistMeasuresUnderlayOnCellularAuto() {
+        assertEquals(
+            DeadDirectDecision.MeasureUnderlay,
+            decideDeadDirectAction(
+                ConnPathMode.Auto,
+                bypassAllowed = true,
+                underlayKind = UnderlayKind.Cellular,
+                whitelistLikely = false,
+            ),
+        )
+        assertEquals(
+            DeadDirectDecision.SwitchToBypass,
+            decideDeadDirectAction(
+                ConnPathMode.Auto,
+                bypassAllowed = true,
+                underlayKind = UnderlayKind.Cellular,
+                whitelistLikely = true,
+            ),
+        )
+        assertEquals(
+            DeadDirectDecision.KeepWatching,
+            decideDeadDirectAction(ConnPathMode.Auto, bypassAllowed = true),
+        )
+        assertEquals(
+            DeadDirectDecision.FailSession,
+            decideDeadDirectAction(
+                ConnPathMode.Auto,
+                bypassAllowed = true,
+                underlayKind = UnderlayKind.Wifi,
+            ),
+        )
+    }
+
+    @Test
+    fun deadDirectAfterUnderlaySampleLeavesDirectUnlessIgnore() {
+        assertEquals(
+            DeadDirectDecision.FailSession,
+            decideDeadDirectAfterUnderlaySample(RestrictionSample.Open, bypassAllowed = false),
+        )
+        assertEquals(
+            DeadDirectDecision.FailSession,
+            decideDeadDirectAfterUnderlaySample(RestrictionSample.Positive, bypassAllowed = false),
+        )
+        assertEquals(
+            DeadDirectDecision.SwitchToBypass,
+            decideDeadDirectAfterUnderlaySample(RestrictionSample.Positive, bypassAllowed = true),
+        )
+        assertEquals(
+            DeadDirectDecision.SwitchToBypass,
+            decideDeadDirectAfterUnderlaySample(RestrictionSample.WeakPositive, bypassAllowed = true),
+        )
+        assertEquals(
+            DeadDirectDecision.SwitchToBypass,
+            decideDeadDirectAfterUnderlaySample(RestrictionSample.Open, bypassAllowed = true),
+        )
+        assertEquals(
+            DeadDirectDecision.KeepWatching,
+            decideDeadDirectAfterUnderlaySample(RestrictionSample.Ignore, bypassAllowed = true),
+        )
+    }
+
+    @Test
+    fun underlayProbeWhileDirectConnectedIsCellularAutoOnly() {
+        assertTrue(
+            shouldProbeUnderlayWhileDirectConnected(
+                pathMode = ConnPathMode.Auto,
+                underlayKind = UnderlayKind.Cellular,
+                sessionHeld = true,
+                currentPath = VpnPath.Direct,
+            ),
+        )
+        assertFalse(
+            shouldProbeUnderlayWhileDirectConnected(
+                pathMode = ConnPathMode.Auto,
+                underlayKind = UnderlayKind.Cellular,
+                sessionHeld = true,
+                currentPath = VpnPath.Bypass,
+            ),
+        )
+        assertFalse(
+            shouldProbeUnderlayWhileDirectConnected(
+                pathMode = ConnPathMode.Auto,
+                underlayKind = UnderlayKind.Wifi,
+                sessionHeld = true,
+                currentPath = VpnPath.Direct,
+            ),
+        )
+        assertFalse(
+            shouldProbeUnderlayWhileDirectConnected(
+                pathMode = ConnPathMode.Auto,
+                underlayKind = UnderlayKind.Cellular,
+                sessionHeld = false,
+                currentPath = VpnPath.Direct,
+            ),
+        )
+        assertFalse(
+            shouldProbeUnderlayWhileDirectConnected(
+                pathMode = ConnPathMode.Direct,
+                underlayKind = UnderlayKind.Cellular,
+                sessionHeld = true,
+                currentPath = VpnPath.Direct,
+            ),
+        )
+    }
+
+    @Test
+    fun deadDirectUnderlayMeasureWaitsForGapAndIdleJob() {
+        assertTrue(
+            shouldStartDeadDirectUnderlayMeasure(
+                nowMs = 5_000L,
+                lastStartedAtMs = 0L,
+                jobActive = false,
+            ),
+        )
+        assertFalse(
+            shouldStartDeadDirectUnderlayMeasure(
+                nowMs = 5_000L,
+                lastStartedAtMs = 0L,
+                jobActive = true,
+            ),
+        )
+        assertFalse(
+            shouldStartDeadDirectUnderlayMeasure(
+                nowMs = 5_000L,
+                lastStartedAtMs = 4_000L,
+                jobActive = false,
+            ),
+        )
+        assertTrue(
+            shouldStartDeadDirectUnderlayMeasure(
+                nowMs = 5_000L,
+                lastStartedAtMs = 3_000L,
+                jobActive = false,
+            ),
+        )
+        assertEquals(2_000L, DEAD_DIRECT_UNDERLAY_MEASURE_MIN_GAP_MS)
     }
 
     /**

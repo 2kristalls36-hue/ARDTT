@@ -100,6 +100,8 @@ class ConnectionManager(
     private val tunnelStartSerializer = TunnelStartSerializer()
     private val mainHandler = Handler(Looper.getMainLooper())
     private var diagnosticJob: Job? = null
+    private var deadDirectMeasureJob: Job? = null
+    private var lastDeadDirectUnderlayMeasureAtMs: Long = 0L
     private var connectJob: Job? = null
     private var connectWaitJob: Job? = null
     private var runningNotifyJob: Job? = null
@@ -985,6 +987,23 @@ class ConnectionManager(
 
     fun startInitialProbe() {
         if (_ui.value.state.holdsUserSession()) {
+            val livePath = TunnelSessionHolder.config?.path ?: _ui.value.activePath
+            if (
+                shouldProbeUnderlayWhileDirectConnected(
+                    pathMode = pathMode,
+                    underlayKind = currentAutoUnderlayKind(),
+                    sessionHeld = true,
+                    currentPath = livePath,
+                ) &&
+                diagnosticJob?.isActive != true
+            ) {
+                AppLog.v(TAG, "Probe while Direct connected — underlay diagnostic, not UI probing")
+                launchBackgroundDiagnostic(
+                    recoverySnapshot.sessionEpoch,
+                    recoverySnapshot.networkEpoch,
+                )
+                return
+            }
             AppLog.v(TAG, "Probe skipped — tunnel busy (${_ui.value.state})")
             scheduleCellularPreProbe("session-busy")
             return
@@ -1104,7 +1123,7 @@ class ConnectionManager(
             networkKey = capturedKey,
             requestId = connectRequests.activeRequestId(),
         )
-        val bind = pickBestUnderlayNetwork(appContext)
+        val bind = bindForWhitelistDiagnostic()
         diagnosticJob = scope.launch {
             AppLog.i(TAG, "auto-stage probe_round_started series=$seriesId")
             val result = NetworkProbe.probe(
@@ -1660,6 +1679,7 @@ class ConnectionManager(
         }
         diagnosticJob?.cancel()
         diagnosticJob = null
+        cancelDeadDirectUnderlayMeasure()
         val wantsConnected = recoverySnapshot.intent.wantsConnected
         val connectBusy = connectJob?.isActive == true
         // ConnState.Probing is the pre-intent wait. After UserConnect the UI
@@ -2421,8 +2441,8 @@ class ConnectionManager(
 
     /**
      * Direct is Connected but TUN has no inbound bytes. Auto+hash on cellular
-     * switches to Bypass; Auto on Wi‑Fi and forced Direct stop so the phone
-     * is not a blackhole.
+     * measures the underlay (or switches if a fresh whitelist is already known);
+     * Auto on Wi‑Fi and forced Direct stop so the phone is not a blackhole.
      */
     fun onDeadDirectNoRx() {
         val current = TunnelSessionHolder.config?.path ?: _ui.value.activePath
@@ -2448,32 +2468,123 @@ class ConnectionManager(
             )
         ) {
             DeadDirectDecision.KeepWatching -> Unit
-            DeadDirectDecision.SwitchToBypass -> {
-                AppLog.w(TAG, "Dead Direct (no TUN rx) — Auto recovery → Bypass")
-                handoverProbeStreak = ProbeStreak(VpnPath.Bypass, 1)
-                deadDirectNetworkKey = recoverySnapshot.underlay.key
-                blockBypassToDirectUntilUnderlayChange = true
-                dispatchRecovery(
-                    ConnectionEvent.DirectFailed(
-                        sessionEpoch = recoverySnapshot.sessionEpoch,
-                        transportEpoch = recoverySnapshot.transportEpoch,
-                        networkKey = recoverySnapshot.underlay.key,
-                        reason = "direct-no-rx",
-                        callEpoch = recoverySnapshot.call.callEpoch,
-                    ),
+            DeadDirectDecision.MeasureUnderlay -> measureDeadDirectUnderlay()
+            DeadDirectDecision.SwitchToBypass -> recoverFromDeadDirect()
+            DeadDirectDecision.FailSession -> failDeadDirectSession()
+        }
+    }
+
+    /**
+     * Prefer requested cellular, then a NOT_VPN cellular underlay, then the
+     * best physical network. Never measure the world through TUN or a false Wi‑Fi.
+     */
+    private fun bindForWhitelistDiagnostic(): Network? {
+        val cm = appContext.getSystemService(ConnectivityManager::class.java)
+        val activeSub = activeCellularSubscriptionId(appContext)
+        return requestedCellularNetwork
+            ?: cm?.let { pickCellularUnderlayNetwork(it, activeSub) }
+            ?: pickBestUnderlayNetwork(appContext)
+    }
+
+    private fun cancelDeadDirectUnderlayMeasure() {
+        deadDirectMeasureJob?.cancel()
+        deadDirectMeasureJob = null
+    }
+
+    private fun recoverFromDeadDirect() {
+        AppLog.w(TAG, "Dead Direct (no TUN rx) — Auto recovery → Bypass")
+        handoverProbeStreak = ProbeStreak(VpnPath.Bypass, 1)
+        deadDirectNetworkKey = recoverySnapshot.underlay.key
+        blockBypassToDirectUntilUnderlayChange = true
+        dispatchRecovery(
+            ConnectionEvent.DirectFailed(
+                sessionEpoch = recoverySnapshot.sessionEpoch,
+                transportEpoch = recoverySnapshot.transportEpoch,
+                networkKey = recoverySnapshot.underlay.key,
+                reason = "direct-no-rx",
+                callEpoch = recoverySnapshot.call.callEpoch,
+            ),
+        )
+    }
+
+    private fun failDeadDirectSession() {
+        AppLog.w(TAG, "Dead Direct (no TUN rx) — recover or wait, no stopSelf by attempt count")
+        dispatchRecovery(
+            ConnectionEvent.DirectFailed(
+                sessionEpoch = recoverySnapshot.sessionEpoch,
+                transportEpoch = recoverySnapshot.transportEpoch,
+                networkKey = recoverySnapshot.underlay.key,
+                reason = "direct-no-rx",
+                callEpoch = recoverySnapshot.call.callEpoch,
+            ),
+        )
+    }
+
+    private fun measureDeadDirectUnderlay() {
+        val now = SystemClock.elapsedRealtime()
+        if (
+            !shouldStartDeadDirectUnderlayMeasure(
+                nowMs = now,
+                lastStartedAtMs = lastDeadDirectUnderlayMeasureAtMs,
+                jobActive = deadDirectMeasureJob?.isActive == true,
+            )
+        ) {
+            return
+        }
+        lastDeadDirectUnderlayMeasureAtMs = now
+        val sessionEpoch = recoverySnapshot.sessionEpoch
+        val networkEpoch = recoverySnapshot.networkEpoch
+        val seriesId = java.util.UUID.randomUUID().toString()
+        val capturedKey = recoverySnapshot.underlay.key
+        val capturedProfileId = recoverySnapshot.intent.profileId
+        connectRequests.registerProbe(
+            role = ProbeRole.BackgroundDiagnostic,
+            seriesId = seriesId,
+            sessionEpoch = sessionEpoch,
+            networkEpoch = networkEpoch,
+            profileId = capturedProfileId,
+            networkKey = capturedKey,
+            requestId = connectRequests.activeRequestId(),
+        )
+        val bind = bindForWhitelistDiagnostic()
+        deadDirectMeasureJob = scope.launch {
+            AppLog.i(TAG, "Dead Direct underlay measure start bind=${bind?.networkHandle}")
+            val result = NetworkProbe.probe(
+                appContext,
+                provisionUrl,
+                directEndpoint = directEndpoint,
+                bindNetwork = bind,
+                quick = true,
+                seriesId = seriesId,
+            )
+            if (recoverySnapshot.sessionEpoch != sessionEpoch) return@launch
+            applyProbe(
+                result,
+                sessionEpoch = sessionEpoch,
+                networkEpoch = networkEpoch,
+                capturedNetworkKey = capturedKey,
+                capturedProfileId = capturedProfileId,
+            )
+            val stillDirect = (TunnelSessionHolder.config?.path ?: _ui.value.activePath) == VpnPath.Direct
+            if (!stillDirect) return@launch
+            val sample = RestrictionScore.sample(
+                cellular = currentAutoUnderlayKind() == UnderlayKind.Cellular,
+                yandex = result.yandexOutcome,
+                bigtech = result.bigtechOutcome,
+                google = result.googleOutcome,
+                ruService = result.ruServiceOutcome,
+            )
+            when (
+                decideDeadDirectAfterUnderlaySample(
+                    sample,
+                    bypassAllowed = callHashOrNull() != null,
                 )
-            }
-            DeadDirectDecision.FailSession -> {
-                AppLog.w(TAG, "Dead Direct (no TUN rx) — recover or wait, no stopSelf by attempt count")
-                dispatchRecovery(
-                    ConnectionEvent.DirectFailed(
-                        sessionEpoch = recoverySnapshot.sessionEpoch,
-                        transportEpoch = recoverySnapshot.transportEpoch,
-                        networkKey = recoverySnapshot.underlay.key,
-                        reason = "direct-no-rx",
-                        callEpoch = recoverySnapshot.call.callEpoch,
-                    ),
-                )
+            ) {
+                DeadDirectDecision.SwitchToBypass -> recoverFromDeadDirect()
+                DeadDirectDecision.FailSession -> failDeadDirectSession()
+                DeadDirectDecision.KeepWatching,
+                DeadDirectDecision.MeasureUnderlay,
+                -> Unit
             }
         }
     }
@@ -3195,6 +3306,7 @@ class ConnectionManager(
         probeJob = null
         diagnosticJob?.cancel()
         diagnosticJob = null
+        cancelDeadDirectUnderlayMeasure()
         stopWatchingUnderlay()
         tunnelStartSerializer.revokePending()
         dispatchRecovery(ConnectionEvent.UserDisconnect)

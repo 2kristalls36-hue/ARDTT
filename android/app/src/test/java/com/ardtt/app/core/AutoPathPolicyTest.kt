@@ -240,6 +240,74 @@ class AutoPathPolicyTest {
     }
 
     @Test
+    fun afterDeadDirectNoRxWithOpenInternetStartsBypass() {
+        val key = NetworkKey(1L, UnderlayKind.Cellular, 7, "cell")
+        val d = decideAutoPath(
+            AutoPathInput(
+                mode = ConnPathMode.Auto,
+                underlay = cellular(key = key),
+                evidence = ReachabilityEvidence(
+                    networkKey = key,
+                    yandex = CheckOutcome.Success,
+                    bigtech = CheckOutcome.Success,
+                    google = CheckOutcome.Success,
+                    restriction = RestrictionHint.None,
+                    lastSample = RestrictionSample.Open,
+                    usableAtElapsedMs = 1L,
+                    ttlUntilElapsedMs = 60_000L,
+                ),
+                currentPath = VpnPath.Direct,
+                transport = TransportLifecycle.Failed,
+                hasCallHash = true,
+                call = CallSessionState(hashPresent = true),
+                elapsedMs = 1L,
+                directNegative = DirectNegativeEvidence(
+                    key = key,
+                    reason = "direct-no-rx",
+                    retryAfterElapsedMs = 60_000L,
+                ),
+            ),
+        )
+        val bypass = d as AutoDecision.StartBypass
+        assertEquals("cellular-direct-failed", bypass.reason)
+        assertTrue(bypass.reuseCall)
+    }
+
+    @Test
+    fun afterDeadDirectNoRxWithoutInternetStillRetriesDirect() {
+        val key = NetworkKey(1L, UnderlayKind.Cellular, 7, "cell")
+        val d = decideAutoPath(
+            AutoPathInput(
+                mode = ConnPathMode.Auto,
+                underlay = cellular(key = key),
+                evidence = ReachabilityEvidence(
+                    networkKey = key,
+                    yandex = CheckOutcome.Timeout,
+                    bigtech = CheckOutcome.Timeout,
+                    google = CheckOutcome.Timeout,
+                    restriction = RestrictionHint.Unknown,
+                    lastSample = RestrictionSample.Ignore,
+                    usableAtElapsedMs = 1L,
+                    ttlUntilElapsedMs = 60_000L,
+                ),
+                currentPath = VpnPath.Direct,
+                transport = TransportLifecycle.Failed,
+                hasCallHash = true,
+                call = CallSessionState(hashPresent = true),
+                elapsedMs = 1L,
+                directNegative = DirectNegativeEvidence(
+                    key = key,
+                    reason = "direct-no-rx",
+                    retryAfterElapsedMs = 60_000L,
+                ),
+            ),
+        )
+        val start = d as AutoDecision.StartDirect
+        assertEquals("cellular-direct", start.reason)
+        assertTrue(start.keepCall)
+    }
+
+    @Test
     fun afterDirectFailsWithWhitelistUsesExistingCall() {
         val key = NetworkKey(1L, UnderlayKind.Cellular, 7, "cell")
         val d = decideAutoPath(

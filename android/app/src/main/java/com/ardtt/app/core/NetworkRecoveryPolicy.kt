@@ -609,11 +609,14 @@ fun wakeRescueAction(
 }
 
 /**
- * Direct Connected with no TUN rx after grace: Auto+hash on cellular → Bypass.
- * Auto on Wi‑Fi and forced Direct stop so the phone is not a blackhole.
+ * Direct Connected with no TUN rx after grace: Auto+hash on cellular measures
+ * the underlay (or switches if a fresh whitelist is already known). Auto on
+ * Wi‑Fi and forced Direct stop so the phone is not a blackhole.
  */
 sealed class DeadDirectDecision {
     data object KeepWatching : DeadDirectDecision()
+    /** Bind NOT_VPN / cellular and classify БС vs dead radio before leaving Direct. */
+    data object MeasureUnderlay : DeadDirectDecision()
     data object SwitchToBypass : DeadDirectDecision()
     data object FailSession : DeadDirectDecision()
 }
@@ -693,8 +696,51 @@ fun decideDeadDirectAction(
         bypassAllowed &&
         underlayKind == UnderlayKind.Cellular &&
         whitelistLikely -> DeadDirectDecision.SwitchToBypass
+    pathMode == ConnPathMode.Auto &&
+        bypassAllowed &&
+        underlayKind == UnderlayKind.Cellular -> DeadDirectDecision.MeasureUnderlay
     pathMode == ConnPathMode.Auto && bypassAllowed -> DeadDirectDecision.KeepWatching
     else -> DeadDirectDecision.FailSession
+}
+
+/**
+ * After a Dead Direct underlay sample: leave Direct when the world is
+ * classifiable (БС or open internet). Ignore (GSM / all Timeout) waits;
+ * the next watchdog measures again. No hash cannot take Bypass.
+ */
+fun decideDeadDirectAfterUnderlaySample(
+    sample: RestrictionSample,
+    bypassAllowed: Boolean,
+): DeadDirectDecision = when {
+    !bypassAllowed -> DeadDirectDecision.FailSession
+    sample.isUsableEvidence() -> DeadDirectDecision.SwitchToBypass
+    else -> DeadDirectDecision.KeepWatching
+}
+
+/** Live Auto Direct on cellular may probe the underlay without occupying the UI. */
+fun shouldProbeUnderlayWhileDirectConnected(
+    pathMode: ConnPathMode,
+    underlayKind: UnderlayKind,
+    sessionHeld: Boolean,
+    currentPath: VpnPath?,
+): Boolean =
+    pathMode == ConnPathMode.Auto &&
+        underlayKind == UnderlayKind.Cellular &&
+        sessionHeld &&
+        currentPath == VpnPath.Direct
+
+/** Spacing so the watchdog poll does not stack overlapping underlay probes. */
+const val DEAD_DIRECT_UNDERLAY_MEASURE_MIN_GAP_MS = 2_000L
+
+fun shouldStartDeadDirectUnderlayMeasure(
+    nowMs: Long,
+    lastStartedAtMs: Long,
+    jobActive: Boolean,
+    minGapMs: Long = DEAD_DIRECT_UNDERLAY_MEASURE_MIN_GAP_MS,
+): Boolean {
+    if (jobActive) return false
+    if (lastStartedAtMs > 0L && nowMs - lastStartedAtMs < minGapMs) return false
+    return true
 }
 
 fun shouldObserveTunnelHealth(
