@@ -85,6 +85,29 @@ class CellularPreProbeCarrierTest {
         assertFalse(mts.sameCellularSim(otherSim))
         assertFalse(mts.matchesCellularUnderlay(otherSim))
     }
+
+    @Test
+    fun lteHandleFlapKeepsDirectNegativeOnTheSameSim() {
+        val nextBs = NetworkKey(8L, UnderlayKind.Cellular, 11, "cell-bs", carrier = "25001")
+        val negative = DirectNegativeEvidence(key = mts, retryAfterElapsedMs = 60_000L)
+        assertFalse(mts.directFailureScopeChanged(nextBs))
+        assertTrue(negative.stillBlocks(0L, nextBs, null))
+        assertTrue(
+            deadDirectBlocksLiveUnderlay(
+                blockUntilUnderlayChange = true,
+                deadKey = mts,
+                liveKey = nextBs,
+            ),
+        )
+        assertFalse(
+            deadDirectBlocksLiveUnderlay(
+                blockUntilUnderlayChange = true,
+                deadKey = mts,
+                liveKey = beeline,
+            ),
+        )
+        assertTrue(mts.restrictionScopeChanged(nextBs))
+    }
 }
 
 class CellularPreProbeTest {

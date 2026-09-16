@@ -298,6 +298,30 @@ class PathConfirmAssemblerTest {
     }
 
     @Test
+    fun leftoverAwgRxWithoutHandshakeIsNotPathConfirmed() {
+        val leftover = PathConfirm.assembleDirect(
+            capturedSessionEpoch = 1L,
+            capturedTransportEpoch = 1L,
+            capturedNetworkKey = key,
+            eventSessionEpoch = 1L,
+            eventTransportEpoch = 1L,
+            eventNetworkKey = key,
+            capturedCallEpoch = 1L,
+            eventCallEpoch = 1L,
+            capturedHandle = 8L,
+            eventHandle = 8L,
+            handshakeBaselineSec = 0L,
+            handshakeNowSec = 0L,
+            rxBaseline = 0L,
+            rxNow = 40_000L,
+            source = PathConfirmSource.DirectAwg,
+        )
+        assertEquals(0L, leftover.usefulRxDelta)
+        assertEquals(PathConfirmVerdict.NotReady, PathConfirm.verdict(leftover))
+        assertFalse(PathConfirm.directMayConnect(PathConfirm.verdict(leftover)))
+    }
+
+    @Test
     fun newBackendHandshakeCountsAsProtocolReady() {
         val obs = PathConfirm.assembleDirect(
             capturedSessionEpoch = 1L,

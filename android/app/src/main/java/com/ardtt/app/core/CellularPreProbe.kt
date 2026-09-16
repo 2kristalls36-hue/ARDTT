@@ -45,6 +45,38 @@ fun whitelistOriginAllowsBind(origin: NetworkKey?, live: NetworkKey?): Boolean {
     return origin.sameCellularSim(live)
 }
 
+/**
+ * Whether a Direct UDP failure recorded on this key must be forgotten.
+ *
+ * LTE mobility hands out a new [NetworkKey.handle] on almost every BS/RAN
+ * change. That is a new Android Network, not a new radio/SIM/operator, so
+ * Auto must not treat it as a fresh underlay and immediately retry Direct.
+ * Wi‑Fi / Ethernet stay handle-scoped. A missing live key is a gap, not a
+ * new radio.
+ */
+fun NetworkKey?.directFailureScopeChanged(next: NetworkKey?): Boolean {
+    if (this == null && next == null) return false
+    if (this == null || next == null) return true
+    if (isCellular && next.isCellular) {
+        return !matchesCellularUnderlay(next)
+    }
+    return !samePhysicalNetwork(next)
+}
+
+/**
+ * Dead-Direct latch used by handover: stay blocked across same-SIM LTE
+ * handle flaps. A missing live key still counts as blocked (no bind).
+ */
+fun deadDirectBlocksLiveUnderlay(
+    blockUntilUnderlayChange: Boolean,
+    deadKey: NetworkKey?,
+    liveKey: NetworkKey?,
+): Boolean {
+    if (!blockUntilUnderlayChange) return false
+    if (liveKey == null || deadKey == null) return true
+    return !deadKey.directFailureScopeChanged(liveKey)
+}
+
 /** Direct proven on this radio / SIM / operator; unknown keys keep the old Stay behaviour. */
 fun NetworkKey?.directConfirmedOn(current: NetworkKey?): Boolean {
     if (this == null || current == null) return true
