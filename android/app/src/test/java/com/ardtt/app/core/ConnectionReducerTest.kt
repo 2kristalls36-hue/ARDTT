@@ -2,6 +2,7 @@ package com.ardtt.app.core
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -1593,6 +1594,114 @@ class ConnectionReducerTest {
         )
         assertTrue(onWifi.command is RecoveryCommand.StartDirect)
         assertEquals(1_000L, onWifi.state.wifiUsableSinceMs)
+    }
+
+    @Test
+    fun liveCellularDirectLeavesForFreshWhitelist() {
+        val started = ConnectionReducer.reduce(
+            idle().copy(underlay = usableCellular()),
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", true, false),
+            1L,
+        )
+        val running = started.state.copy(
+            activePath = VpnPath.Direct,
+            transport = TransportLifecycle.Running,
+            lastConfirmedPath = VpnPath.Direct,
+            lastConfirmedNetworkKey = cellKey,
+            recovery = started.state.recovery.copy(
+                phase = RecoveryPhase.Connected,
+                inFlight = false,
+                permit = started.state.recovery.permit.copy(
+                    userStop = false,
+                    netOpsAllowed = true,
+                    sessionEpoch = started.state.sessionEpoch,
+                    transportEpoch = started.state.transportEpoch,
+                ),
+            ),
+        )
+        val switched = ConnectionReducer.reduce(
+            running,
+            ConnectionEvent.ProbeFinished(
+                evidence = ReachabilityEvidence(
+                    networkKey = cellKey,
+                    profileId = "p",
+                    yandex = CheckOutcome.Success,
+                    bigtech = CheckOutcome.Timeout,
+                    google = CheckOutcome.Timeout,
+                    ruService = CheckOutcome.Success,
+                    restriction = RestrictionHint.Confirmed,
+                    whitelistScorePercent = 80,
+                    seriesId = "live-bs",
+                ).withFreshStrongTtl(atElapsedMs = 20L),
+                sessionEpoch = running.sessionEpoch,
+                networkEpoch = running.networkEpoch,
+            ),
+            20L,
+        )
+        assertTrue(switched.command is RecoveryCommand.StartBypass)
+        assertEquals(VpnPath.Bypass, switched.state.activePath)
+        assertEquals(RecoveryPhase.ConnectingBypass, switched.state.recovery.phase)
+        assertFalse(switched.state.recovery.phase == RecoveryPhase.SwitchingToWifi)
+    }
+
+    @Test
+    fun wifiRadioOffOnLteBypassIsNotSwitchingToWifi() {
+        val connected = ConnectionSnapshot(
+            intent = UserConnectionIntent(
+                wantsConnected = true,
+                mode = ConnPathMode.Auto,
+                profileId = "p",
+                hasCallHash = true,
+            ),
+            underlay = UnderlaySnapshot(
+                key = NetworkKey(2L, UnderlayKind.Wifi, null, "ghost"),
+                kind = UnderlayKind.Wifi,
+                availability = UnderlayAvailability.Usable,
+                handle = 2L,
+                wifiConnected = false,
+                cellularConnected = true,
+                networkEpoch = 3L,
+            ),
+            evidence = ReachabilityEvidence(
+                networkKey = cellKey,
+                originNetworkKey = cellKey,
+                profileId = "p",
+                yandex = CheckOutcome.Success,
+                bigtech = CheckOutcome.Timeout,
+                google = CheckOutcome.Timeout,
+                ruService = CheckOutcome.Success,
+                restriction = RestrictionHint.Confirmed,
+                whitelistScorePercent = 100,
+            ).withFreshStrongTtl(atElapsedMs = 1L),
+            call = CallSessionState(hashPresent = true, identityToken = "h", callEpoch = 1L),
+            activePath = VpnPath.Bypass,
+            transport = TransportLifecycle.Running,
+            parkedRawAlive = true,
+            sessionEpoch = 1L,
+            networkEpoch = 3L,
+            transportEpoch = 4L,
+            recovery = RecoveryState(
+                phase = RecoveryPhase.Connected,
+                inFlight = false,
+                permit = RecoveryPermit(
+                    sessionEpoch = 1L,
+                    networkEpoch = 3L,
+                    transportEpoch = 4L,
+                    callEpoch = 1L,
+                    netOpsAllowed = true,
+                    userStop = false,
+                ),
+            ),
+        )
+        val tick = ConnectionReducer.reduce(
+            connected,
+            ConnectionEvent.Clock(elapsedMs = 2L),
+            elapsedMs = 2L,
+        )
+        assertEquals(VpnPath.Bypass, tick.state.activePath)
+        assertNotEquals(RecoveryPhase.SwitchingToWifi, tick.state.recovery.phase)
+        assertFalse(tick.command == RecoveryCommand.ParkBypassForDirect)
+        assertFalse(tick.command is RecoveryCommand.StartDirect)
     }
 
     @Test

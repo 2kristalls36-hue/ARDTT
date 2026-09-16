@@ -106,6 +106,7 @@ class AutoPathPolicyTest {
     @Test
     fun ghostWifiKindOnCellularKeepsBypassInsteadOfWifiDirect() {
         val key = NetworkKey(1L, UnderlayKind.Wifi, null, "ghost")
+        val cellKey = NetworkKey(3L, UnderlayKind.Cellular, 7, "cell")
         val d = decideAutoPath(
             AutoPathInput(
                 mode = ConnPathMode.Auto,
@@ -118,7 +119,16 @@ class AutoPathPolicyTest {
                     cellularConnected = true,
                     networkEpoch = 1L,
                 ),
-                evidence = null,
+                evidence = ReachabilityEvidence(
+                    networkKey = cellKey,
+                    originNetworkKey = cellKey,
+                    yandex = CheckOutcome.Success,
+                    bigtech = CheckOutcome.Timeout,
+                    google = CheckOutcome.Timeout,
+                    ruService = CheckOutcome.Success,
+                    restriction = RestrictionHint.Confirmed,
+                    whitelistScorePercent = 100,
+                ).withFreshStrongTtl(),
                 currentPath = VpnPath.Bypass,
                 transport = TransportLifecycle.Running,
                 hasCallHash = true,
@@ -126,6 +136,7 @@ class AutoPathPolicyTest {
             ),
         )
         assertEquals(AutoDecision.Stay(VpnPath.Bypass, "bypass-running"), d)
+        assertFalse(d is AutoDecision.StartDirect)
     }
 
     @Test
@@ -206,7 +217,7 @@ class AutoPathPolicyTest {
     }
 
     @Test
-    fun afterDirectFailsUsesExistingCall() {
+    fun afterDirectFailsWithoutWhitelistRetriesDirect() {
         val key = NetworkKey(1L, UnderlayKind.Cellular, 7, "cell")
         val d = decideAutoPath(
             AutoPathInput(
@@ -223,7 +234,39 @@ class AutoPathPolicyTest {
                 ),
             ),
         )
+        val start = d as AutoDecision.StartDirect
+        assertEquals("cellular-direct", start.reason)
+        assertTrue(start.keepCall)
+    }
+
+    @Test
+    fun afterDirectFailsWithWhitelistUsesExistingCall() {
+        val key = NetworkKey(1L, UnderlayKind.Cellular, 7, "cell")
+        val d = decideAutoPath(
+            AutoPathInput(
+                mode = ConnPathMode.Auto,
+                underlay = cellular(key = key),
+                evidence = ReachabilityEvidence(
+                    networkKey = key,
+                    yandex = CheckOutcome.Success,
+                    bigtech = CheckOutcome.Timeout,
+                    google = CheckOutcome.Timeout,
+                    ruService = CheckOutcome.Success,
+                    restriction = RestrictionHint.Confirmed,
+                    whitelistScorePercent = 80,
+                ).withFreshStrongTtl(),
+                currentPath = VpnPath.Direct,
+                transport = TransportLifecycle.Failed,
+                hasCallHash = true,
+                call = CallSessionState(hashPresent = true),
+                directNegative = DirectNegativeEvidence(
+                    key = key,
+                    retryAfterElapsedMs = 60_000L,
+                ),
+            ),
+        )
         val bypass = d as AutoDecision.StartBypass
+        assertEquals("cellular-direct-failed", bypass.reason)
         assertTrue(bypass.reuseCall)
     }
 
@@ -504,7 +547,7 @@ class AutoPathPolicyTest {
     }
 
     @Test
-    fun workingCellularDirectStaysEvenWithHighWhitelistScore() {
+    fun historicalWhitelistScoreDoesNotTearDownWorkingDirect() {
         val key = NetworkKey(1L, UnderlayKind.Cellular, 7, "cell")
         val d = decideAutoPath(
             AutoPathInput(
@@ -525,6 +568,33 @@ class AutoPathPolicyTest {
             ),
         )
         assertEquals(AutoDecision.Stay(VpnPath.Direct, "direct-works"), d)
+    }
+
+    @Test
+    fun freshWhitelistOnLiveCellularDirectStartsBypass() {
+        val key = NetworkKey(1L, UnderlayKind.Cellular, 7, "cell")
+        val d = decideAutoPath(
+            AutoPathInput(
+                mode = ConnPathMode.Auto,
+                underlay = cellular(key = key),
+                evidence = ReachabilityEvidence(
+                    networkKey = key,
+                    yandex = CheckOutcome.Success,
+                    bigtech = CheckOutcome.Timeout,
+                    google = CheckOutcome.Timeout,
+                    ruService = CheckOutcome.Success,
+                    restriction = RestrictionHint.Confirmed,
+                    whitelistScorePercent = 80,
+                ).withFreshStrongTtl(),
+                currentPath = VpnPath.Direct,
+                transport = TransportLifecycle.Running,
+                hasCallHash = true,
+                lastConfirmedNetworkKey = key,
+            ),
+        )
+        val bypass = d as AutoDecision.StartBypass
+        assertEquals("cellular-whitelist", bypass.reason)
+        assertTrue(bypass.reuseCall)
     }
 
     @Test
@@ -788,6 +858,32 @@ class AutoPathPolicyTest {
         )
         assertEquals("reeval-direct", (reeval as AutoDecision.StartDirect).reason)
         assertTrue(reeval.keepCall)
+    }
+
+    @Test
+    fun freshWhitelistOnLiveBypassDoesNotReevalDirect() {
+        val key = NetworkKey(1L, UnderlayKind.Cellular, 7, "cell", carrier = "25001")
+        val d = decideAutoPath(
+            AutoPathInput(
+                mode = ConnPathMode.Auto,
+                underlay = cellular(key = key),
+                evidence = ReachabilityEvidence(
+                    networkKey = key,
+                    yandex = CheckOutcome.Success,
+                    bigtech = CheckOutcome.Timeout,
+                    google = CheckOutcome.Timeout,
+                    ruService = CheckOutcome.Success,
+                    restriction = RestrictionHint.Confirmed,
+                    whitelistScorePercent = 80,
+                ).withFreshStrongTtl(),
+                currentPath = VpnPath.Bypass,
+                transport = TransportLifecycle.Running,
+                hasCallHash = true,
+                elapsedMs = 20L,
+                reevalDue = true,
+            ),
+        )
+        assertEquals(AutoDecision.Stay(VpnPath.Bypass, "bypass-running"), d)
     }
 
     @Test

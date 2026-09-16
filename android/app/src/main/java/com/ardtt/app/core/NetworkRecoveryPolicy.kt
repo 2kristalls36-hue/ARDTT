@@ -654,6 +654,10 @@ const val DIRECT_TX_DATA_MIN_BYTES = 4096L
  * Both inputs are byte counts over the same trailing [DIRECT_UNANSWERED_UPLINK_MS]
  * window. [rxDataBytesInWindow] counts every inbound byte; the handshake/keepalive
  * allowance lives in [RecoverySettings.directRxLooksLikeData].
+ *
+ * A dead handshake with no inbound data is also a blackhole: lock-screen БС
+ * often sends only ~1 KB (handshake + ping) and never clears the 4 KB uplink
+ * floor. Keepalives on a live handshake stay exempt.
  */
 fun shouldTreatDirectAsDeadNoRx(
     nowMs: Long,
@@ -665,6 +669,7 @@ fun shouldTreatDirectAsDeadNoRx(
     noRxMs: Long = DEAD_DIRECT_NO_RX_MS,
     noRxAfterHandoffMs: Long = DEAD_DIRECT_NO_RX_AFTER_HANDOFF_MS,
     minTxBytes: Long = DIRECT_TX_DATA_MIN_BYTES,
+    handshakeLive: Boolean = true,
 ): Boolean {
     if (sessionStartedAtMs <= 0L) return false
     val afterHandoff = lastHandoffAtMs > sessionStartedAtMs
@@ -672,17 +677,23 @@ fun shouldTreatDirectAsDeadNoRx(
     val anchor = maxOf(sessionStartedAtMs, lastHandoffAtMs)
     val requiredNoRx = if (afterHandoff) noRxAfterHandoffMs else noRxMs
     if (nowMs - anchor < requiredNoRx) return false
-    if (txBytesInWindow < minTxBytes) return false
-    return !RecoverySettings.directRxLooksLikeData(rxDataBytesInWindow)
+    if (RecoverySettings.directRxLooksLikeData(rxDataBytesInWindow)) return false
+    if (txBytesInWindow >= minTxBytes) return true
+    return !handshakeLive
 }
 
 fun decideDeadDirectAction(
     pathMode: ConnPathMode,
     bypassAllowed: Boolean,
     underlayKind: UnderlayKind = UnderlayKind.Other,
+    whitelistLikely: Boolean = false,
 ): DeadDirectDecision = when {
     autoUsesDirectOnWifi(pathMode, underlayKind) -> DeadDirectDecision.FailSession
-    pathMode == ConnPathMode.Auto && bypassAllowed -> DeadDirectDecision.SwitchToBypass
+    pathMode == ConnPathMode.Auto &&
+        bypassAllowed &&
+        underlayKind == UnderlayKind.Cellular &&
+        whitelistLikely -> DeadDirectDecision.SwitchToBypass
+    pathMode == ConnPathMode.Auto && bypassAllowed -> DeadDirectDecision.KeepWatching
     else -> DeadDirectDecision.FailSession
 }
 

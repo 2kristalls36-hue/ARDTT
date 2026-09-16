@@ -993,9 +993,12 @@ class ConnectionManager(
             return
         }
         if (probeJob?.isActive == true) {
-            connectRequests.retainInFlightProbe()
-            AppLog.v(TAG, "Probe kept — round already in flight")
-            return
+            if (connectRequests.retainInFlightProbe(recoverySnapshot.sessionEpoch)) {
+                AppLog.v(TAG, "Probe kept — round already in flight")
+                return
+            }
+            probeJob?.cancel()
+            probeJob = null
         }
         probeJob?.cancel()
         val seriesId = java.util.UUID.randomUUID().toString()
@@ -1219,6 +1222,8 @@ class ConnectionManager(
                 )
                 if (action.startProbe) {
                     startInitialProbe()
+                } else {
+                    connectRequests.retainInFlightProbe(recoverySnapshot.sessionEpoch)
                 }
                 if (!action.alreadyWaiting) {
                     connectWaitJob?.cancel()
@@ -2410,11 +2415,24 @@ class ConnectionManager(
     fun onDeadDirectNoRx() {
         val current = TunnelSessionHolder.config?.path ?: _ui.value.activePath
         if (current != VpnPath.Direct) return
+        val underlay = recoverySnapshot.underlay.withEffectiveKind()
+        val now = SystemClock.elapsedRealtime()
+        val key = underlay.key
+        val profileId = recoverySnapshot.intent.profileId
+        val ev = liveWhitelistEvidence(key)
+        val whitelistLikely = RestrictionScore.bypassHoldsDirectReeval(
+            historicalScore = ev?.historicalWhitelistScore(key, profileId) ?: 0,
+            freshStrong = ev?.hasFreshStrong(now, key, profileId) == true,
+            usable = ev?.usableAt(now, key, profileId) == true,
+            unknownStreak = ev?.unknownStreak ?: 0,
+            alreadyBypass = false,
+        )
         when (
             decideDeadDirectAction(
                 pathMode = pathMode,
                 bypassAllowed = callHashOrNull() != null,
-                underlayKind = currentAutoUnderlayKind(),
+                underlayKind = underlay.kind,
+                whitelistLikely = whitelistLikely,
             )
         ) {
             DeadDirectDecision.KeepWatching -> Unit

@@ -1127,8 +1127,26 @@ class NetworkRecoveryPolicyTest {
             ),
         )
         assertEquals(
-            DeadDirectDecision.SwitchToBypass,
+            DeadDirectDecision.KeepWatching,
             decideDeadDirectAction(ConnPathMode.Auto, bypassAllowed = true),
+        )
+        assertEquals(
+            DeadDirectDecision.SwitchToBypass,
+            decideDeadDirectAction(
+                ConnPathMode.Auto,
+                bypassAllowed = true,
+                underlayKind = UnderlayKind.Cellular,
+                whitelistLikely = true,
+            ),
+        )
+        assertEquals(
+            DeadDirectDecision.KeepWatching,
+            decideDeadDirectAction(
+                ConnPathMode.Auto,
+                bypassAllowed = true,
+                underlayKind = UnderlayKind.Cellular,
+                whitelistLikely = false,
+            ),
         )
         assertEquals(
             DeadDirectDecision.FailSession,
@@ -1179,6 +1197,42 @@ class NetworkRecoveryPolicyTest {
         assertFalse(verdict(txBytes = 40_000L, rxBytes = 0L, nowMs = session + 2_000L))
         assertTrue(
             verdict(txBytes = 40_000L, rxBytes = 0L, nowMs = session + DEAD_DIRECT_NO_RX_MS),
+        )
+    }
+
+    @Test
+    fun deadHandshakeWithoutUplinkFloorIsStillDeadDirect() {
+        val session = 1_000L
+        val now = session + DEAD_DIRECT_NO_RX_MS
+        assertTrue(
+            shouldTreatDirectAsDeadNoRx(
+                nowMs = now,
+                sessionStartedAtMs = session,
+                lastHandoffAtMs = 0L,
+                txBytesInWindow = 1_024L,
+                rxDataBytesInWindow = 0L,
+                handshakeLive = false,
+            ),
+        )
+        assertFalse(
+            shouldTreatDirectAsDeadNoRx(
+                nowMs = now,
+                sessionStartedAtMs = session,
+                lastHandoffAtMs = 0L,
+                txBytesInWindow = 1_024L,
+                rxDataBytesInWindow = 0L,
+                handshakeLive = true,
+            ),
+        )
+        assertFalse(
+            shouldTreatDirectAsDeadNoRx(
+                nowMs = now,
+                sessionStartedAtMs = session,
+                lastHandoffAtMs = 0L,
+                txBytesInWindow = 1_024L,
+                rxDataBytesInWindow = 2_048L,
+                handshakeLive = false,
+            ),
         )
     }
 

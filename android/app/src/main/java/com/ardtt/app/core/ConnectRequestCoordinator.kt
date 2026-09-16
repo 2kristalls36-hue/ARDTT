@@ -246,13 +246,20 @@ class ConnectRequestCoordinator {
         }
     }
 
-    fun retainInFlightProbe() {
+    fun retainInFlightProbe(liveSessionEpoch: Long? = null): Boolean {
         synchronized(lock) {
-            val req = active?.takeIf { !it.revoked && !it.finished } ?: return
-            val current = liveConnectInitialLocked() ?: return
-            if (current.revoked) return
+            val req = active?.takeIf { !it.revoked && !it.finished } ?: return false
+            val current = ops.lastOrNull { op ->
+                !op.revoked &&
+                    !op.finalApplied &&
+                    op.role != ProbeRole.BackgroundDiagnostic
+            } ?: return false
+            if (liveSessionEpoch != null && current.sessionEpoch != liveSessionEpoch) {
+                return false
+            }
             current.requestId = req.id
             current.role = ProbeRole.ConnectInitial
+            return true
         }
     }
 
@@ -513,8 +520,14 @@ class ConnectRequestCoordinator {
 
     private fun matchesLocked(current: ProbeOp, cb: ProbeCallback): Boolean {
         if (current.revoked) return false
-        if (current.sessionEpoch != cb.sessionEpoch) return false
-        if (current.networkEpoch != cb.networkEpoch) return false
+        val waiting = active?.takeIf { !it.finished && !it.revoked }
+        val ownedWait = current.role == ProbeRole.ConnectInitial &&
+            waiting != null &&
+            (current.requestId == null || current.requestId == waiting.id)
+        if (!ownedWait) {
+            if (current.sessionEpoch != cb.sessionEpoch) return false
+            if (current.networkEpoch != cb.networkEpoch) return false
+        }
         if (current.seriesId.isNotEmpty() &&
             cb.seriesId.isNotEmpty() &&
             current.seriesId != cb.seriesId
@@ -527,7 +540,8 @@ class ConnectRequestCoordinator {
         ) {
             return false
         }
-        if (current.networkKey != null &&
+        if (!ownedWait &&
+            current.networkKey != null &&
             cb.liveNetworkKey != null &&
             !current.networkKey.samePhysicalNetwork(cb.liveNetworkKey)
         ) {

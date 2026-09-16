@@ -550,6 +550,83 @@ class ConnectRequestCoordinatorTest {
     }
 
     @Test
+    fun stopThenConnectAdmitsNeedBypassWhenLiveNetworkKeyMoved() = runBlocking {
+        val c = ConnectRequestCoordinator()
+        val first = c.onConnectRequested(ctx(hasEvidence = true)) as ConnectLaunchAction.Proceed
+        c.markLaunched(first.requestId)
+        c.revokeConnectWork()
+        val wait = c.onConnectRequested(ctx(ui = ConnState.Ready)) as ConnectLaunchAction.EnqueueWait
+        c.registerProbe(
+            role = ProbeRole.ConnectInitial,
+            seriesId = "nb",
+            sessionEpoch = 0L,
+            networkEpoch = 1L,
+            profileId = "p",
+            networkKey = cell,
+            requestId = wait.requestId,
+        )
+        val wifi = NetworkKey(2L, UnderlayKind.Wifi, null, "wifi")
+        val admit = c.admitAndApplyFinal(
+            ProbeCallback(
+                seriesId = "nb",
+                sessionEpoch = 0L,
+                networkEpoch = 1L,
+                profileId = "p",
+                networkKey = cell,
+                ordinarySuccess = false,
+                sample = RestrictionSample.Positive,
+                wantsConnected = false,
+                uiState = ConnState.Probing,
+                liveNetworkKey = wifi,
+                liveProfileId = "p",
+                userStop = false,
+            ),
+        ) {}
+        assertTrue(admit.accepted)
+        assertTrue(admit.completeWait)
+        val proceeded = c.continueAfterWait(
+            ctx(ui = ConnState.Probing, probeActive = true),
+            wait.requestId,
+        )
+        assertTrue(proceeded is ConnectLaunchAction.Proceed)
+    }
+
+    @Test
+    fun ownedConnectInitialAdmitsNeedBypassAcrossSessionEpoch() = runBlocking {
+        val c = ConnectRequestCoordinator()
+        val wait = c.onConnectRequested(ctx()) as ConnectLaunchAction.EnqueueWait
+        c.registerProbe(
+            role = ProbeRole.ConnectInitial,
+            seriesId = "epoch",
+            sessionEpoch = 0L,
+            networkEpoch = 1L,
+            profileId = "p",
+            networkKey = cell,
+            requestId = wait.requestId,
+        )
+        val admit = c.admitAndApplyFinal(
+            ProbeCallback(
+                seriesId = "epoch",
+                sessionEpoch = 4L,
+                networkEpoch = 2L,
+                profileId = "p",
+                networkKey = cell,
+                ordinarySuccess = false,
+                sample = RestrictionSample.Positive,
+                wantsConnected = true,
+                uiState = ConnState.Probing,
+                liveNetworkKey = cell,
+                liveProfileId = "p",
+                userStop = false,
+            ),
+        ) {}
+        assertTrue(admit.accepted)
+        assertTrue(admit.completeWait)
+        assertTrue(admit.applyToReducer)
+        c.awaitDecision(wait.requestId)
+    }
+
+    @Test
     fun connectingBIgnoresRepeatStopOfA() {
         val c = ConnectRequestCoordinator()
         val first = c.onConnectRequested(ctx(hasEvidence = true)) as ConnectLaunchAction.Proceed

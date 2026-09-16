@@ -1,9 +1,10 @@
 package com.ardtt.app.core
 
 /**
- * Auto Direct/Bypass table. A working Direct is never torn down for a
- * restriction hint. On cellular, a whitelist score at enter threshold starts
- * Bypass before a Direct attempt. Unknown underlay is not treated as cellular.
+ * Auto Direct/Bypass table. A working Direct is not torn down for a stale
+ * restriction hint. A fresh cellular whitelist at enter threshold starts
+ * Bypass even if Direct is already PathConfirm on this LTE. Unknown underlay
+ * is not treated as cellular.
  */
 sealed class AutoDecision {
     data object WaitForUnderlay : AutoDecision()
@@ -236,7 +237,13 @@ fun decideAutoPath(input: AutoPathInput): AutoDecision {
         !blocked &&
         input.lastConfirmedNetworkKey.directConfirmedOn(underlay.key)
     ) {
-        return AutoDecision.Stay(VpnPath.Direct, "direct-works")
+        val liveWhitelist = RestrictionScore.mayEnterBypassForWhitelist(
+            historicalScore,
+            freshStrong,
+        ) && mayReuseCall(input)
+        if (!liveWhitelist) {
+            return AutoDecision.Stay(VpnPath.Direct, "direct-works")
+        }
     }
 
     if (input.currentPath == VpnPath.Bypass &&
@@ -266,7 +273,9 @@ fun decideAutoPath(input: AutoPathInput): AutoDecision {
 
     if (!blocked) {
         if (input.currentPath == VpnPath.Direct &&
-            input.transport == TransportLifecycle.Starting
+            input.transport == TransportLifecycle.Starting &&
+            !(RestrictionScore.mayEnterBypassForWhitelist(historicalScore, freshStrong) &&
+                mayReuseCall(input))
         ) {
             return AutoDecision.Stay(VpnPath.Direct, "direct-try-in-flight")
         }
@@ -290,7 +299,23 @@ fun decideAutoPath(input: AutoPathInput): AutoDecision {
     }
 
     if (mayReuseCall(input)) {
-        return AutoDecision.StartBypass(reuseCall = true, reason = "cellular-direct-failed")
+        val resumeBypass = whitelistLikely ||
+            input.parkedRawAlive ||
+            input.lastConfirmedPath == VpnPath.Bypass
+        if (resumeBypass) {
+            return AutoDecision.StartBypass(reuseCall = true, reason = "cellular-direct-failed")
+        }
+        return AutoDecision.StartDirect(
+            keepCall = input.hasCallHash,
+            immediate = false,
+            reason = if (restriction == RestrictionHint.Suspected ||
+                restriction == RestrictionHint.Confirmed
+            ) {
+                "cellular-try-direct"
+            } else {
+                "cellular-direct"
+            },
+        )
     }
 
     if (vpsRoutingBroken) {

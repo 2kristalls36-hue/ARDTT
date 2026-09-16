@@ -1005,6 +1005,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                             lastHandoffAtMs = lastHandoffAtMs,
                             txBytesInWindow = txInWindow,
                             rxDataBytesInWindow = rxInWindow,
+                            handshakeLive = handshakeLive,
                         ) &&
                         nowDirect - deadDirectHandledAtMs > 30_000L
                     ) {
