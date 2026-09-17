@@ -76,9 +76,17 @@ object VpnLiveStats {
     private var directOpBaseline: DirectOperationBaseline? = null
 
     fun beginDirectOperation(): DirectOperationBaseline {
-        val baseline = DirectOperationBaseline(operationId = directOpSeq.incrementAndGet())
-        directOpBaseline = baseline
+        // Snapshot leftover AWG IPC before dropping the handle so a new
+        // operation does not treat the previous peer's rx/handshake as proof.
+        val prior = readDirectAwgSample()
         awgHandle.set(-1)
+        val baseline = DirectOperationBaseline(
+            operationId = directOpSeq.incrementAndGet(),
+            handshakeSecAtStart = prior?.handshakeSec ?: 0L,
+            rxAtStart = prior?.rx ?: 0L,
+            handleAtStart = -1,
+        )
+        directOpBaseline = baseline
         return baseline
     }
 

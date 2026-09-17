@@ -14,6 +14,7 @@ data class PendingHandoverEvent(
     val evidenceSinceMs: Long,
     val generation: Long,
     val rebuildTun: Boolean = false,
+    val dataSubscriptionChanged: Boolean = false,
 )
 
 /** Latest event wins identity; underlay-change / rebuild flags are sticky ORs. */
@@ -33,6 +34,7 @@ fun mergePendingHandover(
         },
         evidenceSinceMs = maxOf(previous.evidenceSinceMs, incoming.evidenceSinceMs),
         rebuildTun = previous.rebuildTun || incoming.rebuildTun,
+        dataSubscriptionChanged = previous.dataSubscriptionChanged || incoming.dataSubscriptionChanged,
         generation = incoming.generation,
     )
 }

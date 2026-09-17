@@ -35,6 +35,18 @@ class CallRecreateTest {
     fun classifiesOtherFatals() {
         assertEquals(BypassFatalKind.WrapAuth, classifyBypassFatalKind("FATAL_AUTH неверный пароль"))
         assertEquals(BypassFatalKind.Captcha, classifyBypassFatalKind("CAPTCHA_WAIT_REQUIRED"))
+        assertEquals(
+            BypassFatalKind.Captcha,
+            classifyBypassFatalKind(
+                "Требуется проверка капчи. Выберите способ «Капча» в настройках обхода.",
+            ),
+        )
+        assertEquals(
+            com.ardtt.app.core.UserActionKind.Captcha,
+            userActionForBypassFailure(
+                "Требуется проверка капчи. Выберите способ «Капча» в настройках обхода.",
+            ),
+        )
         assertEquals(BypassFatalKind.DialFailed, classifyBypassFatalKind("all vk credentials failed"))
         assertNull(classifyBypassFatalKind("[СТАТИСТИКА] Активных: 3"))
         assertNull(

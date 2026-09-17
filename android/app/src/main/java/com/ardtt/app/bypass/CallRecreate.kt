@@ -35,7 +35,8 @@ fun classifyBypassFatalKind(line: String): BypassFatalKind? {
             BypassFatalKind.WrapAuth
         isDeadCallLog(l) ->
             BypassFatalKind.DeadCall
-        l.contains("captcha") && (l.contains("required") || l.contains("wait")) ->
+        l.contains("капч") ||
+            (l.contains("captcha") && (l.contains("required") || l.contains("wait"))) ->
             BypassFatalKind.Captcha
         l.contains("all vk credentials failed") ->
             BypassFatalKind.DialFailed

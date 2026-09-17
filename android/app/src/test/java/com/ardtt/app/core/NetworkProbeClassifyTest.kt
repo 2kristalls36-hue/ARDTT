@@ -5,6 +5,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -397,21 +398,37 @@ class NetworkProbeClassifyTest {
                 CheckOutcome.Cancelled,
             ),
         )
-        // Yandex down: the sample is Ignore whatever the ordinary targets say.
+        // Yandex down: two ordinary successes can still produce Open.
         assertTrue(
-            !NetworkProbePolicy.ordinaryRetryStillInformative(CheckOutcome.Timeout, null),
+            NetworkProbePolicy.ordinaryRetryStillInformative(CheckOutcome.Timeout, null),
         )
         assertTrue(
-            !NetworkProbePolicy.ordinaryRetryStillInformative(
+            NetworkProbePolicy.ordinaryRetryStillInformative(
                 CheckOutcome.Timeout,
                 CheckOutcome.Success,
             ),
         )
-        // vk.com down: the round is a bad link, not a whitelist.
+        // vk.com down: Open is still reachable from Yandex + one ordinary success.
+        assertTrue(
+            NetworkProbePolicy.ordinaryRetryStillInformative(
+                CheckOutcome.Success,
+                CheckOutcome.Timeout,
+            ),
+        )
         assertTrue(
             !NetworkProbePolicy.ordinaryRetryStillInformative(
                 CheckOutcome.Success,
+                CheckOutcome.Success,
+                CheckOutcome.Success,
                 CheckOutcome.Timeout,
+            ),
+        )
+        assertTrue(
+            !NetworkProbePolicy.ordinaryRetryStillInformative(
+                CheckOutcome.Timeout,
+                CheckOutcome.Timeout,
+                CheckOutcome.Success,
+                CheckOutcome.Success,
             ),
         )
         // A dead link reports every target false, so NoNetwork is reachable.
@@ -979,5 +996,107 @@ class NetworkProbeClassifyTest {
         reply[i++] = 3
         reply[i++] = 4
         return reply
+    }
+
+    @Test
+    fun yandexTimeoutWithCloudflareAndGoogleSuccessIsOpen() {
+        val r = NetworkProbe.classify(
+            systemOnline = true,
+            yandexOk = false,
+            bigtechOk = true,
+            captive = false,
+            provisionOk = true,
+            underlayKind = UnderlayKind.Cellular,
+            yandexOutcome = CheckOutcome.Timeout,
+            googleOutcome = CheckOutcome.Success,
+            ruServiceOutcome = CheckOutcome.Timeout,
+        )
+        assertEquals(RestrictionHint.None, r.restriction)
+        assertEquals(VpnPath.Direct, r.preselectedPath)
+        assertEquals(0, r.whitelistScorePercent)
+    }
+
+    @Test
+    fun oneCloudflareSuccessIsNotTwoIndependentProviders() {
+        assertEquals(
+            RestrictionSample.Ignore,
+            RestrictionScore.sample(
+                cellular = true,
+                yandex = CheckOutcome.Timeout,
+                bigtech = CheckOutcome.Success,
+                google = CheckOutcome.Timeout,
+            ),
+        )
+        assertTrue(
+            NetworkProbePolicy.ordinaryFastPathEligible(cloudflareOk = true, googleOk = false),
+        )
+        assertFalse(
+            NetworkProbePolicy.ordinaryFastPathEligible(cloudflareOk = false, googleOk = false),
+        )
+    }
+
+    @Test
+    fun googleTlsSuccessWithoutDnsIsOneProviderNotTwoBlocks() {
+        assertEquals(
+            CheckOutcome.Success,
+            NetworkProbePolicy.foldControlOutcomes(
+                listOf(CheckOutcome.Timeout, CheckOutcome.Success),
+            ),
+        )
+        assertEquals("dns.google", NetworkProbe.GOOGLE_DNS_TLS_NAME)
+        assertEquals("8.8.8.8", NetworkProbe.GOOGLE_DNS_IP)
+        val r = NetworkProbe.classify(
+            systemOnline = true,
+            yandexOk = true,
+            bigtechOk = false,
+            captive = false,
+            provisionOk = true,
+            underlayKind = UnderlayKind.Cellular,
+            googleOutcome = CheckOutcome.Success,
+            ruServiceOutcome = CheckOutcome.Success,
+        )
+        assertEquals(RestrictionHint.None, r.restriction)
+        assertEquals(VpnPath.Direct, r.preselectedPath)
+        assertEquals(RestrictionSample.Open, RestrictionScore.sample(
+            cellular = true,
+            yandex = CheckOutcome.Success,
+            bigtech = CheckOutcome.Timeout,
+            google = CheckOutcome.Success,
+            ruService = CheckOutcome.Success,
+        ))
+    }
+
+    @Test
+    fun bindTlsNotRunAndCancelAreNotOrdinaryBlocks() {
+        listOf(CheckOutcome.BindFailure, CheckOutcome.TlsFailure).forEach { dirty ->
+            assertEquals(
+                "outcome=$dirty",
+                RestrictionSample.Ignore,
+                RestrictionScore.sample(
+                    cellular = true,
+                    yandex = CheckOutcome.Success,
+                    bigtech = dirty,
+                    google = CheckOutcome.Timeout,
+                    ruService = CheckOutcome.Success,
+                ),
+            )
+        }
+        listOf(CheckOutcome.NotRun, CheckOutcome.Cancelled).forEach { pending ->
+            assertEquals(
+                "outcome=$pending",
+                RestrictionSample.WeakPositive,
+                RestrictionScore.sample(
+                    cellular = true,
+                    yandex = CheckOutcome.Success,
+                    bigtech = pending,
+                    google = CheckOutcome.Timeout,
+                    ruService = CheckOutcome.Success,
+                ),
+            )
+        }
+        assertTrue(!CheckOutcome.BindFailure.countsAsOrdinaryBlock())
+        assertTrue(!CheckOutcome.TlsFailure.countsAsOrdinaryBlock())
+        assertTrue(!CheckOutcome.NotRun.countsAsOrdinaryBlock())
+        assertTrue(!CheckOutcome.Cancelled.countsAsOrdinaryBlock())
     }
 }

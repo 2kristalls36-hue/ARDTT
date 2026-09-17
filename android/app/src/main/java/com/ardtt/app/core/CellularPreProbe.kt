@@ -22,6 +22,61 @@ fun NetworkKey.sameCellularSim(other: NetworkKey?): Boolean {
 fun NetworkKey.matchesCellularUnderlay(other: NetworkKey?): Boolean =
     sameCarrier(other) && (samePhysicalNetwork(other) || sameCellularSim(other))
 
+/**
+ * Whether a whitelist measurement taken on [origin] may confirm БС on [live].
+ * Rebinding a handle does not upgrade an unknown operator into a known one.
+ * [sameCarrier] / [NetworkKey.sameCellularSim] stay as-is for Direct-negative
+ * and already-confirmed Direct.
+ */
+fun whitelistOriginAllowsBind(origin: NetworkKey?, live: NetworkKey?): Boolean {
+    if (origin == null || live == null) return false
+    if (!origin.isCellular || !live.isCellular) return false
+    val originCarrier = origin.carrier?.takeIf { it.isNotBlank() }
+    val liveCarrier = live.carrier?.takeIf { it.isNotBlank() }
+    if (origin.samePhysicalNetwork(live)) {
+        if (originCarrier != null && liveCarrier != null && originCarrier != liveCarrier) {
+            return false
+        }
+        return true
+    }
+    if (originCarrier == null || liveCarrier == null || originCarrier != liveCarrier) {
+        return false
+    }
+    return origin.sameCellularSim(live)
+}
+
+/**
+ * Whether a Direct UDP failure recorded on this key must be forgotten.
+ *
+ * LTE mobility hands out a new [NetworkKey.handle] on almost every BS/RAN
+ * change. That is a new Android Network, not a new radio/SIM/operator, so
+ * Auto must not treat it as a fresh underlay and immediately retry Direct.
+ * Wi‑Fi / Ethernet stay handle-scoped. A missing live key is a gap, not a
+ * new radio.
+ */
+fun NetworkKey?.directFailureScopeChanged(next: NetworkKey?): Boolean {
+    if (this == null && next == null) return false
+    if (this == null || next == null) return true
+    if (isCellular && next.isCellular) {
+        return !matchesCellularUnderlay(next)
+    }
+    return !samePhysicalNetwork(next)
+}
+
+/**
+ * Dead-Direct latch used by handover: stay blocked across same-SIM LTE
+ * handle flaps. A missing live key still counts as blocked (no bind).
+ */
+fun deadDirectBlocksLiveUnderlay(
+    blockUntilUnderlayChange: Boolean,
+    deadKey: NetworkKey?,
+    liveKey: NetworkKey?,
+): Boolean {
+    if (!blockUntilUnderlayChange) return false
+    if (liveKey == null || deadKey == null) return true
+    return !deadKey.directFailureScopeChanged(liveKey)
+}
+
 /** Direct proven on this radio / SIM / operator; unknown keys keep the old Stay behaviour. */
 fun NetworkKey?.directConfirmedOn(current: NetworkKey?): Boolean {
     if (this == null || current == null) return true
@@ -38,23 +93,31 @@ fun shouldPreProbeCellular(
 
 /**
  * Rebind a cellular stash onto the live LTE key (handle may change after
- * Wi‑Fi drops). Different SIM → no match.
+ * Wi‑Fi drops). The measurement origin is immutable: a rewrite of the bind
+ * key never becomes a stronger confirmation than the origin allowed.
  */
 fun adoptCellularEvidence(
     stash: ReachabilityEvidence?,
     liveKey: NetworkKey?,
 ): ReachabilityEvidence? {
     if (stash == null) return null
+    val origin = stash.measurementOrigin()
     val stashKey = stash.networkKey
     if (stashKey != null && !stashKey.isCellular) return null
+    if (origin != null && !origin.isCellular) return null
     if (liveKey != null && !liveKey.isCellular) return null
-    if (liveKey == null) return stash
-    if (stashKey == null || stashKey.matchesCellularUnderlay(liveKey)) {
-        // Rebind when the operator was unknown at measurement time, so later
-        // comparisons are scoped to the PLMN we now know we are on.
-        val exact = stashKey?.samePhysicalNetwork(liveKey) == true &&
+    val preserved = if (stash.originNetworkKey != null) stash else {
+        stash.copy(originNetworkKey = origin)
+    }
+    if (liveKey == null) return preserved
+    if (whitelistOriginAllowsBind(origin, liveKey)) {
+        return if (stashKey?.samePhysicalNetwork(liveKey) == true &&
             stashKey.carrier == liveKey.carrier
-        return if (exact) stash else stash.copy(networkKey = liveKey)
+        ) {
+            preserved
+        } else {
+            preserved.copy(networkKey = liveKey)
+        }
     }
     return null
 }
@@ -64,11 +127,14 @@ fun whitelistEvidenceForUnderlay(
     cellularEvidence: ReachabilityEvidence?,
     key: NetworkKey?,
     profileId: String?,
+    nowElapsedMs: Long? = null,
 ): ReachabilityEvidence? {
     if (key?.isCellular == true) {
         val adopted = adoptCellularEvidence(cellularEvidence, key)
-        if (hasSameNetworkProbeEvidence(adopted, key, profileId)) return adopted
+        val now = nowElapsedMs ?: adopted?.measuredAtElapsedMs ?: 0L
+        if (hasSameNetworkProbeEvidence(adopted, key, profileId, now)) return adopted
     }
-    if (hasSameNetworkProbeEvidence(evidence, key, profileId)) return evidence
+    val now = nowElapsedMs ?: evidence?.measuredAtElapsedMs ?: 0L
+    if (hasSameNetworkProbeEvidence(evidence, key, profileId, now)) return evidence
     return null
 }

@@ -9,16 +9,28 @@ package com.ardtt.app.core
  * whitelist, and Bypass rides a VK call anyway. Enter at
  * [RecoverySettings.WHITELIST_ENTER_PERCENT]; stay on Bypass until the score
  * falls below [RecoverySettings.WHITELIST_EXIT_PERCENT].
+ *
+ * Weak-only accumulation is capped at [RecoverySettings.WHITELIST_WEAK_ONLY_CAP_PERCENT]
+ * unless a strong confirmation is still inside TTL. Open without Yandex requires
+ * two independent ordinary providers (Cloudflare TLS/DNS is one, Google TLS/DNS
+ * is one).
  */
 enum class RestrictionSample {
     /** Both controls OK and both ordinary targets timed out or refused. */
     Positive,
     /** Control OK and the whitelist evidence is only partial — one blocked target, or no vk.com verdict. */
     WeakPositive,
-    /** Yandex OK and at least one ordinary target succeeded. */
+    /** Ordinary internet visible — with or without Yandex. */
     Open,
     /** Lost radio, TLS, cancelled, incomplete, or a Russian service down — leave the score unchanged. */
     Ignore,
+}
+
+enum class RestrictionDisplay {
+    None,
+    Possible,
+    Confirmed,
+    Stale,
 }
 
 object RestrictionScore {
@@ -37,12 +49,14 @@ object RestrictionScore {
         ) {
             return RestrictionSample.Ignore
         }
-        if (!yandex.ran || !yandex.isSuccess) return RestrictionSample.Ignore
         val ordinary = listOf(bigtech, google)
         val ordinaryOk = ordinary.count { it.isSuccess }
         val ordinaryBlock = ordinary.count { it.countsAsOrdinaryBlock() }
         val dirty = ordinary.any { it.ran && !it.isSuccess && !it.countsAsOrdinaryBlock() }
-        if (ordinaryOk >= 1) return RestrictionSample.Open
+        val yandexOk = yandex.ran && yandex.isSuccess
+        if (yandexOk && ordinaryOk >= 1) return RestrictionSample.Open
+        if (!yandexOk && ordinaryOk >= 2) return RestrictionSample.Open
+        if (!yandexOk) return RestrictionSample.Ignore
         if (dirty) return RestrictionSample.Ignore
         // A whitelisted Russian service that does not answer means a bad link
         // (or a VK outage), not a whitelist — and Bypass would not work either.
@@ -56,18 +70,33 @@ object RestrictionScore {
         return RestrictionSample.Ignore
     }
 
-    fun apply(previousPercent: Int, sample: RestrictionSample): Int {
-        val delta = when (sample) {
-            RestrictionSample.Positive -> RecoverySettings.WHITELIST_SCORE_RISE
-            RestrictionSample.WeakPositive -> RecoverySettings.WHITELIST_SCORE_WEAK
-            RestrictionSample.Open -> RecoverySettings.WHITELIST_SCORE_FALL
-            RestrictionSample.Ignore -> 0
+    fun apply(
+        previousPercent: Int,
+        sample: RestrictionSample,
+        freshStrongConfirmation: Boolean = false,
+    ): Int {
+        val next = when (sample) {
+            RestrictionSample.Positive -> previousPercent + RecoverySettings.WHITELIST_SCORE_RISE
+            RestrictionSample.WeakPositive -> {
+                val raised = previousPercent + RecoverySettings.WHITELIST_SCORE_WEAK
+                if (freshStrongConfirmation) raised else {
+                    raised.coerceAtMost(RecoverySettings.WHITELIST_WEAK_ONLY_CAP_PERCENT)
+                }
+            }
+            RestrictionSample.Open -> previousPercent + RecoverySettings.WHITELIST_SCORE_FALL
+            RestrictionSample.Ignore -> previousPercent
         }
-        return (previousPercent + delta).coerceIn(0, 100)
+        return next.coerceIn(0, 100)
     }
 
-    fun hint(scorePercent: Int, sample: RestrictionSample): RestrictionHint {
-        if (scorePercent >= RecoverySettings.WHITELIST_ENTER_PERCENT) {
+    fun hint(
+        scorePercent: Int,
+        sample: RestrictionSample,
+        freshStrongConfirmation: Boolean = sample == RestrictionSample.Positive,
+    ): RestrictionHint {
+        if (freshStrongConfirmation &&
+            scorePercent >= RecoverySettings.WHITELIST_ENTER_PERCENT
+        ) {
             return RestrictionHint.Confirmed
         }
         if (scorePercent <= 0) {
@@ -90,18 +119,98 @@ object RestrictionScore {
         }
         return scorePercent >= threshold
     }
+
+    /** New-connect Bypass for whitelist needs the enter threshold AND a fresh strong round. */
+    fun mayEnterBypassForWhitelist(
+        scorePercent: Int,
+        freshStrongConfirmation: Boolean,
+    ): Boolean = freshStrongConfirmation &&
+        scorePercent >= RecoverySettings.WHITELIST_ENTER_PERCENT
+
+    /**
+     * Working Bypass stays until a fresh Open drops the score, or until a
+     * bounded unknown streak allows a controlled Direct try. TTL expiry
+     * alone does not switch.
+     */
+    fun bypassHoldsDirectReeval(
+        historicalScore: Int,
+        freshStrong: Boolean,
+        usable: Boolean,
+        unknownStreak: Int,
+        alreadyBypass: Boolean,
+    ): Boolean {
+        if (!alreadyBypass) {
+            return mayEnterBypassForWhitelist(historicalScore, freshStrong)
+        }
+        val exitLikely = likely(historicalScore, alreadyBypass = true)
+        val staleScoreBlocks = !freshStrong &&
+            !usable &&
+            historicalScore >= RecoverySettings.WHITELIST_EXIT_PERCENT &&
+            unknownStreak < RecoverySettings.WHITELIST_UNKNOWN_DIRECT_TRY_STREAK
+        return (freshStrong && exitLikely) ||
+            (usable && exitLikely) ||
+            staleScoreBlocks
+    }
+
+    fun display(
+        scorePercent: Int,
+        freshStrong: Boolean,
+        usable: Boolean,
+        sample: RestrictionSample = RestrictionSample.Ignore,
+    ): RestrictionDisplay {
+        if (freshStrong && scorePercent >= RecoverySettings.WHITELIST_ENTER_PERCENT) {
+            return RestrictionDisplay.Confirmed
+        }
+        if (usable && (scorePercent > 0 || sample == RestrictionSample.WeakPositive)) {
+            return RestrictionDisplay.Possible
+        }
+        if (scorePercent > 0 && !usable && !freshStrong) {
+            return RestrictionDisplay.Stale
+        }
+        return RestrictionDisplay.None
+    }
 }
 
-fun ReachabilityEvidence.whitelistScoreAt(
+fun RestrictionSample.isUsableEvidence(): Boolean = when (this) {
+    RestrictionSample.Positive,
+    RestrictionSample.WeakPositive,
+    RestrictionSample.Open,
+    -> true
+    RestrictionSample.Ignore -> false
+}
+
+fun RestrictionSample.isStrongEvidence(): Boolean = this == RestrictionSample.Positive
+
+internal const val SEEN_PROBE_SERIES_LIMIT = 8
+
+fun rememberProbeSeriesId(ids: List<String>, seriesId: String): List<String> {
+    if (seriesId.isEmpty()) return ids
+    if (ids.lastOrNull() == seriesId) return ids
+    val without = ids.filterNot { it == seriesId }
+    return (without + seriesId).takeLast(SEEN_PROBE_SERIES_LIMIT)
+}
+
+fun ReachabilityEvidence.historicalWhitelistScore(
     key: NetworkKey?,
     profileId: String?,
 ): Int {
     if (key != null && !WhitelistDetection.appliesTo(key)) {
         return WhitelistDetection.STUB_SCORE_PERCENT
     }
-    if (networkKey != null && key != null && !networkKey.samePhysicalNetwork(key)) return 0
-    if (networkKey != null && key != null && !networkKey.sameCarrier(key)) return 0
-    if (this.profileId != null && profileId != null && this.profileId != profileId) return 0
+    if (!originMatches(key, profileId)) return 0
+    return whitelistScorePercent
+}
+
+fun ReachabilityEvidence.whitelistScoreAt(
+    key: NetworkKey?,
+    profileId: String?,
+    nowElapsedMs: Long = measuredAtElapsedMs,
+): Int {
+    if (key != null && !WhitelistDetection.appliesTo(key)) {
+        return WhitelistDetection.STUB_SCORE_PERCENT
+    }
+    if (!originMatches(key, profileId)) return 0
+    if (RecoverySettings.evidenceExpired(nowElapsedMs, usableUntilElapsedMs())) return 0
     return whitelistScorePercent
 }
 
@@ -109,18 +218,15 @@ fun hasSameNetworkProbeEvidence(
     evidence: ReachabilityEvidence?,
     key: NetworkKey?,
     profileId: String?,
+    nowElapsedMs: Long = evidence?.measuredAtElapsedMs ?: 0L,
 ): Boolean {
     if (evidence == null) return false
-    if (evidence.networkKey != null && key != null && !evidence.networkKey.samePhysicalNetwork(key)) {
+    if (!evidence.originMatches(key, profileId)) return false
+    if (RecoverySettings.evidenceExpired(nowElapsedMs, evidence.usableUntilElapsedMs())) {
         return false
     }
-    if (evidence.networkKey != null && key != null && !evidence.networkKey.sameCarrier(key)) {
-        return false
-    }
-    if (evidence.profileId != null && profileId != null && evidence.profileId != profileId) {
-        return false
-    }
-    return evidence.yandex.ran || evidence.whitelistScorePercent > 0
+    return evidence.yandex.ran || evidence.whitelistScorePercent > 0 ||
+        evidence.bigtech.ran || evidence.google.ran
 }
 
 fun foldReachabilityEvidence(
@@ -141,6 +247,13 @@ fun foldReachabilityEvidence(
         (previous.profileId == null ||
             incoming.profileId == null ||
             previous.profileId == incoming.profileId)
+    if (previous != null &&
+        incoming.measuredAtElapsedMs > 0L &&
+        previous.observedAtElapsedMs > 0L &&
+        incoming.measuredAtElapsedMs < previous.observedAtElapsedMs
+    ) {
+        return previous.copy(completedSeries = completed)
+    }
     val sample = RestrictionScore.sample(
         cellular = cellular,
         yandex = incoming.yandex,
@@ -153,25 +266,89 @@ fun foldReachabilityEvidence(
     } else {
         0
     }
+    val previousStrongFresh = samePhysical &&
+        previous?.hasFreshStrong(elapsedMs, incoming.networkKey ?: previous.networkKey, incoming.profileId) == true
     val score = if (cellular) {
-        RestrictionScore.apply(previousScore, sample)
+        RestrictionScore.apply(previousScore, sample, previousStrongFresh)
     } else {
         WhitelistDetection.STUB_SCORE_PERCENT
     }
-    val restriction = if (cellular) {
-        RestrictionScore.hint(score, sample)
-    } else {
+    val restriction = if (!cellular) {
         WhitelistDetection.stubRestriction
+    } else {
+        when (sample) {
+            RestrictionSample.Positive -> RestrictionHint.Confirmed
+            RestrictionSample.Open -> RestrictionScore.hint(score, sample, freshStrongConfirmation = false)
+            RestrictionSample.WeakPositive -> RestrictionScore.hint(
+                score,
+                sample,
+                freshStrongConfirmation = previousStrongFresh,
+            )
+            RestrictionSample.Ignore -> when {
+                previousStrongFresh -> previous?.restriction ?: RestrictionHint.Unknown
+                previous?.usableAt(elapsedMs, incoming.networkKey, incoming.profileId) == true &&
+                    (previous.restriction == RestrictionHint.Suspected ||
+                        previous.restriction == RestrictionHint.None) ->
+                    previous.restriction
+                else -> RestrictionHint.Unknown
+            }
+        }
+    }
+    val ttl = RecoverySettings.PROBE_RESTRICTION_TTL_MS
+    val observed = elapsedMs
+    val usableAt = if (sample.isUsableEvidence()) elapsedMs else previous?.takeIf { samePhysical }?.usableAtElapsedMs ?: 0L
+    val strongAt = when {
+        sample.isStrongEvidence() -> elapsedMs
+        samePhysical -> previous?.strongAtElapsedMs ?: 0L
+        else -> 0L
+    }
+    val usableTtl = if (sample.isUsableEvidence()) elapsedMs + ttl else {
+        previous?.takeIf { samePhysical }?.ttlUntilElapsedMs ?: 0L
+    }
+    val strongUntil = if (sample.isStrongEvidence()) {
+        elapsedMs + ttl
+    } else {
+        previous?.takeIf { samePhysical }?.strongUntilElapsedMs ?: 0L
+    }
+    val ordinaryOpenAt = if (sample == RestrictionSample.Open) {
+        elapsedMs
+    } else {
+        previous?.takeIf { samePhysical }?.ordinaryOpenAtElapsedMs ?: 0L
+    }
+    val unknownStreak = when {
+        !samePhysical -> if (sample == RestrictionSample.Ignore) 1 else 0
+        sample == RestrictionSample.Ignore -> (previous?.unknownStreak ?: 0) + 1
+        else -> 0
+    }
+    val origin = when {
+        // Strong TTL keeps the radio it was measured on. Ignore/Weak must not
+        // promote an unknown origin into a known carrier for a later rebind.
+        sample.isStrongEvidence() ->
+            incoming.measurementOrigin() ?: previous?.takeIf { samePhysical }?.measurementOrigin()
+        samePhysical ->
+            previous?.measurementOrigin() ?: incoming.measurementOrigin()
+        else -> incoming.measurementOrigin()
     }
     return incoming.copy(
+        originNetworkKey = origin,
         seriesCount = series,
         completedSeries = completed,
-        ttlUntilElapsedMs = elapsedMs + RecoverySettings.PROBE_RESTRICTION_TTL_MS,
+        unknownStreak = unknownStreak,
+        lastSample = sample,
+        measuredAtElapsedMs = elapsedMs,
+        observedAtElapsedMs = observed,
+        usableAtElapsedMs = usableAt,
+        strongAtElapsedMs = strongAt,
+        ordinaryOpenAtElapsedMs = ordinaryOpenAt,
+        ttlUntilElapsedMs = usableTtl,
+        strongUntilElapsedMs = strongUntil,
         restriction = restriction,
         whitelistScorePercent = score,
         restrictionReason = when {
             restriction == RestrictionHint.Confirmed -> "whitelist-score"
             restriction == RestrictionHint.Suspected -> "control-ok-ordinary-down"
+            restriction == RestrictionHint.Unknown && sample == RestrictionSample.Ignore ->
+                "stale-or-unknown"
             else -> incoming.restrictionReason
         },
     )
@@ -180,6 +357,7 @@ fun foldReachabilityEvidence(
 internal fun ProbeResult.withWhitelistEvidence(
     evidence: ReachabilityEvidence,
     cellular: Boolean,
+    nowElapsedMs: Long = evidence.measuredAtElapsedMs,
 ): ProbeResult {
     if (!cellular) {
         return copy(
@@ -196,11 +374,18 @@ internal fun ProbeResult.withWhitelistEvidence(
             restriction = evidence.restriction,
         )
     }
-    val likely = RestrictionScore.likely(evidence.whitelistScorePercent, alreadyBypass = false)
+    val freshStrong = evidence.hasFreshStrong(nowElapsedMs, evidence.networkKey, evidence.profileId)
+    val likely = RestrictionScore.mayEnterBypassForWhitelist(
+        evidence.whitelistScorePercent,
+        freshStrong,
+    )
     if (!likely) {
+        val dropWhitelistBypass = preselectedPath == VpnPath.Bypass && routeReason == "whitelist"
         return copy(
             whitelistScorePercent = evidence.whitelistScorePercent,
             restriction = evidence.restriction,
+            preselectedPath = if (dropWhitelistBypass) VpnPath.Direct else preselectedPath,
+            routeReason = if (dropWhitelistBypass) "direct" else routeReason,
         )
     }
     return copy(
@@ -210,6 +395,6 @@ internal fun ProbeResult.withWhitelistEvidence(
         networkClass = NetworkClass.NeedBypass,
         routeReason = "whitelist",
         restrictionReason = evidence.restrictionReason,
-        message = "Похоже на белый список оператора. Подключаемся через обход",
+        message = "Признаки белого списка подтверждены проверками. Подключаемся через обход",
     )
 }

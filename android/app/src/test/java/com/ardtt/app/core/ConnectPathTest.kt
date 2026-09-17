@@ -217,10 +217,31 @@ class ConnectPathTest {
                 fresh = needBypass.copy(
                     restriction = RestrictionHint.Confirmed,
                     whitelistScorePercent = 80,
+                    yandexOutcome = CheckOutcome.Success,
+                    bigtechOutcome = CheckOutcome.Timeout,
+                    googleOutcome = CheckOutcome.Timeout,
+                    ruServiceOutcome = CheckOutcome.Success,
                 ),
                 underlayKind = UnderlayKind.Cellular,
                 bypassAllowed = true,
                 whitelistScorePercent = 80,
+                freshStrongConfirmation = true,
+            ),
+        )
+        assertEquals(
+            VpnPath.Direct,
+            resolveConnectPath(
+                mode = ConnPathMode.Auto,
+                probePreferred = VpnPath.Bypass,
+                lastGood = needBypass,
+                fresh = needBypass.copy(
+                    restriction = RestrictionHint.Confirmed,
+                    whitelistScorePercent = 80,
+                ),
+                underlayKind = UnderlayKind.Cellular,
+                bypassAllowed = true,
+                whitelistScorePercent = 80,
+                freshStrongConfirmation = false,
             ),
         )
     }
@@ -444,6 +465,22 @@ class ConnectPathTest {
                 mode = ConnPathMode.Auto,
                 underlayKind = UnderlayKind.Wifi,
                 state = ConnState.Idle,
+                hasSameNetworkProbeEvidence = false,
+            ),
+        )
+        assertTrue(
+            shouldWaitForCellularWhitelistProbe(
+                mode = ConnPathMode.Auto,
+                underlayKind = UnderlayKind.Cellular,
+                state = ConnState.Probing,
+                hasSameNetworkProbeEvidence = false,
+            ),
+        )
+        assertFalse(
+            shouldWaitForCellularWhitelistProbe(
+                mode = ConnPathMode.Auto,
+                underlayKind = UnderlayKind.Cellular,
+                state = ConnState.Connecting,
                 hasSameNetworkProbeEvidence = false,
             ),
         )

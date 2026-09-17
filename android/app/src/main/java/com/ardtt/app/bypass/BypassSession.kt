@@ -221,6 +221,8 @@ class BypassSession {
         scope: CoroutineScope,
         @Suppress("UNUSED_PARAMETER") service: VpnService,
         establishTun: (ip: String, dnsCsv: String, mtu: Int) -> ParcelFileDescriptor?,
+        networkKind: String? = null,
+        networkHandle: Long? = null,
         onPhase: (BypassPhase) -> Unit,
     ): Boolean {
         val process = go ?: return false
@@ -233,6 +235,9 @@ class BypassSession {
         if (!BypassGoProcess.controlAckSucceeded(process.sendControl("ALLOW_NET_OPS"))) {
             running.set(false)
             return false
+        }
+        if (networkKind != null && networkHandle != null && networkHandle != 0L) {
+            process.sendControlFireAndForget("UPDATE_NETWORK", networkKind, networkHandle.toString())
         }
         val pfd = establishTun(conf.ip, conf.dnsCsv, conf.mtu) ?: return false
         tun = pfd

@@ -33,7 +33,10 @@ import kotlinx.coroutines.withContext
  * - **77.88.8.8** (Yandex DNS) — control group; UDP DNS even on operator whitelist (БС).
  * - **vk.com** (TCP :443, by IP) — second control; see [RU_CONTROL_HOSTS].
  * - **1.1.1.1** (Cloudflare) — one ordinary provider (TLS or UDP :53).
- * - **8.8.8.8** (Google) — independent ordinary provider; UDP DNS.
+ * - **8.8.8.8** (Google) — independent ordinary provider; UDP DNS **and**
+ *   TLS to `dns.google` on :443 (Google Public DNS DoH identity,
+ *   https://developers.google.com/speed/public-dns/docs/secure-transports).
+ *   Both legs are one provider.
  * - **VPS /health** — HTTP, not TCP :9100 and not AmneziaWG.
  *
  * Auto cellular uses a weighted whitelist score before the first Direct try.
@@ -48,6 +51,12 @@ object NetworkProbe {
     const val YANDEX_DNS_IP = "77.88.8.8"
     const val CLOUDFLARE_IP = "1.1.1.1"
     const val GOOGLE_DNS_IP = "8.8.8.8"
+    /**
+     * TLS/HTTPS identity for Google Public DNS. Dial [GOOGLE_DNS_IP]:443 with
+     * SNI/hostname `dns.google` — documented DoH endpoint, certificate SAN
+     * includes both the name and 8.8.8.8. Not a trust-all socket.
+     */
+    const val GOOGLE_DNS_TLS_NAME = "dns.google"
     const val DEFAULT_VPS_PROBE_PORT = 9100
 
     /** A Russian control host reached by literal IP — the probe never resolves names. */
@@ -134,7 +143,7 @@ object NetworkProbe {
                     (android.os.SystemClock.elapsedRealtime() - attemptsAt).toInt().coerceAtLeast(0)
                 val yandexDef = async { udpDnsReachableOutcome(YANDEX_DNS_IP, remaining(udpMs), bound) }
                 var cloudflareDef = async { cloudflareOpenOutcome(remaining(tlsMs), remaining(udpMs), bound) }
-                var googleDef = async { udpDnsReachableOutcome(GOOGLE_DNS_IP, remaining(udpMs), bound) }
+                var googleDef = async { googleOpenOutcome(remaining(tlsMs), remaining(udpMs), bound) }
                 val ruServiceDef = async { ruControlReachableOutcome(remaining(tlsMs), bound) }
                 val provisionDef = async { provisionReachableOutcome(provisionBaseUrl, remaining(healthMs), bound) }
 
@@ -145,7 +154,7 @@ object NetworkProbe {
                 var provision: CheckOutcome? = null
                 var captiveChecked = captiveFromCaps
                 var captive = captiveFromCaps
-                var publishedFast = false
+                var publishedOrdinaryFast = false
                 var controlRttMs: Int? = null
                 // First-attempt verdicts, kept while a relaunch is in flight.
                 var cloudflareFirst: CheckOutcome? = null
@@ -172,7 +181,15 @@ object NetworkProbe {
                     if (alreadyRetried) return 0
                     val left = remaining(roundBudget.toInt())
                     if (!NetworkProbePolicy.shouldRetryOrdinaryTarget(outcome, left)) return 0
-                    if (!NetworkProbePolicy.ordinaryRetryStillInformative(yandex, ruService)) return 0
+                    if (!NetworkProbePolicy.ordinaryRetryStillInformative(
+                            yandex,
+                            ruService,
+                            cloudflare ?: cloudflareFirst,
+                            google ?: googleFirst,
+                        )
+                    ) {
+                        return 0
+                    }
                     val elapsed = sinceAttempts()
                     val rttDeadline = controlRttMs?.let { rtt ->
                         NetworkProbePolicy.ordinaryDeadlineMs(rtt, baseMs, left + elapsed)
@@ -212,7 +229,13 @@ object NetworkProbe {
 
                 while (true) {
                     val now = android.os.SystemClock.elapsedRealtime()
-                    if (!NetworkProbePolicy.ordinaryRetryStillInformative(yandex, ruService)) {
+                    if (!NetworkProbePolicy.ordinaryRetryStillInformative(
+                            yandex,
+                            ruService,
+                            settledCloudflare(),
+                            settledGoogle(),
+                        )
+                    ) {
                         // The control group is out — a relaunch cannot change
                         // the score any more, and holding it open would keep
                         // NoNetwork and the captive check waiting.
@@ -236,12 +259,13 @@ object NetworkProbe {
                         googleOk = settledGoogle()?.toProbeFlag(),
                         ruServiceOk = ruService?.toProbeFlag(),
                     )
-                    if (hint == ProbePathHint.Direct ||
-                        hint == ProbePathHint.Bypass ||
-                        hint == ProbePathHint.Captive
+                    if (NetworkProbePolicy.ordinaryFastPathEligible(
+                            cloudflareOk = settledCloudflare()?.toProbeFlag(),
+                            googleOk = settledGoogle()?.toProbeFlag(),
+                        )
                     ) {
-                        if (!publishedFast) {
-                            publishedFast = true
+                        if (!publishedOrdinaryFast) {
+                            publishedOrdinaryFast = true
                             onFastDecision?.invoke(snapshot())
                         }
                     }
@@ -268,7 +292,7 @@ object NetworkProbe {
                             continue
                         }
                     }
-                    if (allKnown || (roundExpired && publishedFast) || (roundExpired && allKnown)) {
+                    if (allKnown || (roundExpired && publishedOrdinaryFast) || (roundExpired && allKnown)) {
                         if (!captiveChecked && systemOnline && remaining(captiveMs) > 0) {
                             captive = captiveFromCaps || detectCaptive(bound, remaining(captiveMs))
                             captiveChecked = true
@@ -325,11 +349,11 @@ object NetworkProbe {
                         }
                         if (google == null) {
                             googleDef.onAwait { outcome ->
-                                val retryMs = ordinaryRetryMs(outcome, udpMs, googleFirst != null)
+                                val retryMs = ordinaryRetryMs(outcome, tlsMs, googleFirst != null)
                                 if (retryMs > 0) {
                                     googleFirst = outcome
                                     googleDef = async {
-                                        udpDnsReachableOutcome(GOOGLE_DNS_IP, retryMs, bound)
+                                        googleOpenOutcome(retryMs, retryMs, bound)
                                     }
                                 } else {
                                     google = outcome
@@ -482,6 +506,40 @@ object NetworkProbe {
     }
 
     /**
+     * Open-internet check for 8.8.8.8. TLS to [GOOGLE_DNS_TLS_NAME] or UDP DNS —
+     * one provider. Google TLS and Google DNS are not two independent votes.
+     */
+    internal suspend fun googleOpenOutcome(
+        tlsMs: Int,
+        udpMs: Int,
+        bindNetwork: Network?,
+    ): CheckOutcome = coroutineScope {
+        val tls = async {
+            tlsReachableOutcome(
+                GOOGLE_DNS_IP,
+                443,
+                tlsMs,
+                bindNetwork,
+                tlsHostname = GOOGLE_DNS_TLS_NAME,
+            )
+        }
+        val udp = async { udpDnsReachableOutcome(GOOGLE_DNS_IP, udpMs, bindNetwork) }
+        try {
+            select {
+                tls.onAwait { ok ->
+                    if (ok.isSuccess) ok else NetworkProbePolicy.foldControlOutcomes(listOf(ok, udp.await()))
+                }
+                udp.onAwait { ok ->
+                    if (ok.isSuccess) ok else NetworkProbePolicy.foldControlOutcomes(listOf(ok, tls.await()))
+                }
+            }
+        } finally {
+            tls.cancel()
+            udp.cancel()
+        }
+    }
+
+    /**
      * Open-internet check for 1.1.1.1. TLS or UDP DNS — not TCP connect.
      * Cloudflare TLS and Cloudflare DNS are one provider.
      */
@@ -557,6 +615,7 @@ object NetworkProbe {
         port: Int,
         timeoutMs: Int,
         bindNetwork: Network?,
+        tlsHostname: String = host,
     ): CheckOutcome {
         val raw = Socket()
         var ssl: SSLSocket? = null
@@ -596,7 +655,7 @@ object NetworkProbe {
                 if (handshakeMs <= 0) return@closeOnCancel CheckOutcome.Timeout
                 raw.soTimeout = handshakeMs
                 ssl = (SSLSocketFactory.getDefault() as SSLSocketFactory)
-                    .createSocket(raw, host, port, true) as SSLSocket
+                    .createSocket(raw, tlsHostname, port, true) as SSLSocket
                 applyHttpsEndpointIdentification(ssl!!)
                 ssl!!.soTimeout = handshakeMs
                 ssl!!.startHandshake()

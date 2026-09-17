@@ -20,6 +20,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -283,12 +284,19 @@ class BypassGoProcess(
             writer.newLine()
             writer.flush()
         }
-        runCatching { TunFdBridge.sendOnce(sock, pfd) }.onFailure {
-            AppLog.e(TAG, "ATTACH_TUN fd send: ${it.message}")
-            pendingAcks.remove(reqId)
-            return@withContext false
+        val reply = withTimeoutOrNull(15_000) {
+            // ATTACH_TUN is processed after this write, then go_client listens.
+            // sendOnce-once-then-wait lost the race: the first connect hit a
+            // stale listener (or nothing), Android stopped, AcceptUnix timed out.
+            // Keep offering the fd until the ACK for THIS request arrives.
+            val deadline = System.currentTimeMillis() + 15_000L
+            while (!ack.isCompleted && System.currentTimeMillis() < deadline) {
+                TunFdBridge.tryConnectOnce(sock, pfd)
+                if (ack.isCompleted) break
+                delay(200)
+            }
+            ack.await()
         }
-        val reply = withTimeoutOrNull(15_000) { ack.await() }
         pendingAcks.remove(reqId)
         return@withContext controlAckSucceeded(reply)
     }

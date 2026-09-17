@@ -95,8 +95,10 @@ const val VALIDATED_WAIT_POLL_MS = 300L
 fun validatedWaitTimeoutMs(
     replacementUnderlayPresent: Boolean,
     skipWait: Boolean = false,
+    dataSubscriptionChanged: Boolean = false,
 ): Long = when {
     skipWait -> 0L
+    dataSubscriptionChanged -> VALIDATED_WAIT_TIMEOUT_MS
     replacementUnderlayPresent -> VALIDATED_WAIT_WHEN_UNDERLAY_PRESENT_MS
     else -> VALIDATED_WAIT_TIMEOUT_MS
 }
@@ -104,13 +106,59 @@ fun validatedWaitTimeoutMs(
 /**
  * qWDTT reconnects RAW without a VPS probe. On this phone LTE often never
  * becomes VALIDATED while the VPN is up — waiting 2.5s+ only extends the
- * blackhole. Skip that wait on cellular. Do **not** skip on Wi‑Fi: Bypass
- * still has traffic on LTE while home Wi‑Fi validates, and we need Direct.
+ * blackhole. Skip that wait on cellular flaps and on Direct rebind. Do **not**
+ * skip on Wi‑Fi, and do **not** skip a real default-data SIM change on Bypass:
+ * joining VK on half-up LTE after DDS is `channels=0` with a live TUN.
  */
 fun shouldSkipValidatedWait(
     path: VpnPath,
     underlayKind: UnderlayKind,
-): Boolean = path == VpnPath.Direct || underlayKind == UnderlayKind.Cellular
+    dataSubscriptionChanged: Boolean = false,
+): Boolean {
+    if (path == VpnPath.Direct) return true
+    if (underlayKind != UnderlayKind.Cellular) return false
+    return !dataSubscriptionChanged
+}
+
+/** Sentinel matching [android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID]. */
+const val INVALID_DATA_SUB_ID = -1
+
+/**
+ * Dual-SIM phones emit [onActiveDataSubscriptionIdChanged] flaps that are not
+ * a default-data switch. Only a real DDS change may start handover.
+ */
+fun shouldApplyDataSubscriptionHandover(
+    reportedSubId: Int,
+    defaultDataSubId: Int,
+    lastAppliedSubId: Int,
+    invalidSubId: Int = INVALID_DATA_SUB_ID,
+): Boolean {
+    if (reportedSubId == invalidSubId) return false
+    val authoritative = if (defaultDataSubId != invalidSubId) defaultDataSubId else reportedSubId
+    if (authoritative == lastAppliedSubId) return false
+    if (defaultDataSubId != invalidSubId && reportedSubId != defaultDataSubId) return false
+    return true
+}
+
+/**
+ * Real DDS on live Bypass before the new LTE is VALIDATED: keep TUN/workers.
+ * Same-network flaps and Direct still rebind immediately.
+ */
+fun shouldTearBypassDatapathOnHandover(
+    path: VpnPath,
+    dataSubscriptionChanged: Boolean,
+    validatedPresent: Boolean,
+): Boolean {
+    if (path != VpnPath.Bypass) return true
+    if (dataSubscriptionChanged && !validatedPresent) return false
+    return true
+}
+
+/** Pin only a VALIDATED underlay; during DDS hold, do not fall through to default. */
+fun shouldReplaceVpnUnderlyingPin(
+    validated: Boolean,
+    holdUntilValidated: Boolean = false,
+): Boolean = validated || !holdUntilValidated
 
 fun classifyValidatedNetworkTransition(
     previousNetworkId: Long?,
@@ -609,11 +657,14 @@ fun wakeRescueAction(
 }
 
 /**
- * Direct Connected with no TUN rx after grace: Auto+hash on cellular → Bypass.
- * Auto on Wi‑Fi and forced Direct stop so the phone is not a blackhole.
+ * Direct Connected with no TUN rx after grace: Auto+hash on cellular measures
+ * the underlay (or switches if a fresh whitelist is already known). Auto on
+ * Wi‑Fi and forced Direct stop so the phone is not a blackhole.
  */
 sealed class DeadDirectDecision {
     data object KeepWatching : DeadDirectDecision()
+    /** Bind NOT_VPN / cellular and classify БС vs dead radio before leaving Direct. */
+    data object MeasureUnderlay : DeadDirectDecision()
     data object SwitchToBypass : DeadDirectDecision()
     data object FailSession : DeadDirectDecision()
 }
@@ -654,6 +705,10 @@ const val DIRECT_TX_DATA_MIN_BYTES = 4096L
  * Both inputs are byte counts over the same trailing [DIRECT_UNANSWERED_UPLINK_MS]
  * window. [rxDataBytesInWindow] counts every inbound byte; the handshake/keepalive
  * allowance lives in [RecoverySettings.directRxLooksLikeData].
+ *
+ * A dead handshake with no inbound data is also a blackhole: lock-screen БС
+ * often sends only ~1 KB (handshake + ping) and never clears the 4 KB uplink
+ * floor. Keepalives on a live handshake stay exempt.
  */
 fun shouldTreatDirectAsDeadNoRx(
     nowMs: Long,
@@ -665,6 +720,7 @@ fun shouldTreatDirectAsDeadNoRx(
     noRxMs: Long = DEAD_DIRECT_NO_RX_MS,
     noRxAfterHandoffMs: Long = DEAD_DIRECT_NO_RX_AFTER_HANDOFF_MS,
     minTxBytes: Long = DIRECT_TX_DATA_MIN_BYTES,
+    handshakeLive: Boolean = true,
 ): Boolean {
     if (sessionStartedAtMs <= 0L) return false
     val afterHandoff = lastHandoffAtMs > sessionStartedAtMs
@@ -672,18 +728,67 @@ fun shouldTreatDirectAsDeadNoRx(
     val anchor = maxOf(sessionStartedAtMs, lastHandoffAtMs)
     val requiredNoRx = if (afterHandoff) noRxAfterHandoffMs else noRxMs
     if (nowMs - anchor < requiredNoRx) return false
-    if (txBytesInWindow < minTxBytes) return false
-    return !RecoverySettings.directRxLooksLikeData(rxDataBytesInWindow)
+    if (RecoverySettings.directRxLooksLikeData(rxDataBytesInWindow)) return false
+    if (txBytesInWindow >= minTxBytes) return true
+    return !handshakeLive
 }
 
 fun decideDeadDirectAction(
     pathMode: ConnPathMode,
     bypassAllowed: Boolean,
     underlayKind: UnderlayKind = UnderlayKind.Other,
+    whitelistLikely: Boolean = false,
 ): DeadDirectDecision = when {
     autoUsesDirectOnWifi(pathMode, underlayKind) -> DeadDirectDecision.FailSession
-    pathMode == ConnPathMode.Auto && bypassAllowed -> DeadDirectDecision.SwitchToBypass
+    pathMode == ConnPathMode.Auto &&
+        bypassAllowed &&
+        underlayKind == UnderlayKind.Cellular &&
+        whitelistLikely -> DeadDirectDecision.SwitchToBypass
+    pathMode == ConnPathMode.Auto &&
+        bypassAllowed &&
+        underlayKind == UnderlayKind.Cellular -> DeadDirectDecision.MeasureUnderlay
+    pathMode == ConnPathMode.Auto && bypassAllowed -> DeadDirectDecision.KeepWatching
     else -> DeadDirectDecision.FailSession
+}
+
+/**
+ * After a Dead Direct underlay sample: leave Direct when the world is
+ * classifiable (БС or open internet). Ignore (GSM / all Timeout) waits;
+ * the next watchdog measures again. No hash cannot take Bypass.
+ */
+fun decideDeadDirectAfterUnderlaySample(
+    sample: RestrictionSample,
+    bypassAllowed: Boolean,
+): DeadDirectDecision = when {
+    !bypassAllowed -> DeadDirectDecision.FailSession
+    sample.isUsableEvidence() -> DeadDirectDecision.SwitchToBypass
+    else -> DeadDirectDecision.KeepWatching
+}
+
+/** Live Auto Direct on cellular may probe the underlay without occupying the UI. */
+fun shouldProbeUnderlayWhileDirectConnected(
+    pathMode: ConnPathMode,
+    underlayKind: UnderlayKind,
+    sessionHeld: Boolean,
+    currentPath: VpnPath?,
+): Boolean =
+    pathMode == ConnPathMode.Auto &&
+        underlayKind == UnderlayKind.Cellular &&
+        sessionHeld &&
+        currentPath == VpnPath.Direct
+
+/** Spacing so the watchdog poll does not stack overlapping underlay probes. */
+const val DEAD_DIRECT_UNDERLAY_MEASURE_MIN_GAP_MS = 2_000L
+
+fun shouldStartDeadDirectUnderlayMeasure(
+    nowMs: Long,
+    lastStartedAtMs: Long,
+    jobActive: Boolean,
+    minGapMs: Long = DEAD_DIRECT_UNDERLAY_MEASURE_MIN_GAP_MS,
+): Boolean {
+    if (jobActive) return false
+    if (lastStartedAtMs > 0L && nowMs - lastStartedAtMs < minGapMs) return false
+    return true
 }
 
 fun shouldObserveTunnelHealth(

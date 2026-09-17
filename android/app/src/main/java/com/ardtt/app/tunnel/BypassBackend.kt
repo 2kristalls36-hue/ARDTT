@@ -126,6 +126,8 @@ class BypassBackend(
 
     suspend fun resumeParked(
         service: VpnService,
+        networkKind: String? = null,
+        networkHandle: Long? = null,
         onState: (TunnelBackendState) -> Unit,
     ): Boolean = coroutineScope {
         onState(TunnelBackendState.Starting)
@@ -135,6 +137,8 @@ class BypassBackend(
             establishTun = { ip, dnsCsv, mtu ->
                 (service as? TunEstablisher)?.establishTun(ip, dnsCsv, mtu)
             },
+            networkKind = networkKind,
+            networkHandle = networkHandle,
         ) { phase ->
             when (phase) {
                 is BypassPhase.Running -> onState(TunnelBackendState.Running)

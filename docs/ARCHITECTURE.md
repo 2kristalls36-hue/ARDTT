@@ -33,7 +33,7 @@ Path B RAW — линия **qWDTT / SpaceNeuroX**, не classic WDTT (WG/TURN/DT
 | Формат | Свой профиль; без `wdtt://` |
 | warp OOM | **Без авторестарта контейнера**; см. [WARP память](#warp-память-без-рестарта) |
 | UI | **2 режима:** пользователь (по умолчанию, минимум) и **админ** (разблокировка в настройках → логи, деплой, расширенные опции) |
-| Переподключение | Мягкий restart при смене Wi‑Fi/LTE/SIM, быстрый IP-probe (1.1.1.1 / 77.88.8.8 / VPS TCP); settle зависит от пути: Direct 200 мс (`DIRECT_NETWORK_SETTLE_MS`), Bypass 3 с после VALIDATED (`BYPASS_NETWORK_SETTLE_MS`) или 400 мс без VALIDATED (`BYPASS_UNVALIDATED_SETTLE_MS`); живой обход уступает Wi‑Fi только после выдержки 6 с, удваивающейся после каждого неудачного эпизода до 60 с (`WIFI_UPGRADE_SETTLE_MS` / `WIFI_UPGRADE_SETTLE_MAX_MS`). Auto — Direct↔Bypass; дыра без сети — hold + очередь, не рестарт в пустоту. Dual-SIM: `default data` / active data sub |
+| Переподключение | Мягкий restart при смене Wi‑Fi/LTE/SIM, быстрый IP-probe (1.1.1.1 / 77.88.8.8 / VPS TCP); settle зависит от пути: Direct 200 мс (`DIRECT_NETWORK_SETTLE_MS`), Bypass 3 с после VALIDATED (`BYPASS_NETWORK_SETTLE_MS`) или 400 мс без VALIDATED (`BYPASS_UNVALIDATED_SETTLE_MS`); живой обход уступает Wi‑Fi только после выдержки 6 с, удваивающейся после каждого неудачного эпизода до 60 с (`WIFI_UPGRADE_SETTLE_MS` / `WIFI_UPGRADE_SETTLE_MAX_MS`). Auto — Direct↔Bypass; дыра без сети — hold + очередь, не рестарт в пустоту. Dual-SIM: handover только при смене **default data**; ложный `active data` без смены DDS игнорируется. На живом Обходе смена DDS ждёт VALIDATED новой LTE (до `VALIDATED_WAIT_TIMEOUT_MS`), не 400 мс unvalidated settle, и не рвёт TUN/`channels` пока underlay не VALIDATED.
 | Wake rescue | После `SCREEN_ON` через ~25 с (`WAKE_RESCUE_GRACE_MS`): если Path B без активных воркеров — soft restart; Direct с живым backend — мёртвым считается только при отдаче ≥ 4 КБ после пробуждения и без входящих данных (идёт через recovery, а не рестарт живого туннеля) |
 | Watchdog | Path B: 0 воркеров ≥8 с при включённом экране (`ZERO_WORKERS_GRACE_MS`) или мёртвый backend ≥20 с (`PROCESS_DEAD_GRACE_MS`) → soft restart; отдача растёт, а приёма нет 45 с (`BYPASS_UNANSWERED_UPLINK_MS`) → soft restart, отсчёт от старта транспорта. Direct: за 15 с (`DIRECT_UNANSWERED_UPLINK_MS`) отдано ≥ 4 КБ (`DIRECT_TX_DATA_MIN_BYTES`), а входящих данных (> 1 КБ; рукопожатия и keepalive не считаются) нет → Direct мёртв (Auto → обход, Wi‑Fi → стоп), простаивающий туннель не трогается |
 | Trusted Wi‑Fi | Список SSID: на сети VPN пауза (debounce вход 2 с / выход 5 с, `TRUSTED_WIFI_ENTER_DELAY_MS` / `TRUSTED_WIFI_EXIT_DELAY_MS`); при выходе — авто-подъём (нужна локация для SSID) |
@@ -179,22 +179,24 @@ hideIp → policy from client → table 51820 → warp0 (кроме :53)
 
 Те же проверки. На **смене сети при активном туннеле** сокеты биндятся к underlay (`NOT_VPN`), чтобы не классифицировать мир через уже поднятый Direct/Bypass. В режиме Auto на **Wi‑Fi** путь всегда Direct (зонд VPS не выбирает обход). На **мобильной сети** при смене класса — переключение Direct↔Bypass; иначе soft-restart того же path. **Нет сети** (дыра WIFI↔LTE↔LTE / смена SIM) — hold, без рестарта в пустоту; следующий validated underlay / смена data SIM ставит probe в очередь, если предыдущий ещё идёт.
 
-Таймауты handover/`quick`: TCP **450 мс**, captive **400 мс**, VPS TCP **600 мс**. Старт приложения: 700 / 600 / 900 мс. Пробы **по IP, без DNS**: `77.88.8.8` и `1.1.1.1` (порт 443 и 53 гонка). VPS — TCP на host:port provision (не HTTP GET). Это **не** AmneziaWG UDP :51820: на белом списке `:9100` часто отвечает, а UDP дропается — Auto на **мобильной сети** тогда берёт **обход**, а не мёртвый Direct. На Wi‑Fi Auto обход по зонду не берётся. Captive (`generate_204`) только когда оба IP мертвы — иначе Google на БС даёт ложный captive. Settle после смены сети **~400 мс**. Connect re-probe использует `quick` (на Wi‑Fi Auto Connect пропускает зонд). Dead-Direct watchdog: за 15 с (`DIRECT_UNANSWERED_UPLINK_MS`) отдача ≥ 4 КБ (`DIRECT_TX_DATA_MIN_BYTES`), а входящих **ДАННЫХ** (> 1 КБ, `DIRECT_HANDSHAKE_RX_MAX_BYTES`; рукопожатия и keepalive не считаются) нет — Direct мёртв, ~18 с после замирания приёма; простаивающий туннель (keepalive 32 Б каждые 25 с) не трогается. Отсчёт от старта сессии / handoff (≥4 с, `DEAD_DIRECT_NO_RX_MS`). Дальше Auto на мобильной сети переключается на обход; на Wi‑Fi сессия останавливается.
+Таймауты handover/`quick`: TCP **450 мс**, captive **400 мс**, VPS HTTP `/health` **600 мс**. Старт приложения: 700 / 600 / 900 мс. Пробы **по IP, без DNS-резолва цели**: `77.88.8.8` (UDP DNS), Cloudflare `1.1.1.1` (TLS :443 или UDP :53), Google `8.8.8.8` (TLS `dns.google` или UDP :53). VPS — HTTP `/health` на provision, не TCP :9100 и не AWG UDP :51820. На белом списке `:9100` часто отвечает, а UDP дропается — Auto на **мобильной сети** тогда берёт **обход** только при свежем сильном подтверждении БС (порог 80), а не по устаревшему баллу. На Wi‑Fi Auto обход по зонду не берётся. Captive (`generate_204`) только когда обычные цели не ответили — иначе Google на БС даёт ложный captive. Settle после смены сети **~400 мс**. Connect на Wi‑Fi Auto идёт в Direct без блокирующего зонда; на LTE один запрос ждёт ранний ordinary-успех или финал раунда (не `join` всего бюджета). Dead-Direct watchdog: за 15 с (`DIRECT_UNANSWERED_UPLINK_MS`) отдача ≥ 4 КБ (`DIRECT_TX_DATA_MIN_BYTES`), а входящих **ДАННЫХ** (> 1 КБ, `DIRECT_HANDSHAKE_RX_MAX_BYTES`; рукопожатия и keepalive не считаются) нет — Direct мёртв, ~18 с после замирания приёма; простаивающий туннель (keepalive 32 Б каждые 25 с) не трогается. Отсчёт от старта сессии / handoff (≥4 с, `DEAD_DIRECT_NO_RX_MS`). Дальше Auto на мобильной сети переключается на обход; на Wi‑Fi сессия останавливается.
 
 | Probe | Как | Зачем |
 |-------|-----|--------|
 | **System** | `ConnectivityManager` / validated network | Быстрый offline |
-| **77.88.8.8** | TCP :443 \|\| :53 | «Есть интернет» на типичных БС (Yandex DNS) |
-| **1.1.1.1** | TCP :443 \|\| :53 | Открытая сеть vs БС (Cloudflare режется на белом списке) |
+| **77.88.8.8** | UDP DNS :53 | Контроль: «есть интернет» на типичных БС (Yandex DNS) |
+| **1.1.1.1** | TLS :443 или UDP DNS :53 (один провайдер) | Обычный доступ vs БС (Cloudflare) |
+| **8.8.8.8** | TLS :443 SNI/`hostname` `dns.google` или UDP DNS :53 (один провайдер) | Второй независимый обычный провайдер ([DoH](https://developers.google.com/speed/public-dns/docs/secure-transports)) |
 | **vk.com** | TCP :443 по IP (гонка фронтов AS47541, без TLS и без DNS) | Второй российский контроль: на БС он жив, а мёртвый vk.com = плохой линк, а не белый список (и обход через звонок VK всё равно не поднимется) |
-| **Captive** | `generate_204`, только если оба IP мертвы | Captive portal |
-| **VPS TCP** | Connect на provision host:port | Открытая сеть → Direct; на БС (Yandex↑ Cloudflare↓) → обход, даже если :9100 жив |
+| **Captive** | `generate_204`, только если обычные цели не ответили | Captive portal |
+| **VPS `/health`** | HTTP на provision | Открытая сеть → Direct; недоступный VPS при живом интернете — `OpenNeedBypass` |
 
 Опционально позже: UDP-lite на `direct.endpoint` (handshake AWG) — отдельно от TCP provision.
 
 ### При нажатии Connect
 
-Короткий **re-probe** (`quick`, доли секунды): VPS TCP + 77.88.8.8 / 1.1.1.1. Итог важнее устаревшего preselect со старта. Режим Auto на Wi‑Fi Connect идёт сразу в Direct, без этого зонда.
+На LTE Auto кнопка, виджет и плитка делят один запрос (`ConnectRequestCoordinator`). Ожидание принадлежит этой операции и серии. Ранний ordinary-успех может завершить ожидание сразу; финал сначала применяется в evidence, затем waiter выбирает маршрут. Завершённая попытка (`AttemptFailed`: Error / остановка сервиса / Ready) снимает `wantsConnected`, поднимает `transportEpoch` и отзывает PathConfirm: поздний Direct/BypassConfirmed не возвращает Connected. Ещё допустимый final initial probe после ошибки только idle-fold. Owner в START/STOP — id попытки Connect, не экземпляр Service и не Android startId. Manager не шлёт START B, пока STOP A не дошёл до `onDestroy` (или `stopSelfResult` отказал, потому что система уже приняла более новый startId). ACTION_STOP с чужим owner не трогает backend/TUN/scope и не вызывает `stopSelf`; совпавший STOP вызывает `stopSelfResult(commandStartId)`. `onDestroy` сообщает owner разрушаемой попытки. STOP из уведомления без extra останавливает текущий bound owner и отзывает текущий Connect, включая recreate и отложенный START. Законный STOP с extra owner A только завершает A: ожидающий START или probe Connect B сохраняется. Поздний/повторный callback A не завершает Connect B. Яндекс/VK ожидание не завершают. Wi‑Fi Auto идёт сразу в Direct. Устаревший балл 80 не выбирает обход: нужен свежий сильный раунд.
+
 
 ### Классификация (не блокирует легитимный обход)
 
@@ -203,7 +205,7 @@ hideIp → policy from client → table 51820 → warp0 (кроме :53)
 | **NoNetwork** | нет VPS и (!77.88.8.8 && !1.1.1.1) | — | Connect disabled; handover — hold |
 | **Captive** | оба IP мертвы и generate_204 ≠ 204 | — | «Войдите в сеть» |
 | **DirectOk** | VPS TCP ok и не белый список | Path A | «Прямое» |
-| **NeedBypass** | 77.88.8.8 ok, 1.1.1.1 fail (VPS TCP не важен) | Path B | «Обход» (белый список) |
+| **NeedBypass** | свежее сильное подтверждение БС (Yandex+VK, оба ordinary Timeout/Refused, балл ≥ 80) | Path B | «Признаки белого списка подтверждены проверками» |
 | **OpenNeedBypass** | VPS fail, 1.1.1.1 ok | Path B | Мягкий info, **не** blocking dialog |
 
 **Убрали** hard-block «не используйте без БС». На открытой сети при недоступном VPS обход как раз нужен. Info-текст можно показать, Connect не запрещаем.
@@ -215,11 +217,18 @@ hideIp → policy from client → table 51820 → warp0 (кроме :53)
 ## Режим Авто: белый список и смена сети
 
 - Детект белого списка (БС) — только мобильные сети (`WhitelistDetection`); Wi‑Fi/Ethernet — заглушка на Direct, зонд БС на них не запускается.
-- Оценка БС привязана к оператору (MCC+MNC в `NetworkKey.carrier`); смена PLMN обнуляет оценку и негативное свидетельство по Direct, но не пересобирает транспорт.
-- Полный положительный сэмпл (+80, порог входа за один раунд) требует **обоих** контролей — Yandex DNS **и** vk.com — и обеих обычных целей, закрытых блокировкой (`Timeout`/`Refused`). vk.com не ответил — раунд `Ignore` (перегруженный линк или авария VK); вердикта по vk.com нет (бюджет кончился) — `WeakPositive` (+25), одного раунда на обход не хватит. С повторами полный раунд на БС занимает ~1,3 с из бюджета 1,5 с.
-- Обычная цель (Cloudflare / Google) после таймаута перезапрашивается **один** раз. Окно повтора = `max(min(остаток бюджета, max(базовый таймаут, 4 × RTT контроля)) − уже потраченное, ещё один базовый таймаут)`, но не ближе `RETRY_ASSIGN_SLACK_MS` = 150 мс к концу раунда; если осталось меньше `ORDINARY_RETRY_MIN_BUDGET_MS` = 300 мс, повтор не запускается. Смысл: потеря пакета на перегрузе вероятностна, блокировка на БС детерминирована. Вердикт первой попытки сохраняется — повтор, не успевший до конца раунда, не превращает блокировку в «не измеряли». Повторов нет, если контроль уже провалился (сэмпл всё равно `Ignore`) — тогда раунд не тормозит вердикты `NoNetwork` / captive. Вердикт Direct публикуется раньше и повторами не задерживается.
+- Оценка БС привязана к оператору (MCC+MNC в `NetworkKey.carrier`) и к неизменяемому происхождению **сильного** измерения (`originNetworkKey`). Ignore/Weak не подменяют origin сохранённого strong. Смена handle при той же SIM и том же известном операторе может сохранить pre-probe; неизвестный оператор или неизвестное происхождение не становятся fresh strong на другой физической сети. Смена PLMN обнуляет оценку и негативное свидетельство по Direct, но не пересобирает транспорт.
+- Актуальность: `now >= validUntil` — просрочено; пустой timestamp не считается вечной свежестью. Ignore/отмена обновляют только время попытки и `unknownStreak`, не TTL пригодного/сильного доказательства. Слабый раунд не продлевает сильное подтверждение.
+- Слабые раунды без актуального сильного подтверждения ограничены 50 (`WHITELIST_WEAK_ONLY_CAP_PERCENT`); четыре +25 не выбирают обход. Новый Connect на обход по БС требует и порог 80, и свежее сильное доказательство. Живой Bypass удерживается порогом 55 (`WHITELIST_EXIT_PERCENT`), в том числе при просроченном score 55–79, пока нет четырёх Unknown или свежего Open ниже 55.
+- Open без Яндекса: два независимых обычных провайдера (Cloudflare TLS/DNS = один, Google TLS/`dns.google` + UDP = один). Один обычный успех — ранний Direct, финальный балл не Open.
+- Полный положительный сэмпл (+80, порог входа за один раунд) требует **обоих** контролей — Yandex DNS **и** vk.com — и обеих обычных целей, закрытых блокировкой (`Timeout`/`Refused`). vk.com не ответил — раунд `Ignore`; вердикта по vk.com нет — `WeakPositive` (+25). С повторами полный раунд на БС занимает ~1,3 с из бюджета 1,5 с.
+- Google: UDP DNS на `8.8.8.8` **и** TLS :443 с SNI/`hostname` `dns.google` (документированный DoH, [secure-transports](https://developers.google.com/speed/public-dns/docs/secure-transports)); ноги сливаются в один провайдер, как у Cloudflare.
+- Неопределённость: интервалы `2, 5, 10, 30, 60` с (`diagnosticUnknownBackoffMs`) после Ignore/Unknown. Свежий usable Weak/Suspected и свежий Confirmed — 25 с по последнему принятому sample, не по имени UI-метки. Open — около 5 мин. После 4 неизвестных раундов живой Bypass может дать контролируемую попытку Direct (`WHITELIST_UNKNOWN_DIRECT_TRY_STREAK`); истечение TTL само по себе транспорт не переключает.
+- Ранний Direct: первый успех Cloudflare/Google может начать одну попытку Direct, пока раунд идёт до исходного дедлайна. Яндекс/VK/`/health` этот флаг не тратят. Финал после Connecting учитывается один раз (`seriesId`, окно 8 id) и не откатывает UI. UserConnect наследует только явно названный in-flight initial probe, не эпоху 0 как wildcard.
+- Обычная цель (Cloudflare / Google) после таймаута перезапрашивается **один** раз. Окно повтора = `max(min(остаток бюджета, max(базовый таймаут, 4 × RTT контроля)) − уже потраченное, ещё один базовый таймаут)`, но не ближе `RETRY_ASSIGN_SLACK_MS` = 150 мс к концу раунда; если осталось меньше `ORDINARY_RETRY_MIN_BUDGET_MS` = 300 мс, повтор не запускается. Смысл: потеря пакета на перегрузе вероятностна, блокировка на БС детерминирована. Вердикт первой попытки сохраняется — повтор, не успевший до конца раунда, не превращает блокировку в «не измеряли». Повтор **не** отменяется только потому, что Яндекс или vk.com не ответили: два ordinary-успеха без Яндекса всё ещё дают Open. Повтор останавливается, когда Open уже получен или сеть потеряна. Вердикт Direct публикуется раньше и повторами не задерживается.
 - Повторная проверка Direct с обхода: 30 с → 60 с → 2 мин → 5 мин → 10 мин (`RecoverySettings.directReevalBackoffMs`), сброс при подтверждённом Direct или новой сети.
 - Переход на неизмеренную соту: быстрый зонд (≤ 1,5 с, `FAST_PROBE_BUDGET_MS`) вместо слепого Direct; результат складывается в свидетельства.
+- Dead Direct (нет TUN rx) на сотовой Auto: сначала underlay-проба мимо TUN, потом обход; Ignore (GSM / все Timeout) не переключает.
 - Предзондирование сотовой при активном Wi‑Fi: запрос сети освобождается между раундами.
 - Голосовой звонок / приостановка данных: пауза сетевых операций, после возобновления ≥ 5 с (`DATA_SUSPENSION_REBIND_MS`) — форсированный хендовер; только для радио, на котором едет туннель.
 - Таймеры восстановления держат CPU ограниченно (`RecoveryWakeLock`, потолок 120 с); слишком длинные таймеры CPU не держат.
@@ -277,9 +286,15 @@ Connect Path B: anonymous vkcalls(hash) по TCP  [fallback: legacy]
 **Для нас (тихий recreate, реализовано):** hash на устройстве; Connect остаётся anonymous `vkcalls`. Если `libclient` / логи дают мёртвый звонок (`CALL_UNAVAILABLE`, `VK call is unavailable`, `error_code=951/954`, «Звонок не найден»):
 
 - настройка выкл. → диалог «Создать новый»;
-- настройка вкл. и есть cookie `remixsid` → создать звонок через `VkCallHashGenerator` и перезапустить Bypass, не роняя VpnService;
+- настройка вкл. и есть cookie `remixsid` → создать звонок через `VkCallHashGenerator` (`CallHashOutcome`, без throw наружу) и перезапустить Bypass, не роняя VpnService;
+- временная сеть (timeout/IO) и HTTP 429/5xx → WaitingForNetwork / Recovering, `wantsConnected` сохраняется, ограниченный backoff, не UserDisconnect;
+- recreate идёт через `CallRecreateChanged` в reducer: Running/Connected не сохраняются без нового подтверждения; старый звонок `ConfirmedDead`, ошибка создания — отдельно;
+- нет сессии / капча / некорректный ответ VK → действие пользователя, не «неверный логин» на таймауте; Captcha ≠ SignIn;
+- onRevoke останавливает сервис по последнему Android command startId (включая REFRESH/SESSION_CONTROL/RESTART); отказ `stopSelfResult` → `stopSelf` только в revoke, не в обычном STOP;
 - нет сессии → диалог «Войти и создать»;
 - повторный мёртвый hash в том же цикле → стоп, «создайте код вручную» (без петли).
+
+Отложенный START после STOP A — `DeferredTunnelStart` с ticket/gateEpoch/request/session/generation. `revokePending()` синхронно на UserDisconnect/AttemptFailed до Hide-IP; callback в Handler заново проверяет актуальность перед ACTION_START.
 
 TURN creds по-прежнему кэширует `go_client` (как WDTT, ≤9 мин). Пароль VK не храним. Legacy captcha WebView — отдельно, не часть этого контура.
 
