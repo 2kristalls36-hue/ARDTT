@@ -47,6 +47,22 @@ fun goBypassNetworkTarget(
     return GoNetworkTarget(handle, kind, scope)
 }
 
+/**
+ * TURN sockets are bound to an Android Network handle. After Wi‑Fi→LTE the
+ * old handle is dead (`machine is not on the network`); push UPDATE_NETWORK
+ * even when the handover reconnect itself is skipped.
+ */
+fun shouldPushBypassNetworkHandle(
+    path: VpnPath?,
+    parkedRawAlive: Boolean,
+    previousHandle: Long?,
+    currentHandle: Long?,
+): Boolean {
+    if (currentHandle == null || currentHandle == 0L) return false
+    if (path != VpnPath.Bypass && !parkedRawAlive) return false
+    return previousHandle != currentHandle
+}
+
 /** Absent extra must not be treated as ALLOW. */
 fun sessionControlNetOpsDelta(hasNetOpsExtra: Boolean, allowed: Boolean): Boolean? {
     if (!hasNetOpsExtra) return null

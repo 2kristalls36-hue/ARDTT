@@ -130,6 +130,16 @@ fun shouldStartDirectWithoutDiagnostic(
 }
 
 /**
+ * Recovery [VpnPath.Direct] must not skip-probe into Direct when Auto already
+ * has enter-threshold + fresh-strong whitelist evidence on this cellular.
+ * [probePreferred] alone is not entry — that would weaken #217.
+ */
+fun connectClearsRecoveryDirectForWhitelist(
+    whitelistBypass: Boolean,
+    forced: VpnPath?,
+): VpnPath? = if (whitelistBypass && forced == VpnPath.Direct) null else forced
+
+/**
  * Auto moving onto cellular during a handover. Skipping the probe is only safe
  * when a same-operator whitelist measurement already exists — the pre-probe ran
  * on this SIM, or we were already here. Guessing Direct on an unmeasured cell
