@@ -192,3 +192,14 @@ fun currentModeLabel(
         null -> "—"
     }
 }
+
+internal object TunnelPanelCopy {
+    const val SIGNAL_LABEL = "Уровень сигнала"
+}
+
+internal enum class StatusSignalPlacement {
+    LabelStart,
+    LabelEnd,
+}
+
+internal fun statusSignalPlacement(): StatusSignalPlacement = StatusSignalPlacement.LabelStart

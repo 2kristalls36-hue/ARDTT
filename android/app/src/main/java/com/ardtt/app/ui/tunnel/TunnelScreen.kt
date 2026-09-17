@@ -815,37 +815,32 @@ private fun TunnelStatusPanel(
 
 @Composable
 private fun StatusSignalRow(signal: UnderlaySignalReading) {
-    val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val wifiOn = underlaySignalWifiEmphasized(signal.wifiConnected)
     val cellOn = underlaySignalCellularEmphasized(signal.wifiConnected, signal.cellularConnected)
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Row(
-            modifier = Modifier.weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Large),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            SignalMetric(
-                icon = Icons.Outlined.Wifi,
-                text = formatUnderlaySignalDbm(signal.wifiDbm),
-                emphasized = wifiOn,
-                contentDescription = "Wi‑Fi",
-            )
-            SignalMetric(
-                icon = Icons.Outlined.SignalCellularAlt,
-                text = formatUnderlaySignalDbm(signal.cellularDbm),
-                emphasized = cellOn,
-                contentDescription = "Сотовая сеть",
-            )
-        }
-        Text(
-            "Сигнал",
-            style = MaterialTheme.typography.bodyMedium,
-            color = muted,
-        )
-    }
+    check(statusSignalPlacement() == StatusSignalPlacement.LabelStart)
+    ArdttInlineFactRow(
+        label = TunnelPanelCopy.SIGNAL_LABEL,
+        value = "",
+        trailing = {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Large),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                SignalMetric(
+                    icon = Icons.Outlined.Wifi,
+                    text = formatUnderlaySignalDbm(signal.wifiDbm),
+                    emphasized = wifiOn,
+                    contentDescription = "Wi‑Fi",
+                )
+                SignalMetric(
+                    icon = Icons.Outlined.SignalCellularAlt,
+                    text = formatUnderlaySignalDbm(signal.cellularDbm),
+                    emphasized = cellOn,
+                    contentDescription = "Сотовая сеть",
+                )
+            }
+        },
+    )
 }
 
 @Composable
