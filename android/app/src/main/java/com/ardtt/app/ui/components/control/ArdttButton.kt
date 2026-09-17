@@ -192,12 +192,13 @@ fun ArdttButton(
             ) { content() }
         }
         ArdttButtonVariant.Icon -> {
+            val iconMin = ardttButtonMinHeight(variant, size)
             IconButton(
                 onClick = onClick,
                 enabled = clickable,
                 modifier = sized.defaultMinSize(
-                    minWidth = ArdttSize.TouchTarget,
-                    minHeight = ArdttSize.TouchTarget,
+                    minWidth = iconMin,
+                    minHeight = iconMin,
                 ),
                 colors = IconButtonDefaults.iconButtonColors(
                     contentColor = pair.content,
@@ -236,6 +237,7 @@ internal fun ardttDisabledButtonColors(
 }
 
 internal fun ardttButtonMinHeight(variant: ArdttButtonVariant, size: ArdttButtonSize) = when {
+    variant == ArdttButtonVariant.Icon && size == ArdttButtonSize.Compact -> ArdttSize.IconLarge
     variant == ArdttButtonVariant.Icon -> ArdttSize.TouchTarget
     size == ArdttButtonSize.Compact -> ArdttSize.ButtonCompact
     else -> ArdttSize.Button

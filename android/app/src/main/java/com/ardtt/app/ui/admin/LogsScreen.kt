@@ -44,6 +44,7 @@ import com.ardtt.app.core.AppLog
 import com.ardtt.app.core.ConnState
 import com.ardtt.app.core.ConnectionManager
 import com.ardtt.app.ui.components.control.ArdttButton
+import com.ardtt.app.ui.components.control.ArdttButtonSize
 import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.components.feedback.ArdttEmptyState
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
@@ -96,9 +97,11 @@ fun LogsScreen(
         }
     }
 
-    val uptimeText = remember(sessionUp, nowMs, entries.firstOrNull()?.id) {
-        if (!sessionUp) null else formatUptimeRough(entries, nowMs)
-    }
+    val uptimeText = formatJournalUptime(
+        sessionUp = sessionUp,
+        startedAtMs = conn.sessionStartedAtMs(),
+        nowMs = nowMs,
+    )
 
     LaunchedEffect(entries.lastOrNull()?.id) {
         if (entries.isNotEmpty()) {
@@ -143,7 +146,7 @@ fun LogsScreen(
                 shadowElevation = terminalCardElevation(),
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
-                    if (uptimeText != null || logsShowsTerminalHeaderWithoutSession()) {
+                    if (logsShowsTerminalHeaderWithoutSession() || logsTerminalHeaderAlwaysShowsUptime()) {
                         Surface(
                             color = MaterialTheme.colorScheme.primary.copy(
                                 alpha = if (isDark) ArdttAlpha.Fill else ArdttAlpha.FillSoft,
@@ -174,20 +177,18 @@ fun LogsScreen(
                                         Arrangement.End
                                     },
                                 ) {
-                                    if (uptimeText != null) {
-                                        Icon(
-                                            Icons.Default.Timer,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.onSurface,
-                                        )
-                                        Text(
-                                            uptimeText,
-                                            color = MaterialTheme.colorScheme.onSurface,
-                                            style = ArdttTerminalTextStyle,
-                                            fontWeight = FontWeight.SemiBold,
-                                            modifier = Modifier.padding(start = ArdttSpacing.Small),
-                                        )
-                                    }
+                                    Icon(
+                                        Icons.Default.Timer,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                    Text(
+                                        uptimeText,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        style = ArdttTerminalTextStyle,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.padding(start = ArdttSpacing.Small),
+                                    )
                                 }
                                 if (logsChromeActionAnchor() == LogsChromeActionAnchor.TerminalHeader) {
                                     LogsJournalHeaderActions(
@@ -309,6 +310,7 @@ private fun LogsHeaderIconButton(
     ArdttButton(
         onClick = onClick,
         variant = ArdttButtonVariant.Icon,
+        size = ArdttButtonSize.Compact,
         icon = icon,
         contentDescription = contentDescription,
         enabled = enabled,
@@ -325,6 +327,7 @@ internal object LogsCopy {
     const val EMPTY_TITLE = "Пока пусто"
     const val EMPTY_BODY = "Нажмите «Сеть» или «Подключить» — сюда пойдут probe / туннель / go_client."
     const val UPTIME_TICK_MS = 1_000L
+    const val UPTIME_IDLE = "00:00"
 
     fun clearBody(count: Int): String =
         "Будет удалено записей: $count. Действие нельзя отменить; при необходимости сначала скопируйте или поделитесь журналом."
@@ -351,6 +354,8 @@ internal fun logsChromeActionAnchor(): LogsChromeActionAnchor =
 internal fun logsActionsInPageHeader(embedded: Boolean): Boolean = false
 
 internal fun logsShowsTerminalHeaderWithoutSession(): Boolean = true
+
+internal fun logsTerminalHeaderAlwaysShowsUptime(): Boolean = true
 
 internal fun logsChromeUptimePlacement(): LogsChromeUptimePlacement =
     LogsChromeUptimePlacement.Start
@@ -393,13 +398,13 @@ private fun LogEventRow(
     }
 }
 
-private fun formatUptimeRough(entries: List<AppLog.Entry>, nowMs: Long): String? {
-    val start = entries.firstOrNull {
-        it.message.contains("VpnService started", ignoreCase = true) ||
-            it.message.contains("tunnel running", ignoreCase = true) ||
-            (it.tag.equals("ConnMgr", ignoreCase = true) && it.message.contains("Connected", ignoreCase = true))
-    }?.timeMs ?: return null
-    val ms = (nowMs - start).coerceAtLeast(0L)
+internal fun formatJournalUptime(
+    sessionUp: Boolean,
+    startedAtMs: Long,
+    nowMs: Long,
+): String {
+    if (!sessionUp || startedAtMs <= 0L) return LogsCopy.UPTIME_IDLE
+    val ms = (nowMs - startedAtMs).coerceAtLeast(0L)
     val h = TimeUnit.MILLISECONDS.toHours(ms)
     val m = TimeUnit.MILLISECONDS.toMinutes(ms) % 60
     val s = TimeUnit.MILLISECONDS.toSeconds(ms) % 60
