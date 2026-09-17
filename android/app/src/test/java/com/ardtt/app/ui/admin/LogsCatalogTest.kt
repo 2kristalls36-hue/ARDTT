@@ -92,5 +92,27 @@ class LogsCatalogTest {
             LogsChromeUptimePlacement.Start,
             logsChromeUptimePlacement(),
         )
+        assertTrue(logsTerminalHeaderAlwaysShowsUptime())
+    }
+
+    @Test
+    fun journalUptimeSitsOnTheLeftFromSessionStartNotLogText() {
+        assertEquals("00:00", LogsCopy.UPTIME_IDLE)
+        assertEquals(
+            "00:00",
+            formatJournalUptime(sessionUp = false, startedAtMs = 9_000L, nowMs = 90_000L),
+        )
+        assertEquals(
+            "00:00",
+            formatJournalUptime(sessionUp = true, startedAtMs = 0L, nowMs = 90_000L),
+        )
+        assertEquals(
+            "01:05",
+            formatJournalUptime(sessionUp = true, startedAtMs = 1_000L, nowMs = 66_000L),
+        )
+        assertEquals(
+            "1:02:03",
+            formatJournalUptime(sessionUp = true, startedAtMs = 1_000L, nowMs = 3_724_000L),
+        )
     }
 }

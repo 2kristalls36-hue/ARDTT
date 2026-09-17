@@ -69,6 +69,7 @@ class ArdttButtonContractTest {
         assertFalse(ardttButtonShowsText(ArdttButtonVariant.Icon, "Закрыть"))
         assertFalse(ardttButtonFillsWidth(ArdttButtonVariant.Icon, ArdttButtonSize.Regular, "Закрыть"))
         assertEquals(ArdttSize.TouchTarget, ardttButtonMinHeight(ArdttButtonVariant.Icon, ArdttButtonSize.Regular))
+        assertEquals(ArdttSize.IconLarge, ardttButtonMinHeight(ArdttButtonVariant.Icon, ArdttButtonSize.Compact))
         assertEquals(ArdttSize.Button, ardttButtonMinHeight(ArdttButtonVariant.Primary, ArdttButtonSize.Regular))
         assertEquals(ArdttSize.ButtonCompact, ardttButtonMinHeight(ArdttButtonVariant.Text, ArdttButtonSize.Compact))
     }

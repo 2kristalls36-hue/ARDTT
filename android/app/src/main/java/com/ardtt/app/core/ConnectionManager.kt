@@ -124,6 +124,9 @@ class ConnectionManager(
     /** Soft transport restart in progress (Wi‑Fi↔LTE); do not treat as user disconnect. */
     @Volatile private var softRestartInProgress: Boolean = false
     @Volatile private var tunnelStartedAtMs: Long = 0L
+
+    fun sessionStartedAtMs(): Long = tunnelStartedAtMs
+
     /** Consecutive identical Auto probe paths (Direct→Bypass still uses two hits). */
     private var handoverProbeStreak = ProbeStreak()
     /** Last underlay handle we probed / bound for handover. */
