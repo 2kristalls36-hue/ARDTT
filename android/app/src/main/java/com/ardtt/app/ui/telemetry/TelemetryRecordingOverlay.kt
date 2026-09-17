@@ -145,6 +145,13 @@ fun recordingAccentBorder(active: Boolean): BorderStroke? {
     )
 }
 
+internal enum class RecordingFrameHost {
+    ActivityContent,
+    WindowOverlay,
+}
+
+internal fun recordingFrameHost(): RecordingFrameHost = RecordingFrameHost.WindowOverlay
+
 @Composable
 private fun rememberRecorder(context: android.content.Context): TelemetryRecorder {
     return androidx.compose.runtime.remember { TelemetryRecorder.get(context) }
