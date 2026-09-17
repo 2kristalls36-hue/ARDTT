@@ -1,6 +1,7 @@
 package com.ardtt.app.ui.admin
 
 import androidx.compose.ui.unit.dp
+import com.ardtt.app.ui.components.layout.ArdttHeaderDefaults
 import com.ardtt.app.ui.components.layout.ardttScrollChromeTopPadding
 import com.ardtt.app.ui.theme.ArdttLayout
 import com.ardtt.app.ui.theme.ArdttSpacing
@@ -80,10 +81,14 @@ class DiagnosticsAccordionTest {
     @Test
     fun diagnosticsPacksOpenToolAgainstHeaderAndTabPill() {
         assertEquals(ArdttSpacing.None, diagnosticsChromeFade())
+        assertEquals(ArdttSpacing.None, diagnosticsHeaderBottomPadding())
+        assertEquals(ArdttSpacing.None, diagnosticsTitleRowMinHeight())
         assertEquals(ArdttSpacing.Tiny, diagnosticsFeedSpacing())
         assertEquals(ArdttSpacing.None, diagnosticsFeedBottomExtra())
+        assertEquals(ArdttSpacing.Small, diagnosticsNavReserveTrim())
         assertTrue(diagnosticsFeedSpacing() < ArdttLayout.FeedSpacing)
         assertTrue(diagnosticsFeedBottomExtra() < ArdttLayout.FeedBottomExtra)
+        assertTrue(diagnosticsHeaderBottomPadding() < ArdttHeaderDefaults.BottomPaddingBelowTitle)
         assertEquals(
             72.dp,
             ardttScrollChromeTopPadding(72.dp, diagnosticsChromeFade()),

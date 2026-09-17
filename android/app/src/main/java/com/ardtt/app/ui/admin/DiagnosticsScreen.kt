@@ -19,6 +19,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.Dp
 import com.ardtt.app.deploy.ServersRepository
 import com.ardtt.app.profile.ProfileRepository
 import com.ardtt.app.settings.AppSettingsRepository
@@ -74,16 +75,21 @@ fun DiagnosticsScreen(
     }
 
     if (!layout.showsTool) {
+        val hugBottom = diagnosticsContentBottomPadding()
         ArdttFeedScaffold(
             modifier = Modifier.fillMaxSize(),
+            fadeHeight = diagnosticsChromeFade(),
             header = {
                 ArdttTabHeader(
                     title = DiagnosticsCopy.TITLE,
                     subtitle = diagnosticsHeaderSubtitle(),
+                    bottomPadding = diagnosticsHeaderBottomPadding(),
+                    titleRowHeight = diagnosticsTitleRowMinHeight(),
                 )
             },
             verticalArrangement = Arrangement.spacedBy(diagnosticsFeedSpacing()),
             bottomExtra = diagnosticsFeedBottomExtra(),
+            stickyBottomPadding = hugBottom,
             stickyContent = {
                 Column(
                     verticalArrangement = Arrangement.spacedBy(diagnosticsFeedSpacing()),
@@ -111,6 +117,8 @@ fun DiagnosticsScreen(
             ArdttTabHeader(
                 title = DiagnosticsCopy.TITLE,
                 subtitle = diagnosticsHeaderSubtitle(),
+                bottomPadding = diagnosticsHeaderBottomPadding(),
+                titleRowHeight = diagnosticsTitleRowMinHeight(),
                 actions = if (openTool == DiagnosticsTool.Logs && logsActionsInPageHeader(embedded = true)) {
                     { LogsJournalHeaderActions() }
                 } else {
@@ -125,7 +133,7 @@ fun DiagnosticsScreen(
                 .padding(horizontal = ArdttLayout.ScreenPadding)
                 .padding(
                     top = topPad,
-                    bottom = ArdttBottomChrome.navigationReserve() + diagnosticsFeedBottomExtra(),
+                    bottom = diagnosticsContentBottomPadding(),
                 ),
             verticalArrangement = Arrangement.spacedBy(diagnosticsFeedSpacing()),
         ) {
@@ -214,6 +222,17 @@ internal fun diagnosticsHeaderSubtitle(): String? = null
 /** Open tool sits tight under the Diagnostics title; last row/terminal hugs the tab pill. */
 internal fun diagnosticsChromeFade() = ArdttSpacing.None
 
+internal fun diagnosticsHeaderBottomPadding() = ArdttSpacing.None
+
+internal fun diagnosticsTitleRowMinHeight() = ArdttSpacing.None
+
 internal fun diagnosticsFeedSpacing() = ArdttSpacing.Tiny
 
 internal fun diagnosticsFeedBottomExtra() = ArdttSpacing.None
+
+/** Drop the unused 8 dp air above the pill track so the last row sits on the bar. */
+internal fun diagnosticsNavReserveTrim() = ArdttSpacing.Small
+
+@Composable
+internal fun diagnosticsContentBottomPadding(): Dp =
+    ArdttBottomChrome.navigationReserve() - diagnosticsNavReserveTrim() + diagnosticsFeedBottomExtra()
