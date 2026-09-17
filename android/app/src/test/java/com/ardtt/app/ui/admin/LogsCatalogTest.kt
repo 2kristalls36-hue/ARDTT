@@ -77,8 +77,20 @@ class LogsCatalogTest {
     }
 
     @Test
-    fun journalActionsStayInThePageHeader() {
+    fun journalActionsLiveInTheTerminalHeader() {
+        assertEquals(LogsChromeActionAnchor.TerminalHeader, logsChromeActionAnchor())
         assertFalse(logsShowsInlineActionRow(embedded = true))
         assertFalse(logsShowsInlineActionRow(embedded = false))
+        assertFalse(logsActionsInPageHeader(embedded = true))
+        assertFalse(logsActionsInPageHeader(embedded = false))
+    }
+
+    @Test
+    fun terminalHeaderStaysVisibleWithoutSession() {
+        assertTrue(logsShowsTerminalHeaderWithoutSession())
+        assertEquals(
+            LogsChromeUptimePlacement.Start,
+            logsChromeUptimePlacement(),
+        )
     }
 }

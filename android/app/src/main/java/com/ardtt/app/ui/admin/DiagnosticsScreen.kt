@@ -80,7 +80,7 @@ fun DiagnosticsScreen(
             header = {
                 ArdttTabHeader(
                     title = DiagnosticsCopy.TITLE,
-                    subtitle = DiagnosticsCopy.SUBTITLE,
+                    subtitle = diagnosticsHeaderSubtitle(),
                 )
             },
             stickyContent = {
@@ -108,8 +108,8 @@ fun DiagnosticsScreen(
         header = {
             ArdttTabHeader(
                 title = DiagnosticsCopy.TITLE,
-                subtitle = DiagnosticsCopy.SUBTITLE,
-                actions = if (openTool == DiagnosticsTool.Logs) {
+                subtitle = diagnosticsHeaderSubtitle(),
+                actions = if (openTool == DiagnosticsTool.Logs && logsActionsInPageHeader(embedded = true)) {
                     { LogsJournalHeaderActions() }
                 } else {
                     null
@@ -201,7 +201,8 @@ private fun diagnosticsToolSpec(tool: DiagnosticsTool): DiagnosticsToolSpec = wh
 
 internal object DiagnosticsCopy {
     const val TITLE = "Диагностика"
-    const val SUBTITLE = "Сеть и журнал"
     const val NETWORK_SUBTITLE = "Карта пути и задержки"
     const val LOGS_SUBTITLE = "События туннеля и деплоя"
 }
+
+internal fun diagnosticsHeaderSubtitle(): String? = null
