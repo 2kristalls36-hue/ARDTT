@@ -2,6 +2,7 @@ package com.ardtt.app.ui.telemetry
 
 import android.app.Activity
 import android.graphics.PixelFormat
+import android.os.Build
 import android.os.IBinder
 import android.view.Gravity
 import android.view.View
@@ -13,6 +14,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalView
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.lifecycle.setViewTreeViewModelStoreOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
@@ -64,6 +67,8 @@ internal class RecordingFrameOverlay(private val activity: Activity) {
             setViewTreeLifecycleOwner(owner)
             setViewTreeViewModelStoreOwner(owner)
             setViewTreeSavedStateRegistryOwner(owner)
+            fitsSystemWindows = false
+            consumeRecordingFrameWindowInsets(this)
             setContent {
                 RecordingBorderOverlay(isRecording = true)
             }
@@ -158,6 +163,7 @@ internal class RecordingFrameOverlay(private val activity: Activity) {
                 this.token = token
                 gravity = Gravity.FILL
                 title = OVERLAY_TITLE
+                applyRecordingFrameWindowLayout(this)
             }
             val added = runCatching {
                 activity.windowManager.addView(view, params)
@@ -169,5 +175,36 @@ internal class RecordingFrameOverlay(private val activity: Activity) {
 
     companion object {
         internal const val OVERLAY_TITLE = "ARDTT recording frame"
+    }
+}
+
+internal fun applyRecordingFrameWindowLayout(params: WindowManager.LayoutParams) {
+    params.flags = params.flags or
+        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+    @Suppress("DEPRECATION")
+    if (Build.VERSION.SDK_INT < 30) {
+        params.systemUiVisibility = params.systemUiVisibility or
+            View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+            View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+            View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+    }
+    if (recordingFrameDrawsInDisplayCutout()) {
+        params.layoutInDisplayCutoutMode = if (Build.VERSION.SDK_INT >= 30) {
+            WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+        } else {
+            WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
+    }
+    if (Build.VERSION.SDK_INT >= 30 && recordingFrameIgnoresSystemInsets()) {
+        params.fitInsetsTypes = 0
+        params.fitInsetsSides = 0
+    }
+}
+
+internal fun consumeRecordingFrameWindowInsets(view: View) {
+    if (!recordingFrameIgnoresSystemInsets()) return
+    ViewCompat.setOnApplyWindowInsetsListener(view) { _, _ ->
+        WindowInsetsCompat.CONSUMED
     }
 }

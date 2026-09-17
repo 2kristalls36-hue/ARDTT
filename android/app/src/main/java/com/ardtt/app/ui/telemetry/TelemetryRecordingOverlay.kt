@@ -162,6 +162,10 @@ internal fun recordingFrameWindowKind(): RecordingFrameWindowKind =
 
 internal fun recordingFrameRaisesOnAnyFocusChange(): Boolean = true
 
+internal fun recordingFrameIgnoresSystemInsets(): Boolean = true
+
+internal fun recordingFrameDrawsInDisplayCutout(): Boolean = true
+
 @Composable
 private fun rememberRecorder(context: android.content.Context): TelemetryRecorder {
     return androidx.compose.runtime.remember { TelemetryRecorder.get(context) }

@@ -18,4 +18,10 @@ class RecordingFramePolicyTest {
         )
         assertTrue(recordingFrameRaisesOnAnyFocusChange())
     }
+
+    @Test
+    fun recordingFrameWrapsTheStatusBar() {
+        assertTrue(recordingFrameIgnoresSystemInsets())
+        assertTrue(recordingFrameDrawsInDisplayCutout())
+    }
 }
