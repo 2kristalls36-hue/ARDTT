@@ -152,6 +152,16 @@ internal enum class RecordingFrameHost {
 
 internal fun recordingFrameHost(): RecordingFrameHost = RecordingFrameHost.WindowOverlay
 
+internal enum class RecordingFrameWindowKind {
+    ActivitySubWindow,
+    ApplicationWindow,
+}
+
+internal fun recordingFrameWindowKind(): RecordingFrameWindowKind =
+    RecordingFrameWindowKind.ApplicationWindow
+
+internal fun recordingFrameRaisesOnAnyFocusChange(): Boolean = true
+
 @Composable
 private fun rememberRecorder(context: android.content.Context): TelemetryRecorder {
     return androidx.compose.runtime.remember { TelemetryRecorder.get(context) }
