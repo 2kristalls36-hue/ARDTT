@@ -2,6 +2,7 @@ package com.ardtt.app.ui.telemetry
 
 import android.app.Activity
 import android.graphics.PixelFormat
+import android.os.IBinder
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -19,6 +20,10 @@ import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 /**
  * Hosts the recording frame in a WindowManager overlay so bottom sheets and
  * dialogs cannot cover it. Touches pass through to the window below.
+ *
+ * Dialogs (`ModalBottomSheet`) are separate TYPE_APPLICATION windows. A
+ * sub-window of the activity stays under them, so the overlay prefers
+ * TYPE_APPLICATION and re-adds itself on every focus change to stay last.
  */
 @Composable
 fun RecordingFrameWindowHost(isRecording: Boolean) {
@@ -45,6 +50,9 @@ fun RecordingFrameWindowHost(isRecording: Boolean) {
 internal class RecordingFrameOverlay(private val activity: Activity) {
     private var host: ComposeView? = null
     private var focusListener: ViewTreeObserver.OnWindowFocusChangeListener? = null
+    private val raiseOnFocus = Runnable {
+        if (host != null) raise()
+    }
 
     fun show() {
         if (host != null) {
@@ -71,14 +79,20 @@ internal class RecordingFrameOverlay(private val activity: Activity) {
             )
         }
         host = composeView
-        val listener = ViewTreeObserver.OnWindowFocusChangeListener { hasFocus ->
-            if (!hasFocus) raise()
+        val listener = ViewTreeObserver.OnWindowFocusChangeListener {
+            if (recordingFrameRaisesOnAnyFocusChange()) {
+                activity.window.decorView.removeCallbacks(raiseOnFocus)
+                activity.window.decorView.post(raiseOnFocus)
+            } else if (!it) {
+                raise()
+            }
         }
         focusListener = listener
         activity.window.decorView.viewTreeObserver.addOnWindowFocusChangeListener(listener)
     }
 
     fun hide() {
+        activity.window.decorView.removeCallbacks(raiseOnFocus)
         focusListener?.let { listener ->
             val observer = activity.window.decorView.viewTreeObserver
             if (observer.isAlive) {
@@ -99,17 +113,37 @@ internal class RecordingFrameOverlay(private val activity: Activity) {
             return
         }
         runCatching { activity.windowManager.removeViewImmediate(view) }
+        (view.parent as? ViewGroup)?.removeView(view)
         addOverlayWindow(view)
     }
 
-    private fun addOverlayWindow(view: View): Boolean {
-        val token = activity.window.decorView.windowToken ?: return false
-        val types = intArrayOf(
+    private fun overlayTypes(): IntArray = when (recordingFrameWindowKind()) {
+        RecordingFrameWindowKind.ApplicationWindow -> intArrayOf(
+            WindowManager.LayoutParams.TYPE_APPLICATION,
+            WindowManager.LayoutParams.TYPE_APPLICATION_ATTACHED_DIALOG,
+            WindowManager.LayoutParams.TYPE_APPLICATION_SUB_PANEL,
+            WindowManager.LayoutParams.TYPE_APPLICATION_PANEL,
+        )
+        RecordingFrameWindowKind.ActivitySubWindow -> intArrayOf(
             WindowManager.LayoutParams.LAST_SUB_WINDOW,
             WindowManager.LayoutParams.TYPE_APPLICATION_SUB_PANEL,
             WindowManager.LayoutParams.TYPE_APPLICATION_PANEL,
         )
-        for (type in types) {
+    }
+
+    private fun overlayToken(type: Int): IBinder? {
+        val activityToken = activity.window.decorView.windowToken
+        val focusedToken = activity.currentFocus?.windowToken ?: activityToken
+        return if (type >= WindowManager.LayoutParams.FIRST_SUB_WINDOW) {
+            focusedToken
+        } else {
+            activityToken
+        }
+    }
+
+    private fun addOverlayWindow(view: View): Boolean {
+        for (type in overlayTypes()) {
+            val token = overlayToken(type) ?: continue
             val params = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT,
                 WindowManager.LayoutParams.MATCH_PARENT,
