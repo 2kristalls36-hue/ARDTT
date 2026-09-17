@@ -99,6 +99,7 @@ import com.ardtt.app.ui.theme.ArdttColors
 import com.ardtt.app.ui.theme.ArdttMotion
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSpacing
+import com.ardtt.app.ui.telemetry.recordingAccentBorder
 import com.ardtt.app.ui.theme.connectedStatusColor
 import com.ardtt.app.ui.tunnel.DonateSupportBanner
 import com.ardtt.app.update.AppUpdateController
@@ -527,6 +528,9 @@ fun SettingsScreen(
                     title = "Открыть тестирование",
                     subtitle = "Запись, хранилище и отправка журналов",
                     onClick = onOpenTesting,
+                    border = recordingAccentBorder(
+                        testingOpenRowShowsRecordingBorder(recordingActive),
+                    ),
                 )
             }
         }
