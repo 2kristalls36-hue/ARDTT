@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -57,6 +58,7 @@ import com.ardtt.app.ui.components.surface.terminalCardElevation
 import com.ardtt.app.ui.theme.ArdttAlpha
 import com.ardtt.app.ui.theme.ArdttRadius
 import com.ardtt.app.ui.theme.ArdttShapes
+import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
 import com.ardtt.app.ui.theme.ArdttTerminalLabelStyle
 import com.ardtt.app.ui.theme.ArdttTerminalTextStyle
@@ -181,6 +183,7 @@ fun LogsScreen(
                                         Icons.Default.Timer,
                                         contentDescription = null,
                                         tint = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.size(logsTerminalHeaderIconSize()),
                                     )
                                     Text(
                                         uptimeText,
@@ -356,6 +359,8 @@ internal fun logsActionsInPageHeader(embedded: Boolean): Boolean = false
 internal fun logsShowsTerminalHeaderWithoutSession(): Boolean = true
 
 internal fun logsTerminalHeaderAlwaysShowsUptime(): Boolean = true
+
+internal fun logsTerminalHeaderIconSize() = ArdttSize.IconLarge
 
 internal fun logsChromeUptimePlacement(): LogsChromeUptimePlacement =
     LogsChromeUptimePlacement.Start

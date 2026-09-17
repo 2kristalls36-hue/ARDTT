@@ -72,5 +72,10 @@ class ArdttButtonContractTest {
         assertEquals(ArdttSize.IconLarge, ardttButtonMinHeight(ArdttButtonVariant.Icon, ArdttButtonSize.Compact))
         assertEquals(ArdttSize.Button, ardttButtonMinHeight(ArdttButtonVariant.Primary, ArdttButtonSize.Regular))
         assertEquals(ArdttSize.ButtonCompact, ardttButtonMinHeight(ArdttButtonVariant.Text, ArdttButtonSize.Compact))
+        assertTrue(ardttCompactIconUsesExactMinSize())
+        assertTrue(
+            ardttButtonMinHeight(ArdttButtonVariant.Icon, ArdttButtonSize.Compact) <
+                ArdttSize.TouchTarget,
+        )
     }
 }
