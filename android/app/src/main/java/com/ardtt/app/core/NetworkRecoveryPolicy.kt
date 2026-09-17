@@ -160,10 +160,16 @@ fun shouldTreatInitialValidatedAsHandover(
     sessionStartedAtMs: Long,
     nowMs: Long,
     graceAfterStartMs: Long = HANDOVER_IGNORE_GRACE_MS,
+    lastHandoffAtMs: Long = 0L,
 ): Boolean {
     if (!tunnelRunning || userStopRequested || softRestartInProgress) return false
     if (sessionStartedAtMs <= 0L) return false
-    return nowMs - sessionStartedAtMs >= graceAfterStartMs
+    // Soft-restart / TUN re-establish looks like INITIAL VALIDATED. Measuring
+    // grace only from the original Connect tore down a live Direct twice in a
+    // row (ticket 24): the new VpnService brought the underlay back as INITIAL
+    // after [HANDOVER_IGNORE_GRACE_MS] from session start had already elapsed.
+    val anchor = maxOf(sessionStartedAtMs, lastHandoffAtMs)
+    return nowMs - anchor >= graceAfterStartMs
 }
 
 /**
@@ -262,7 +268,8 @@ fun updatedUnderlyingNetworkEvidenceSince(
  * That is safe for Path B only after Android VALIDATED the **new** underlay.
  * Leftover TURN counters after Wi‑Fi→LTE / SIM swap are not proof the sockets
  * rebound — they stay glued to the old cell IP until we restart.
- * Path A AWG UDP: never skip.
+ * Path A AWG UDP: skip only a VALIDATED flap on the **same** underlay. A real
+ * SIM/Wi‑Fi change still restarts — sockets stay glued to the old cell IP.
  */
 fun shouldSkipHandoverRestartIfTrafficFresh(
     bypassTrafficFresh: Boolean,
@@ -270,11 +277,12 @@ fun shouldSkipHandoverRestartIfTrafficFresh(
     path: VpnPath,
     validatedPresent: Boolean = true,
     underlayKind: UnderlayKind = UnderlayKind.Other,
+    underlayChanged: Boolean = true,
 ): Boolean = when (path) {
     // Leftover TURN on LTE is not a reason to stay on Bypass after Wi‑Fi is up.
     VpnPath.Bypass ->
         validatedPresent && bypassTrafficFresh && underlayKind != UnderlayKind.Wifi
-    VpnPath.Direct -> false
+    VpnPath.Direct -> !underlayChanged && directTrafficFresh
 }
 
 fun shouldAttemptSoftRestartNow(

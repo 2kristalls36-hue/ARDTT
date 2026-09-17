@@ -119,6 +119,8 @@ fun UserTunnelScreen(
     val donateBannerDismissed by settings.donateBannerDismissedFlow.collectAsStateWithLifecycle(
         initialValue = false,
     )
+    val appsWhitelist by settings.appsWhitelistModeFlow.collectAsStateWithLifecycle(initialValue = false)
+    val excludedApps by settings.excludedAppsFlow.collectAsStateWithLifecycle(initialValue = emptySet())
     val haptics = rememberArdttHaptics(uiHapticsEnabled)
 
     LaunchedEffect(profile) {
@@ -196,6 +198,8 @@ fun UserTunnelScreen(
             haptics.tick()
             PendingUiAction.requestCallHashSettings()
         },
+        appsWhitelist = appsWhitelist,
+        whitelistAppCount = excludedApps.size,
     )
 }
 
@@ -253,6 +257,8 @@ private fun UserTunnelSimpleScreen(
     showDonateBanner: Boolean,
     onDismissDonate: () -> Unit,
     onAddCallHash: () -> Unit,
+    appsWhitelist: Boolean = false,
+    whitelistAppCount: Int = 0,
 ) {
     val droneExitDurationMs = UserTunnelDefaults.DroneExitDurationMs
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -333,6 +339,8 @@ private fun UserTunnelSimpleScreen(
                 hasCallHash = ui.hasCallHash,
                 activePath = ui.activePath,
                 hideIp = ui.hideIp,
+                appsWhitelist = appsWhitelist,
+                whitelistAppCount = whitelistAppCount,
                 modifier = blockModifier,
                 onAddCallHash = onAddCallHash,
             )
@@ -471,13 +479,34 @@ private fun UserConnectStatusBlock(
     hideIp: Boolean,
     modifier: Modifier = Modifier,
     onAddCallHash: (() -> Unit)? = null,
+    appsWhitelist: Boolean = false,
+    whitelistAppCount: Int = 0,
 ) {
     val primaryLine = statusMessage.ifBlank { userModeStatusPrimary(state, activePath) }
     val needsCallHash = userModeNeedsCallHashHint(state, hasCallHash, activePath, details)
+    val fallbackDetails = userModeStatusDetails(
+        state,
+        details,
+        lastError,
+        activePath,
+        hideIp,
+        appsWhitelist,
+        whitelistAppCount,
+    )
+    val whitelistHint = if (state == ConnState.Connected) {
+        userModeWhitelistHint(appsWhitelist, whitelistAppCount)
+    } else {
+        null
+    }
     val resolvedDetails = if (needsCallHash) {
         UserTunnelCopy.CALL_HASH_HINT
     } else {
-        details ?: userModeStatusDetails(state, details, lastError, activePath, hideIp)
+        val base = fallbackDetails ?: details
+        if (whitelistHint != null && base != null && !base.contains(whitelistHint)) {
+            "$whitelistHint $base"
+        } else {
+            base
+        }
     }
     // Always painted straight on the wallpaper: light text with the shared shadow.
     val statusTextStyle = MaterialTheme.typography.titleMedium.copy(
@@ -510,7 +539,7 @@ private fun UserConnectStatusBlock(
             color = ArdttSurface.SoftLightContent.copy(alpha = if (resolvedDetails != null) 1f else 0f),
             textAlign = TextAlign.Center,
             minLines = 2,
-            maxLines = 2,
+            maxLines = 3,
             overflow = TextOverflow.Ellipsis,
         )
         if (needsCallHash && onAddCallHash != null) {

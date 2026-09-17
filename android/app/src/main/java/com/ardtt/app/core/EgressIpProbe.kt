@@ -343,9 +343,17 @@ object EgressIpProbe {
         // - viaVpn=false: prefer direct underlay route.
         val underlay = context?.let { pickBestUnderlayNetwork(it) }
         val vpn = context?.let { pickVpnNetwork(it) }
+        val underlayValidated = networkIsValidated(context, underlay)
+        // Dual-SIM: a half-up other SIM is often the "best" unvalidated
+        // underlay. Binding to it times out :9100 (ticket 24, source 10.37.x
+        // while the data SIM was 10.206.x) then retries default anyway.
         val firstBind = when {
             viaVpn -> vpn
-            else -> underlay
+            shouldBindProvisionToUnderlay(underlayValidated) -> underlay
+            else -> null
+        }
+        if (!viaVpn && underlay != null && !underlayValidated) {
+            AppLog.i(TAG, "provision egress skip unvalidated underlay — default route")
         }
         val secondBind = when {
             viaVpn -> underlay
@@ -363,6 +371,10 @@ object EgressIpProbe {
             }
             throw second.exceptionOrNull() ?: IllegalStateException("provision egress failed")
         }
+        if (secondBind != null) {
+            AppLog.i(TAG, "provision egress default failed (${first.exceptionOrNull()?.message}) — retry alt bind")
+            return getProvisionIp(q, bindNetwork = secondBind)
+        }
         throw first.exceptionOrNull() ?: IllegalStateException("provision egress failed")
     }
 
@@ -378,6 +390,21 @@ object EgressIpProbe {
         } finally {
             seriesDepth.updateAndGet { (it - 1).coerceAtLeast(0) }
         }
+    }
+
+    /**
+     * Direct/underlay provision must not wait 6s on a dual-SIM network that
+     * Android has not VALIDATED. Bypass/viaVpn still binds the VPN network.
+     */
+    internal fun shouldBindProvisionToUnderlay(underlayValidated: Boolean): Boolean =
+        underlayValidated
+
+    private fun networkIsValidated(context: Context?, network: Network?): Boolean {
+        if (context == null || network == null) return false
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return false
+        val caps = cm.getNetworkCapabilities(network) ?: return false
+        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
     }
 
     /**

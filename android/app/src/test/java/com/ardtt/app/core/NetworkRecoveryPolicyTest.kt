@@ -601,6 +601,30 @@ class NetworkRecoveryPolicyTest {
                 nowMs = 10_000L,
             ),
         )
+        // Ticket 24: TUN re-establish after a long session must not count as
+        // INITIAL handover — grace restarts from lastHandoffAtMs.
+        assertFalse(
+            shouldTreatInitialValidatedAsHandover(
+                tunnelRunning = true,
+                userStopRequested = false,
+                softRestartInProgress = false,
+                sessionStartedAtMs = 1_000L,
+                nowMs = 80_000L,
+                lastHandoffAtMs = 79_000L,
+                graceAfterStartMs = 5_000L,
+            ),
+        )
+        assertTrue(
+            shouldTreatInitialValidatedAsHandover(
+                tunnelRunning = true,
+                userStopRequested = false,
+                softRestartInProgress = false,
+                sessionStartedAtMs = 1_000L,
+                nowMs = 80_000L,
+                lastHandoffAtMs = 10_000L,
+                graceAfterStartMs = 5_000L,
+            ),
+        )
     }
 
     @Test
@@ -1016,6 +1040,22 @@ class NetworkRecoveryPolicyTest {
                 bypassTrafficFresh = true,
                 directTrafficFresh = true,
                 path = VpnPath.Direct,
+            ),
+        )
+        assertTrue(
+            shouldSkipHandoverRestartIfTrafficFresh(
+                bypassTrafficFresh = false,
+                directTrafficFresh = true,
+                path = VpnPath.Direct,
+                underlayChanged = false,
+            ),
+        )
+        assertFalse(
+            shouldSkipHandoverRestartIfTrafficFresh(
+                bypassTrafficFresh = false,
+                directTrafficFresh = false,
+                path = VpnPath.Direct,
+                underlayChanged = false,
             ),
         )
         assertEquals(
