@@ -25,6 +25,7 @@ class SessionCoordinationTest {
             evidenceSinceMs = 40L,
             generation = 2L,
             rebuildTun = false,
+            dataSubscriptionChanged = true,
         )
         val merged = mergePendingHandover(first, second)
         assertEquals("sim-swap", merged.reason)
@@ -34,6 +35,7 @@ class SessionCoordinationTest {
         assertEquals(40L, merged.evidenceSinceMs)
         assertEquals(2L, merged.generation)
         assertTrue(merged.rebuildTun)
+        assertTrue(merged.dataSubscriptionChanged)
     }
 
     @Test

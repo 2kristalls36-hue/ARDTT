@@ -1,9 +1,10 @@
 package com.ardtt.app.core
 
 /**
- * Auto Direct/Bypass table. A working Direct is never torn down for a
- * restriction hint. On cellular, a whitelist score at enter threshold starts
- * Bypass before a Direct attempt. Unknown underlay is not treated as cellular.
+ * Auto Direct/Bypass table. A working Direct is not torn down for a stale
+ * restriction hint. A fresh cellular whitelist at enter threshold starts
+ * Bypass even if Direct is already PathConfirm on this LTE. Unknown underlay
+ * is not treated as cellular.
  */
 sealed class AutoDecision {
     data object WaitForUnderlay : AutoDecision()
@@ -83,7 +84,7 @@ fun decideAutoPath(input: AutoPathInput): AutoDecision {
                     input.transport == TransportLifecycle.Running
                 ) {
                     AutoDecision.Stay(VpnPath.Bypass, "captive-wifi-keep-mobile")
-                } else if (input.hasCallHash) {
+                } else if (mayReuseCall(input)) {
                     AutoDecision.StartBypass(reuseCall = true, reason = "captive-wifi-keep-mobile")
                 } else {
                     AutoDecision.ShowCaptive
@@ -146,7 +147,7 @@ fun decideAutoPath(input: AutoPathInput): AutoDecision {
         }
         if (input.wifiFailStreak >= RecoverySettings.WIFI_DEGRADED_FAILS_BEFORE_HYSTERESIS &&
             input.underlay.cellularConnected &&
-            (input.parkedRawAlive || input.hasCallHash) &&
+            (input.parkedRawAlive || mayReuseCall(input)) &&
             input.transport != TransportLifecycle.Running &&
             input.transport != TransportLifecycle.Starting
         ) {
@@ -192,22 +193,39 @@ fun decideAutoPath(input: AutoPathInput): AutoDecision {
         underlay.key,
         input.profileId,
     ) == true
+    val freshStrong = input.evidence?.hasFreshStrong(
+        input.elapsedMs,
+        underlay.key,
+        input.profileId,
+    ) == true
+    val usable = input.evidence?.usableAt(
+        input.elapsedMs,
+        underlay.key,
+        input.profileId,
+    ) == true
     val restriction = input.evidence?.restrictionAt(
         input.elapsedMs,
         underlay.key,
         input.profileId,
     ) ?: RestrictionHint.Unknown
-    val whitelistScore = input.evidence?.whitelistScoreAt(
+    val historicalScore = input.evidence?.historicalWhitelistScore(
         underlay.key,
         input.profileId,
     ) ?: 0
     val alreadyBypass = input.currentPath == VpnPath.Bypass &&
         (input.transport == TransportLifecycle.Running ||
             input.transport == TransportLifecycle.Starting)
-    val whitelistLikely = RestrictionScore.likely(whitelistScore, alreadyBypass)
+    val unknownStreak = input.evidence?.unknownStreak ?: 0
+    val whitelistLikely = RestrictionScore.bypassHoldsDirectReeval(
+        historicalScore = historicalScore,
+        freshStrong = freshStrong,
+        usable = usable,
+        unknownStreak = unknownStreak,
+        alreadyBypass = alreadyBypass,
+    )
     val internetOk = input.evidence?.let { ev ->
         ev.usableAt(input.elapsedMs, underlay.key, input.profileId) &&
-            (ev.yandex.isSuccess || ev.bigtech.isSuccess)
+            (ev.yandex.isSuccess || ev.bigtech.isSuccess || ev.google.isSuccess)
     } == true
     val vpsRoutingBroken = internetOk &&
         input.evidence?.provision?.isFailure == true &&
@@ -219,7 +237,13 @@ fun decideAutoPath(input: AutoPathInput): AutoDecision {
         !blocked &&
         input.lastConfirmedNetworkKey.directConfirmedOn(underlay.key)
     ) {
-        return AutoDecision.Stay(VpnPath.Direct, "direct-works")
+        val liveWhitelist = RestrictionScore.mayEnterBypassForWhitelist(
+            historicalScore,
+            freshStrong,
+        ) && mayReuseCall(input)
+        if (!liveWhitelist) {
+            return AutoDecision.Stay(VpnPath.Direct, "direct-works")
+        }
     }
 
     if (input.currentPath == VpnPath.Bypass &&
@@ -249,11 +273,13 @@ fun decideAutoPath(input: AutoPathInput): AutoDecision {
 
     if (!blocked) {
         if (input.currentPath == VpnPath.Direct &&
-            input.transport == TransportLifecycle.Starting
+            input.transport == TransportLifecycle.Starting &&
+            !(RestrictionScore.mayEnterBypassForWhitelist(historicalScore, freshStrong) &&
+                mayReuseCall(input))
         ) {
             return AutoDecision.Stay(VpnPath.Direct, "direct-try-in-flight")
         }
-        if (whitelistLikely && input.hasCallHash) {
+        if (whitelistLikely && mayReuseCall(input)) {
             return AutoDecision.StartBypass(
                 reuseCall = true,
                 reason = "cellular-whitelist",
@@ -272,14 +298,39 @@ fun decideAutoPath(input: AutoPathInput): AutoDecision {
         )
     }
 
-    if (input.hasCallHash && input.call.canReuse) {
-        return AutoDecision.StartBypass(reuseCall = true, reason = "cellular-direct-failed")
+    if (mayReuseCall(input)) {
+        val deadDirectOpenInternet = internetOk &&
+            input.directNegative?.reason == "direct-no-rx"
+        val resumeBypass = whitelistLikely ||
+            input.parkedRawAlive ||
+            input.lastConfirmedPath == VpnPath.Bypass ||
+            deadDirectOpenInternet
+        if (resumeBypass) {
+            return AutoDecision.StartBypass(reuseCall = true, reason = "cellular-direct-failed")
+        }
+        return AutoDecision.StartDirect(
+            keepCall = input.hasCallHash,
+            immediate = false,
+            reason = if (restriction == RestrictionHint.Suspected ||
+                restriction == RestrictionHint.Confirmed
+            ) {
+                "cellular-try-direct"
+            } else {
+                "cellular-direct"
+            },
+        )
     }
 
     if (vpsRoutingBroken) {
         return AutoDecision.ServerFault("vps-unreachable")
     }
     return AutoDecision.Backoff("all-paths-failed")
+}
+
+private fun mayReuseCall(input: AutoPathInput): Boolean {
+    if (input.call.validity == CallValidity.ConfirmedDead) return false
+    if (input.call.validity == CallValidity.NeedsAuth) return false
+    return input.hasCallHash || input.call.hashPresent
 }
 
 private fun manualPath(path: VpnPath, input: AutoPathInput): AutoDecision {
@@ -296,7 +347,7 @@ private fun manualPath(path: VpnPath, input: AutoPathInput): AutoDecision {
             reason = "manual-direct",
         )
         VpnPath.Bypass -> AutoDecision.StartBypass(
-            reuseCall = true,
+            reuseCall = mayReuseCall(input),
             reason = "manual-bypass",
         )
     }

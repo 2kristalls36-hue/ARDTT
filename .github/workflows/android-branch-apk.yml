@@ -49,6 +49,10 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # Google removed the obsolete `tools` package; the action default
+          # (`tools platform-tools`) now fails sdkmanager on a fresh runner.
+          packages: platform-tools
 
       - name: Install Android SDK packages
         shell: bash
@@ -110,10 +114,29 @@ jobs:
           printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > local.properties
           ./gradlew :app:assembleRelease -PtargetAbis=arm64-v8a --no-daemon
 
+      - name: Verify signed APK
+        shell: bash
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
+        run: |
+          apk="android/app/build/outputs/apk/release/app-arm64-v8a-release.apk"
+          test -f "$apk"
+          "$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner" verify --verbose "$apk"
+          tmp="$(mktemp -d)"
+          unzip -qo "$apk" "lib/arm64-v8a/libclient.so" -d "$tmp"
+          python3 scripts/check-elf-16k.py "$tmp/lib/arm64-v8a/libclient.so"
+          mkdir -p dist
+          out="dist/ardtt-${{ steps.version.outputs.version_name }}-${{ steps.version.outputs.short_sha }}-arm64-v8a.apk"
+          cp "$apk" "$out"
+          {
+            echo "GitHub wraps this in a ZIP. Unzip it, then install the \`.apk\` (~22 MB)."
+            echo "Do not install the \`.zip\` itself — that shows «пакет недействителен»."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: ardtt-${{ steps.version.outputs.version_name }}-${{ steps.version.outputs.short_sha }}-arm64-v8a
-          path: android/app/build/outputs/apk/release/app-arm64-v8a-release.apk
+          path: dist/ardtt-${{ steps.version.outputs.version_name }}-${{ steps.version.outputs.short_sha }}-arm64-v8a.apk
           if-no-files-found: error
           retention-days: 14

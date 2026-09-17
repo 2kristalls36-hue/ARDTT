@@ -47,11 +47,17 @@ for ABI in "${ABIS[@]}"; do
   OUT_DIR="$OUT_BASE/$ABI"
   mkdir -p "$OUT_DIR"
   echo "Building $ABI -> $OUT_DIR/libclient.so"
+  # Android 15 16 KB-page devices reject 4 KiB PT_LOAD jniLibs as an invalid APK.
+  PAGE_LDFLAGS="-Wl,-z,max-page-size=16384"
   (
     cd "$GO_DIR"
     GOOS=android GOARCH="$GOARCH" CGO_ENABLED=1 CC="$CC" \
-      go build -trimpath -ldflags="-s -w -checklinkname=0" -o "$OUT_DIR/libclient.so" .
+      CGO_LDFLAGS="$PAGE_LDFLAGS" \
+      go build -trimpath \
+        -ldflags="-s -w -checklinkname=0 -linkmode=external -extldflags=$PAGE_LDFLAGS" \
+        -o "$OUT_DIR/libclient.so" .
   )
+  python3 "$ROOT_DIR/scripts/check-elf-16k.py" "$OUT_DIR/libclient.so"
   ls -lh "$OUT_DIR/libclient.so"
 done
 

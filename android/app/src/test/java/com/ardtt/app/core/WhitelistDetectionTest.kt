@@ -31,6 +31,11 @@ class WhitelistDetectionTest {
             google = CheckOutcome.Timeout,
             restriction = RestrictionHint.Confirmed,
             whitelistScorePercent = 80,
+            ttlUntilElapsedMs = 90_000L,
+            usableAtElapsedMs = 1L,
+            strongAtElapsedMs = 1L,
+            strongUntilElapsedMs = 90_000L,
+            measuredAtElapsedMs = 1L,
         )
         assertEquals(80, cellular.whitelistScoreAt(cellKey, "p"))
         assertEquals(

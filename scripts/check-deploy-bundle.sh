@@ -463,6 +463,11 @@ if [ -f "$ROOT/scripts/test-ensure-release-apks.sh" ]; then
   bash -n "$ROOT/scripts/ensure-release-apks.sh" || err "bash -n ensure-release-apks"
   bash "$ROOT/scripts/test-ensure-release-apks.sh" || err "ensure-release-apks"
 fi
+if [ -f "$ROOT/scripts/test-check-elf-16k.sh" ]; then
+  grep -q 'max-page-size=16384' "$ROOT/scripts/build-bypass-client.sh" \
+    || err "libclient.so must be linked with 16KiB max-page-size"
+  bash "$ROOT/scripts/test-check-elf-16k.sh" || err "elf 16KiB page-size checker"
+fi
 if [ -f "$ROOT/scripts/test-attach-server-packages.sh" ]; then
   bash -n "$ROOT/scripts/test-attach-server-packages.sh" || err "bash -n test-attach-server-packages"
   bash "$ROOT/scripts/test-attach-server-packages.sh" || err "attach server packages (missing GitHub Release)"

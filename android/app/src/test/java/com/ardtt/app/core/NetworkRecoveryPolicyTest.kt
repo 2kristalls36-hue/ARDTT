@@ -924,6 +924,162 @@ class NetworkRecoveryPolicyTest {
     }
 
     @Test
+    fun cellularBypassDdsWaitsFullValidatedTimeoutNotFourHundredMs() {
+        assertFalse(
+            shouldSkipValidatedWait(
+                VpnPath.Bypass,
+                UnderlayKind.Cellular,
+                dataSubscriptionChanged = true,
+            ),
+        )
+        assertEquals(
+            VALIDATED_WAIT_TIMEOUT_MS,
+            validatedWaitTimeoutMs(
+                replacementUnderlayPresent = true,
+                skipWait = false,
+                dataSubscriptionChanged = true,
+            ),
+        )
+        assertTrue(
+            shouldKeepWaitingForValidated(
+                validatedPresent = false,
+                waitedMs = VALIDATED_WAIT_WHEN_UNDERLAY_PRESENT_MS,
+                timeoutMs = VALIDATED_WAIT_TIMEOUT_MS,
+            ),
+        )
+        assertEquals(
+            BYPASS_NETWORK_SETTLE_MS,
+            extraNetworkSettleDelayMs(
+                VpnPath.Bypass,
+                validatedPresent = true,
+                skipValidatedWait = false,
+            ),
+        )
+    }
+
+    @Test
+    fun cellularDirectAndSameUnderlayFlapStillSkipValidatedWait() {
+        assertTrue(shouldSkipValidatedWait(VpnPath.Direct, UnderlayKind.Cellular))
+        assertTrue(
+            shouldSkipValidatedWait(
+                VpnPath.Direct,
+                UnderlayKind.Cellular,
+                dataSubscriptionChanged = true,
+            ),
+        )
+        assertTrue(shouldSkipValidatedWait(VpnPath.Bypass, UnderlayKind.Cellular))
+        assertTrue(
+            shouldSkipValidatedWait(
+                VpnPath.Bypass,
+                UnderlayKind.Cellular,
+                dataSubscriptionChanged = false,
+            ),
+        )
+        assertEquals(
+            0L,
+            validatedWaitTimeoutMs(
+                replacementUnderlayPresent = true,
+                skipWait = true,
+            ),
+        )
+        assertEquals(
+            VALIDATED_WAIT_WHEN_UNDERLAY_PRESENT_MS,
+            validatedWaitTimeoutMs(replacementUnderlayPresent = true),
+        )
+    }
+
+    @Test
+    fun sameDefaultDataSubDoesNotApplyHandover() {
+        assertFalse(
+            shouldApplyDataSubscriptionHandover(
+                reportedSubId = 2,
+                defaultDataSubId = 3,
+                lastAppliedSubId = 3,
+            ),
+        )
+        assertFalse(
+            shouldApplyDataSubscriptionHandover(
+                reportedSubId = 3,
+                defaultDataSubId = 3,
+                lastAppliedSubId = 3,
+            ),
+        )
+        assertFalse(
+            shouldApplyDataSubscriptionHandover(
+                reportedSubId = INVALID_DATA_SUB_ID,
+                defaultDataSubId = 3,
+                lastAppliedSubId = 3,
+            ),
+        )
+        assertTrue(
+            shouldApplyDataSubscriptionHandover(
+                reportedSubId = 2,
+                defaultDataSubId = 2,
+                lastAppliedSubId = 3,
+            ),
+        )
+    }
+
+    @Test
+    fun liveBypassDdsDoesNotSwitchToDirect() {
+        assertEquals(
+            NetworkHandoverDecision.SoftRestartSamePath,
+            decideNetworkHandoverAction(
+                pathMode = ConnPathMode.Auto,
+                currentPath = VpnPath.Bypass,
+                probedPath = VpnPath.Direct,
+                bypassAllowed = true,
+                underlayChanged = true,
+                underlayKind = UnderlayKind.Cellular,
+            ),
+        )
+    }
+
+    @Test
+    fun unvalidatedDdsDoesNotTearBypassDatapath() {
+        assertFalse(
+            shouldTearBypassDatapathOnHandover(
+                path = VpnPath.Bypass,
+                dataSubscriptionChanged = true,
+                validatedPresent = false,
+            ),
+        )
+        assertTrue(
+            shouldTearBypassDatapathOnHandover(
+                path = VpnPath.Bypass,
+                dataSubscriptionChanged = true,
+                validatedPresent = true,
+            ),
+        )
+        assertTrue(
+            shouldTearBypassDatapathOnHandover(
+                path = VpnPath.Bypass,
+                dataSubscriptionChanged = false,
+                validatedPresent = false,
+            ),
+        )
+        assertTrue(
+            shouldTearBypassDatapathOnHandover(
+                path = VpnPath.Direct,
+                dataSubscriptionChanged = true,
+                validatedPresent = false,
+            ),
+        )
+        assertFalse(
+            shouldReplaceVpnUnderlyingPin(
+                validated = false,
+                holdUntilValidated = true,
+            ),
+        )
+        assertTrue(
+            shouldReplaceVpnUnderlyingPin(validated = true, holdUntilValidated = true),
+        )
+        assertTrue(
+            shouldReplaceVpnUnderlyingPin(validated = false, holdUntilValidated = false),
+        )
+    }
+
+    @Test
     fun handoverDoesNotRestartStableWhitelistBypass() {
         assertEquals(
             NetworkHandoverDecision.NoAction,
@@ -1127,8 +1283,26 @@ class NetworkRecoveryPolicyTest {
             ),
         )
         assertEquals(
-            DeadDirectDecision.SwitchToBypass,
+            DeadDirectDecision.KeepWatching,
             decideDeadDirectAction(ConnPathMode.Auto, bypassAllowed = true),
+        )
+        assertEquals(
+            DeadDirectDecision.SwitchToBypass,
+            decideDeadDirectAction(
+                ConnPathMode.Auto,
+                bypassAllowed = true,
+                underlayKind = UnderlayKind.Cellular,
+                whitelistLikely = true,
+            ),
+        )
+        assertEquals(
+            DeadDirectDecision.MeasureUnderlay,
+            decideDeadDirectAction(
+                ConnPathMode.Auto,
+                bypassAllowed = true,
+                underlayKind = UnderlayKind.Cellular,
+                whitelistLikely = false,
+            ),
         )
         assertEquals(
             DeadDirectDecision.FailSession,
@@ -1180,6 +1354,181 @@ class NetworkRecoveryPolicyTest {
         assertTrue(
             verdict(txBytes = 40_000L, rxBytes = 0L, nowMs = session + DEAD_DIRECT_NO_RX_MS),
         )
+    }
+
+    @Test
+    fun deadHandshakeWithoutUplinkFloorIsStillDeadDirect() {
+        val session = 1_000L
+        val now = session + DEAD_DIRECT_NO_RX_MS
+        assertTrue(
+            shouldTreatDirectAsDeadNoRx(
+                nowMs = now,
+                sessionStartedAtMs = session,
+                lastHandoffAtMs = 0L,
+                txBytesInWindow = 1_024L,
+                rxDataBytesInWindow = 0L,
+                handshakeLive = false,
+            ),
+        )
+        assertFalse(
+            shouldTreatDirectAsDeadNoRx(
+                nowMs = now,
+                sessionStartedAtMs = session,
+                lastHandoffAtMs = 0L,
+                txBytesInWindow = 1_024L,
+                rxDataBytesInWindow = 0L,
+                handshakeLive = true,
+            ),
+        )
+        assertFalse(
+            shouldTreatDirectAsDeadNoRx(
+                nowMs = now,
+                sessionStartedAtMs = session,
+                lastHandoffAtMs = 0L,
+                txBytesInWindow = 1_024L,
+                rxDataBytesInWindow = 2_048L,
+                handshakeLive = false,
+            ),
+        )
+    }
+
+    @Test
+    fun deadDirectWithoutFreshWhitelistMeasuresUnderlayOnCellularAuto() {
+        assertEquals(
+            DeadDirectDecision.MeasureUnderlay,
+            decideDeadDirectAction(
+                ConnPathMode.Auto,
+                bypassAllowed = true,
+                underlayKind = UnderlayKind.Cellular,
+                whitelistLikely = false,
+            ),
+        )
+        assertEquals(
+            DeadDirectDecision.SwitchToBypass,
+            decideDeadDirectAction(
+                ConnPathMode.Auto,
+                bypassAllowed = true,
+                underlayKind = UnderlayKind.Cellular,
+                whitelistLikely = true,
+            ),
+        )
+        assertEquals(
+            DeadDirectDecision.KeepWatching,
+            decideDeadDirectAction(ConnPathMode.Auto, bypassAllowed = true),
+        )
+        assertEquals(
+            DeadDirectDecision.FailSession,
+            decideDeadDirectAction(
+                ConnPathMode.Auto,
+                bypassAllowed = true,
+                underlayKind = UnderlayKind.Wifi,
+            ),
+        )
+    }
+
+    @Test
+    fun deadDirectAfterUnderlaySampleLeavesDirectUnlessIgnore() {
+        assertEquals(
+            DeadDirectDecision.FailSession,
+            decideDeadDirectAfterUnderlaySample(RestrictionSample.Open, bypassAllowed = false),
+        )
+        assertEquals(
+            DeadDirectDecision.FailSession,
+            decideDeadDirectAfterUnderlaySample(RestrictionSample.Positive, bypassAllowed = false),
+        )
+        assertEquals(
+            DeadDirectDecision.SwitchToBypass,
+            decideDeadDirectAfterUnderlaySample(RestrictionSample.Positive, bypassAllowed = true),
+        )
+        assertEquals(
+            DeadDirectDecision.SwitchToBypass,
+            decideDeadDirectAfterUnderlaySample(RestrictionSample.WeakPositive, bypassAllowed = true),
+        )
+        assertEquals(
+            DeadDirectDecision.SwitchToBypass,
+            decideDeadDirectAfterUnderlaySample(RestrictionSample.Open, bypassAllowed = true),
+        )
+        assertEquals(
+            DeadDirectDecision.KeepWatching,
+            decideDeadDirectAfterUnderlaySample(RestrictionSample.Ignore, bypassAllowed = true),
+        )
+    }
+
+    @Test
+    fun underlayProbeWhileDirectConnectedIsCellularAutoOnly() {
+        assertTrue(
+            shouldProbeUnderlayWhileDirectConnected(
+                pathMode = ConnPathMode.Auto,
+                underlayKind = UnderlayKind.Cellular,
+                sessionHeld = true,
+                currentPath = VpnPath.Direct,
+            ),
+        )
+        assertFalse(
+            shouldProbeUnderlayWhileDirectConnected(
+                pathMode = ConnPathMode.Auto,
+                underlayKind = UnderlayKind.Cellular,
+                sessionHeld = true,
+                currentPath = VpnPath.Bypass,
+            ),
+        )
+        assertFalse(
+            shouldProbeUnderlayWhileDirectConnected(
+                pathMode = ConnPathMode.Auto,
+                underlayKind = UnderlayKind.Wifi,
+                sessionHeld = true,
+                currentPath = VpnPath.Direct,
+            ),
+        )
+        assertFalse(
+            shouldProbeUnderlayWhileDirectConnected(
+                pathMode = ConnPathMode.Auto,
+                underlayKind = UnderlayKind.Cellular,
+                sessionHeld = false,
+                currentPath = VpnPath.Direct,
+            ),
+        )
+        assertFalse(
+            shouldProbeUnderlayWhileDirectConnected(
+                pathMode = ConnPathMode.Direct,
+                underlayKind = UnderlayKind.Cellular,
+                sessionHeld = true,
+                currentPath = VpnPath.Direct,
+            ),
+        )
+    }
+
+    @Test
+    fun deadDirectUnderlayMeasureWaitsForGapAndIdleJob() {
+        assertTrue(
+            shouldStartDeadDirectUnderlayMeasure(
+                nowMs = 5_000L,
+                lastStartedAtMs = 0L,
+                jobActive = false,
+            ),
+        )
+        assertFalse(
+            shouldStartDeadDirectUnderlayMeasure(
+                nowMs = 5_000L,
+                lastStartedAtMs = 0L,
+                jobActive = true,
+            ),
+        )
+        assertFalse(
+            shouldStartDeadDirectUnderlayMeasure(
+                nowMs = 5_000L,
+                lastStartedAtMs = 4_000L,
+                jobActive = false,
+            ),
+        )
+        assertTrue(
+            shouldStartDeadDirectUnderlayMeasure(
+                nowMs = 5_000L,
+                lastStartedAtMs = 3_000L,
+                jobActive = false,
+            ),
+        )
+        assertEquals(2_000L, DEAD_DIRECT_UNDERLAY_MEASURE_MIN_GAP_MS)
     }
 
     /**
