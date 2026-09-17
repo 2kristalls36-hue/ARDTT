@@ -21,4 +21,10 @@ class SettingsAppearanceLogicTest {
         assertTrue(settingsAppearanceSections(admin = false, recordingActive = false).showClassicLook)
         assertFalse(settingsAppearanceSections(admin = true, recordingActive = false).showClassicLook)
     }
+
+    @Test
+    fun openTestingRowGetsRecordingBorderWhileRecording() {
+        assertTrue(testingOpenRowShowsRecordingBorder(recordingActive = true))
+        assertFalse(testingOpenRowShowsRecordingBorder(recordingActive = false))
+    }
 }

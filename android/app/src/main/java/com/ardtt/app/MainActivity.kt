@@ -27,6 +27,9 @@ import com.ardtt.app.settings.AppSettingsRepository
 import com.ardtt.app.telemetry.TelemetryRecorder
 import com.ardtt.app.ui.AppRoot
 import com.ardtt.app.ui.telemetry.RecordingBorderOverlay
+import com.ardtt.app.ui.telemetry.RecordingFrameHost
+import com.ardtt.app.ui.telemetry.RecordingFrameWindowHost
+import com.ardtt.app.ui.telemetry.recordingFrameHost
 import com.ardtt.app.ui.PendingUiAction
 import com.ardtt.app.ui.theme.ArdttTheme
 import kotlinx.coroutines.flow.first
@@ -61,7 +64,12 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                 }
-                RecordingBorderOverlay(isRecording = isRecording)
+                when (recordingFrameHost()) {
+                    RecordingFrameHost.ActivityContent ->
+                        RecordingBorderOverlay(isRecording = isRecording)
+                    RecordingFrameHost.WindowOverlay ->
+                        RecordingFrameWindowHost(isRecording = isRecording)
+                }
             }
         }
     }
