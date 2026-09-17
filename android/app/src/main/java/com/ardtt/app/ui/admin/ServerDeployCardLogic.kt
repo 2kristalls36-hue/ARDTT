@@ -328,6 +328,34 @@ internal enum class ServerOverviewOverflowAnchor {
 internal fun serverOverviewOverflowAnchor(): ServerOverviewOverflowAnchor =
     ServerOverviewOverflowAnchor.CardAfterOs
 
+internal enum class ServerOverviewHostMetricsPlacement {
+    StandaloneCard,
+    InsideServerCard,
+}
+
+internal fun serverOverviewHostMetricsPlacement(): ServerOverviewHostMetricsPlacement =
+    ServerOverviewHostMetricsPlacement.InsideServerCard
+
+internal fun serverOverviewEmbeddedHostMetrics(
+    health: HealthUi?,
+): ProvisionAdminApi.HostMetrics? =
+    if (serverOverviewHostMetricsPlacement() == ServerOverviewHostMetricsPlacement.InsideServerCard) {
+        (health as? HealthUi.Online)?.host
+    } else {
+        null
+    }
+
+internal fun serverOverviewStandaloneHostMetrics(
+    health: HealthUi?,
+): ProvisionAdminApi.HostMetrics? =
+    if (serverOverviewHostMetricsPlacement() == ServerOverviewHostMetricsPlacement.StandaloneCard) {
+        (health as? HealthUi.Online)?.host
+    } else {
+        null
+    }
+
+internal fun serverOverviewFeedAddsTopSpacing(): Boolean = false
+
 internal fun serverOverviewDeployIsUpdate(health: HealthUi?): Boolean =
     health !is HealthUi.NotInstalled
 

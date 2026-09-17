@@ -56,6 +56,7 @@ import com.ardtt.app.deploy.DeployEngine
 import com.ardtt.app.deploy.DeployJobKind
 import com.ardtt.app.deploy.DeployTarget
 import com.ardtt.app.deploy.PendingServerImport
+import com.ardtt.app.deploy.ProvisionAdminApi
 import com.ardtt.app.deploy.ServerLinkCodec
 import com.ardtt.app.deploy.ServerOsMark
 import com.ardtt.app.deploy.ServersRepository
@@ -538,6 +539,7 @@ internal fun ServerCard(
     onOpenServer: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     overflow: (@Composable () -> Unit)? = null,
+    hostMetrics: ProvisionAdminApi.HostMetrics? = null,
 ) {
     ArdttCompactCard(
         modifier = if (onOpenServer != null) {
@@ -556,6 +558,9 @@ internal fun ServerCard(
             showOpenHint = onOpenServer != null,
             overflow = overflow,
         )
+        hostMetrics?.let { metrics ->
+            ServerHostMetricsBlock(host = metrics)
+        }
     }
 }
 @Composable
