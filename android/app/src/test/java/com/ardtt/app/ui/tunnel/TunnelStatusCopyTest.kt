@@ -167,4 +167,10 @@ class TunnelStatusCopyTest {
         assertEquals(null, userModeWhitelistHint(appsWhitelist = true, appCount = 0))
         assertEquals(null, userModeWhitelistHint(appsWhitelist = false, appCount = 20))
     }
+
+    @Test
+    fun signalRowKeepsLabelOnTheLeft() {
+        assertEquals("Уровень сигнала", TunnelPanelCopy.SIGNAL_LABEL)
+        assertEquals(StatusSignalPlacement.LabelStart, statusSignalPlacement())
+    }
 }
