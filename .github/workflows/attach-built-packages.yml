@@ -2,6 +2,7 @@
 # partial-deploy index, host files, per-layer gzips, Engine and Compose) on
 # the existing GitHub Release. Does not rebuild the image or APK.
 # PRs never touch Releases.
+# v0.5.265: attach already-built 1.0.53 packages onto the new app tag.
 name: Attach built packages
 
 on:
