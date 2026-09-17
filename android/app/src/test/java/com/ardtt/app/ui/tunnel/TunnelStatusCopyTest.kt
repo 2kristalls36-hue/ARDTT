@@ -133,4 +133,10 @@ class TunnelStatusCopyTest {
         assertFalse(userModeNeedsCallHashHint(ConnState.PausedTrustedWifi, hasCallHash = false, activePath = VpnPath.Bypass, details = null))
         assertFalse(userModeNeedsCallHashHint(ConnState.Ready, hasCallHash = false, activePath = VpnPath.Direct, details = "Прямое соединение"))
     }
+
+    @Test
+    fun signalRowKeepsLabelOnTheLeft() {
+        assertEquals("Уровень сигнала", TunnelPanelCopy.SIGNAL_LABEL)
+        assertEquals(StatusSignalPlacement.LabelStart, statusSignalPlacement())
+    }
 }
