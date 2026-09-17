@@ -94,6 +94,12 @@ class EgressIpProbeTest {
     }
 
     @Test
+    fun provisionSkipsUnvalidatedUnderlayBind() {
+        assertFalse(EgressIpProbe.shouldBindProvisionToUnderlay(underlayValidated = false))
+        assertTrue(EgressIpProbe.shouldBindProvisionToUnderlay(underlayValidated = true))
+    }
+
+    @Test
     fun connectedWithoutPublicIpIsStillConnected() {
         assertEquals(
             "Подключено: прямое",

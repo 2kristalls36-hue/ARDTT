@@ -133,6 +133,23 @@ class DirectBackend : TunnelBackend {
         turnOff()
     }
 
+    /**
+     * Retry [protect]-then-bind after Android VALIDATED the underlay. First
+     * [awgTurnOn] often races a dual-SIM flap (`underlay-not-validated`); a
+     * full TUN restart is worse than rebinding the live UDP sockets.
+     */
+    fun rebindUnderlay(service: VpnTunnelService): String {
+        val h = handle.get()
+        if (h < 0) return "no-handle"
+        val sock4 = GoBackend.awgGetSocketV4(h)
+        val sock6 = GoBackend.awgGetSocketV6(h)
+        protectAwgSocket(service, "v4", sock4)
+        protectAwgSocket(service, "v6", sock6)
+        val bind4 = bindAwgToUnderlay(service, sock4)
+        val bind6 = bindAwgToUnderlay(service, sock6)
+        return "v4=$bind4 v6=$bind6"
+    }
+
     private fun bindAwgToUnderlay(service: VpnService, fd: Int): String {
         if (fd < 0) return "skip"
         val tun = service as? VpnTunnelService ?: return "no-service"

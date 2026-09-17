@@ -57,8 +57,10 @@ fun userModeStatusDetails(
     lastError: String?,
     activePath: VpnPath? = null,
     hideIp: Boolean = false,
+    appsWhitelist: Boolean = false,
+    whitelistAppCount: Int = 0,
 ): String? = when (state) {
-    ConnState.Connected -> if (hideIp) HideIpCopy.STATUS_HIDDEN else null
+    ConnState.Connected -> userModeConnectedDetails(hideIp, appsWhitelist, whitelistAppCount)
     ConnState.PausedTrustedWifi -> userModePausedDetails(activePath, softInfo)
     ConnState.Disconnecting -> null
     ConnState.WaitingForNetwork -> "Ожидаем Wi‑Fi или мобильный интернет."
@@ -69,6 +71,31 @@ fun userModeStatusDetails(
     ConnState.Connecting -> userModeSoftInfo(softInfo) ?: "Устанавливаем защищённое соединение…"
     ConnState.Error -> lastError?.trim()?.take(140)?.takeIf { it.isNotEmpty() }
     ConnState.Idle, ConnState.Ready -> userModeSoftInfo(softInfo)
+}
+
+/**
+ * Direct+БС (apps whitelist) leaves every other package on the operator path.
+ * Ticket 24: tunnel showed «Прямое подключение» with 20 allowed apps and no
+ * hint, while the user reported «нет интернета».
+ */
+fun userModeWhitelistHint(appsWhitelist: Boolean, appCount: Int): String? {
+    if (!appsWhitelist || appCount <= 0) return null
+    val scope = if (appCount == 1) {
+        "Только 1 приложение через туннель"
+    } else {
+        "Только $appCount приложений через туннель"
+    }
+    return "$scope. Остальные — мимо VPN."
+}
+
+private fun userModeConnectedDetails(
+    hideIp: Boolean,
+    appsWhitelist: Boolean,
+    whitelistAppCount: Int,
+): String? {
+    val whitelist = userModeWhitelistHint(appsWhitelist, whitelistAppCount)
+    val incognito = if (hideIp) HideIpCopy.STATUS_HIDDEN else null
+    return listOfNotNull(whitelist, incognito).joinToString(" · ").ifBlank { null }
 }
 
 private fun userModePausedDetails(activePath: VpnPath?, softInfo: String?): String? {

@@ -95,6 +95,30 @@ class TunnelStatusCopyTest {
             ),
         )
         assertEquals(
+            "Только 20 приложений через туннель. Остальные — мимо VPN.",
+            userModeStatusDetails(
+                ConnState.Connected,
+                softInfo = null,
+                lastError = null,
+                activePath = VpnPath.Direct,
+                hideIp = false,
+                appsWhitelist = true,
+                whitelistAppCount = 20,
+            ),
+        )
+        assertEquals(
+            "Только 20 приложений через туннель. Остальные — мимо VPN. · Инкогнито",
+            userModeStatusDetails(
+                ConnState.Connected,
+                softInfo = null,
+                lastError = null,
+                activePath = VpnPath.Direct,
+                hideIp = true,
+                appsWhitelist = true,
+                whitelistAppCount = 20,
+            ),
+        )
+        assertEquals(
             null,
             userModeStatusDetails(
                 ConnState.Connected,
@@ -132,5 +156,15 @@ class TunnelStatusCopyTest {
         assertFalse(userModeNeedsCallHashHint(ConnState.Connected, hasCallHash = false, activePath = VpnPath.Bypass, details = null))
         assertFalse(userModeNeedsCallHashHint(ConnState.PausedTrustedWifi, hasCallHash = false, activePath = VpnPath.Bypass, details = null))
         assertFalse(userModeNeedsCallHashHint(ConnState.Ready, hasCallHash = false, activePath = VpnPath.Direct, details = "Прямое соединение"))
+    }
+
+    @Test
+    fun whitelistHintOnlyWhenModeOnWithApps() {
+        assertEquals(
+            "Только 1 приложение через туннель. Остальные — мимо VPN.",
+            userModeWhitelistHint(appsWhitelist = true, appCount = 1),
+        )
+        assertEquals(null, userModeWhitelistHint(appsWhitelist = true, appCount = 0))
+        assertEquals(null, userModeWhitelistHint(appsWhitelist = false, appCount = 20))
     }
 }
