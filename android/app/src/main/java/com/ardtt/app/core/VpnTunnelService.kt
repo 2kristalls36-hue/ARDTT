@@ -1484,6 +1484,10 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                         AppLog.v(TAG, "validated underlying network id=$id")
                         // After Wi‑Fi→LTE, id is often cleared; the new/returning
                         // underlay arrives as INITIAL, not HANDOVER — still re-probe.
+                        // A soft-restart's own TUN re-establish is also INITIAL;
+                        // grace from lastHandoff skips a second teardown and
+                        // just pins AWG to the now-VALIDATED cell.
+                        rebindLiveDirectUnderlay("validated-initial")
                         if (
                             shouldTreatInitialValidatedAsHandover(
                                 tunnelRunning = tunnelSessionActive,
@@ -1491,6 +1495,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                                 softRestartInProgress = softRestartInProgress,
                                 sessionStartedAtMs = sessionStartedAtMs,
                                 nowMs = System.currentTimeMillis(),
+                                lastHandoffAtMs = lastHandoffAtMs,
                             )
                         ) {
                             scheduleUnderlyingNetworkReconnect(
@@ -1807,6 +1812,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                     path = livePath,
                     validatedPresent = validatedNow,
                     underlayKind = currentUnderlayKind(),
+                    underlayChanged = pendingHandoverUnderlayChanged,
                 )
                 if (skipRestart) {
                     AppLog.v(
@@ -1814,6 +1820,9 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                         "handover: skip restart — $livePath already has inbound traffic " +
                             "since $evidence ($reason)",
                     )
+                    if (livePath == VpnPath.Direct) {
+                        rebindLiveDirectUnderlay("skip-restart-fresh-rx")
+                    }
                     return@launch
                 }
                 if (!validatedNow && livePath == VpnPath.Bypass) {
@@ -2141,6 +2150,20 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         } catch (e: Exception) {
             "bind-fail:${e.message}"
         }
+    }
+
+    /**
+     * Pin the live Direct TUN / AWG UDP sockets to a now-VALIDATED underlay
+     * without tearing the session down. First [awgTurnOn] often reports
+     * `underlay-not-validated` on dual-SIM while LTE is still attaching.
+     */
+    private fun rebindLiveDirectUnderlay(reason: String) {
+        if (TunnelSessionHolder.config?.path != VpnPath.Direct) return
+        if (!tunnelSessionActive || userStopRequested) return
+        bindTunToUnderlay()
+        val direct = backend as? DirectBackend ?: return
+        val sockets = direct.rebindUnderlay(this)
+        AppLog.i(TAG, "Direct underlay rebind ($reason) sockets=$sockets")
     }
 
     private fun bindTunToUnderlay() {
