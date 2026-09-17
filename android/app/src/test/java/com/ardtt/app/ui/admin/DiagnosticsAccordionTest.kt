@@ -67,4 +67,9 @@ class DiagnosticsAccordionTest {
         assertNull(layout.expanded)
         assertEquals(tools, layout.trailing)
     }
+
+    @Test
+    fun diagnosticsHeaderOmitsNetworkAndLogsSubtitle() {
+        assertTrue(diagnosticsHeaderSubtitle().isNullOrBlank())
+    }
 }
