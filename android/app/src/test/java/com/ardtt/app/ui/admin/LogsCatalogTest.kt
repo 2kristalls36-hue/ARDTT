@@ -1,6 +1,11 @@
 package com.ardtt.app.ui.admin
 
 import com.ardtt.app.core.AppLog
+import com.ardtt.app.ui.components.control.ArdttButtonSize
+import com.ardtt.app.ui.components.control.ArdttButtonVariant
+import com.ardtt.app.ui.components.control.ardttButtonMinHeight
+import com.ardtt.app.ui.components.control.ardttCompactIconUsesExactMinSize
+import com.ardtt.app.ui.theme.ArdttSize
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -93,6 +98,20 @@ class LogsCatalogTest {
             logsChromeUptimePlacement(),
         )
         assertTrue(logsTerminalHeaderAlwaysShowsUptime())
+    }
+
+    @Test
+    fun terminalHeaderMatchesOriginalSlimTimerStrip() {
+        assertEquals(ArdttSize.IconLarge, logsTerminalHeaderIconSize())
+        assertTrue(ardttCompactIconUsesExactMinSize())
+        assertEquals(
+            logsTerminalHeaderIconSize(),
+            ardttButtonMinHeight(ArdttButtonVariant.Icon, ArdttButtonSize.Compact),
+        )
+        assertTrue(
+            ardttButtonMinHeight(ArdttButtonVariant.Icon, ArdttButtonSize.Compact) <
+                ArdttSize.TouchTarget,
+        )
     }
 
     @Test
