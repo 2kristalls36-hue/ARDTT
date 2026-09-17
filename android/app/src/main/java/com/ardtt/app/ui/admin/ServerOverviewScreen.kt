@@ -410,15 +410,17 @@ private fun ServerOverviewScreen(
                     contentPadding = PaddingValues(
                         start = ArdttSpacing.Large,
                         end = ArdttSpacing.Large,
-                        top = ArdttSpacing.Small,
+                        top = if (serverOverviewFeedAddsTopSpacing()) {
+                            ArdttSpacing.Small
+                        } else {
+                            ArdttSpacing.None
+                        },
                         bottom = ArdttBottomChrome.scrollContentPadding(),
                     ),
                     verticalArrangement = Arrangement.spacedBy(ArdttLayout.ListSpacing),
                 ) {
-            item {
-                val online = health as? HealthUi.Online
-                val host = online?.host
-                if (host != null) {
+            serverOverviewStandaloneHostMetrics(health)?.let { host ->
+                item {
                     ServerHostMetricsCard(host = host)
                 }
             }
@@ -427,6 +429,7 @@ private fun ServerOverviewScreen(
                     server = server,
                     health = health,
                     expectedVersion = expectedVersion,
+                    hostMetrics = serverOverviewEmbeddedHostMetrics(health),
                     overflow = {
                         ServerOverviewCardMenu(
                             expanded = showActions,

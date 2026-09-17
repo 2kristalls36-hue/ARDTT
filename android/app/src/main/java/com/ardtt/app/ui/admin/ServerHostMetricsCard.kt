@@ -32,6 +32,16 @@ internal fun ServerHostMetricsCard(
     modifier: Modifier = Modifier,
 ) {
     ArdttSectionCard(modifier = modifier.fillMaxWidth()) {
+        ServerHostMetricsBlock(host = host)
+    }
+}
+
+@Composable
+internal fun ServerHostMetricsBlock(
+    host: ProvisionAdminApi.HostMetrics,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
         Text(
             "Ресурсы сервера",
             style = MaterialTheme.typography.titleSmall,

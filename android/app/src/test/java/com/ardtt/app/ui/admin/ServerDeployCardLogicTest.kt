@@ -408,6 +408,30 @@ class ServerDeployCardLogicTest {
     }
 
     @Test
+    fun overviewMergesHostMetricsIntoServerCardAndDropsTitleGap() {
+        val host = ProvisionAdminApi.HostMetrics(
+            cpuPercent = 12f,
+            cpuCores = 2f,
+            memPercent = 40f,
+            memUsedBytes = 1L,
+            memTotalBytes = 2L,
+            diskPercent = 8f,
+            diskUsedBytes = 1L,
+            diskTotalBytes = 2L,
+        )
+        val online = HealthUi.Online(deployVersion = "1.0.5", host = host)
+        assertEquals(
+            ServerOverviewHostMetricsPlacement.InsideServerCard,
+            serverOverviewHostMetricsPlacement(),
+        )
+        assertEquals(host, serverOverviewEmbeddedHostMetrics(online))
+        assertNull(serverOverviewStandaloneHostMetrics(online))
+        assertNull(serverOverviewEmbeddedHostMetrics(HealthUi.Checking))
+        assertNull(serverOverviewStandaloneHostMetrics(HealthUi.Checking))
+        assertFalse(serverOverviewFeedAddsTopSpacing())
+    }
+
+    @Test
     fun newCardActionDependsOnCascade() {
         assertEquals("Установить на VPS", serverDeployActionLabel(saved = false, cascadeEnabled = false))
         assertEquals("Установить каскад", serverDeployActionLabel(saved = false, cascadeEnabled = true))
