@@ -66,6 +66,9 @@ import com.ardtt.app.core.UnderlaySignalReading
 import com.ardtt.app.core.formatUnderlaySignalDbm
 import com.ardtt.app.core.underlaySignalCellularEmphasized
 import com.ardtt.app.core.underlaySignalWifiEmphasized
+import com.ardtt.app.core.wifiSignalQuality
+import com.ardtt.app.core.cellularSignalQuality
+import com.ardtt.app.core.UnderlaySignalQuality
 import com.ardtt.app.core.underlayIdentity
 import com.ardtt.app.deploy.DeployHop
 import com.ardtt.app.deploy.ServersRepository
@@ -830,12 +833,14 @@ private fun StatusSignalRow(signal: UnderlaySignalReading) {
                     icon = Icons.Outlined.Wifi,
                     text = formatUnderlaySignalDbm(signal.wifiDbm),
                     emphasized = wifiOn,
+                    quality = wifiSignalQuality(signal.wifiDbm),
                     contentDescription = "Wi‑Fi",
                 )
                 SignalMetric(
                     icon = Icons.Outlined.SignalCellularAlt,
                     text = formatUnderlaySignalDbm(signal.cellularDbm),
                     emphasized = cellOn,
+                    quality = cellularSignalQuality(signal.cellularDbm),
                     contentDescription = "Сотовая сеть",
                 )
             }
@@ -848,12 +853,17 @@ private fun SignalMetric(
     icon: ImageVector,
     text: String,
     emphasized: Boolean,
+    quality: UnderlaySignalQuality,
     contentDescription: String,
 ) {
-    val color = if (emphasized) {
-        MaterialTheme.colorScheme.onSurface
-    } else {
-        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = ArdttAlpha.Muted)
+    val color = when (quality) {
+        UnderlaySignalQuality.Unknown -> MaterialTheme.colorScheme.onSurfaceVariant.copy(
+            alpha = ArdttAlpha.Muted,
+        )
+        UnderlaySignalQuality.Poor -> MaterialTheme.colorScheme.error
+        UnderlaySignalQuality.Fair -> warningStatusColor()
+        UnderlaySignalQuality.Good,
+        UnderlaySignalQuality.Excellent -> connectedStatusColor()
     }
     Row(
         verticalAlignment = Alignment.CenterVertically,

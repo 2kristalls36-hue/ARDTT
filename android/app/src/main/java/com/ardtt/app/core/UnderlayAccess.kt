@@ -66,6 +66,34 @@ internal fun underlaySignalCellularEmphasized(
     cellularConnected: Boolean,
 ): Boolean = cellularConnected && !wifiConnected
 
+internal enum class UnderlaySignalQuality {
+    Unknown,
+    Poor,
+    Fair,
+    Good,
+    Excellent,
+}
+
+internal fun wifiSignalQuality(dbm: Int?): UnderlaySignalQuality {
+    if (dbm == null) return UnderlaySignalQuality.Unknown
+    return when {
+        dbm >= -50 -> UnderlaySignalQuality.Excellent
+        dbm >= -60 -> UnderlaySignalQuality.Good
+        dbm >= -70 -> UnderlaySignalQuality.Fair
+        else -> UnderlaySignalQuality.Poor
+    }
+}
+
+internal fun cellularSignalQuality(dbm: Int?): UnderlaySignalQuality {
+    if (dbm == null) return UnderlaySignalQuality.Unknown
+    return when {
+        dbm >= -80 -> UnderlaySignalQuality.Excellent
+        dbm >= -90 -> UnderlaySignalQuality.Good
+        dbm >= -100 -> UnderlaySignalQuality.Fair
+        else -> UnderlaySignalQuality.Poor
+    }
+}
+
 fun readUnderlaySignal(context: Context): UnderlaySignalReading {
     val app = context.applicationContext
     val wifi = readConnectedWifiState(app, requireBackground = false)
