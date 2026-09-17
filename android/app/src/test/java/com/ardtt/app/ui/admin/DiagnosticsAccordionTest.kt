@@ -1,5 +1,9 @@
 package com.ardtt.app.ui.admin
 
+import androidx.compose.ui.unit.dp
+import com.ardtt.app.ui.components.layout.ardttScrollChromeTopPadding
+import com.ardtt.app.ui.theme.ArdttLayout
+import com.ardtt.app.ui.theme.ArdttSpacing
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -71,5 +75,18 @@ class DiagnosticsAccordionTest {
     @Test
     fun diagnosticsHeaderOmitsNetworkAndLogsSubtitle() {
         assertTrue(diagnosticsHeaderSubtitle().isNullOrBlank())
+    }
+
+    @Test
+    fun diagnosticsPacksOpenToolAgainstHeaderAndTabPill() {
+        assertEquals(ArdttSpacing.None, diagnosticsChromeFade())
+        assertEquals(ArdttSpacing.Tiny, diagnosticsFeedSpacing())
+        assertEquals(ArdttSpacing.None, diagnosticsFeedBottomExtra())
+        assertTrue(diagnosticsFeedSpacing() < ArdttLayout.FeedSpacing)
+        assertTrue(diagnosticsFeedBottomExtra() < ArdttLayout.FeedBottomExtra)
+        assertEquals(
+            72.dp,
+            ardttScrollChromeTopPadding(72.dp, diagnosticsChromeFade()),
+        )
     }
 }

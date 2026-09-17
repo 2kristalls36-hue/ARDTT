@@ -4,10 +4,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Terminal
@@ -30,6 +28,7 @@ import com.ardtt.app.ui.components.layout.ArdttFeedScaffold
 import com.ardtt.app.ui.components.layout.ArdttScrollChrome
 import com.ardtt.app.ui.components.layout.ArdttTabHeader
 import com.ardtt.app.ui.theme.ArdttLayout
+import com.ardtt.app.ui.theme.ArdttSpacing
 
 @Composable
 fun DiagnosticsScreen(
@@ -83,9 +82,11 @@ fun DiagnosticsScreen(
                     subtitle = diagnosticsHeaderSubtitle(),
                 )
             },
+            verticalArrangement = Arrangement.spacedBy(diagnosticsFeedSpacing()),
+            bottomExtra = diagnosticsFeedBottomExtra(),
             stickyContent = {
                 Column(
-                    verticalArrangement = Arrangement.spacedBy(ArdttLayout.FeedSpacing),
+                    verticalArrangement = Arrangement.spacedBy(diagnosticsFeedSpacing()),
                 ) {
                     layout.trailing.forEach { tool ->
                         DiagnosticsToolRow(
@@ -105,6 +106,7 @@ fun DiagnosticsScreen(
     val openTool = layout.expanded ?: return
     ArdttScrollChrome(
         modifier = Modifier.fillMaxSize(),
+        fadeHeight = diagnosticsChromeFade(),
         header = {
             ArdttTabHeader(
                 title = DiagnosticsCopy.TITLE,
@@ -121,8 +123,11 @@ fun DiagnosticsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = ArdttLayout.ScreenPadding)
-                .padding(top = topPad, bottom = ArdttBottomChrome.navigationReserve()),
-            verticalArrangement = Arrangement.spacedBy(ArdttLayout.FeedSpacing),
+                .padding(
+                    top = topPad,
+                    bottom = ArdttBottomChrome.navigationReserve() + diagnosticsFeedBottomExtra(),
+                ),
+            verticalArrangement = Arrangement.spacedBy(diagnosticsFeedSpacing()),
         ) {
             layout.leading.forEach { tool ->
                 DiagnosticsToolRow(
@@ -159,7 +164,6 @@ fun DiagnosticsScreen(
                     onClick = { select(tool) },
                 )
             }
-            Spacer(Modifier.height(ArdttLayout.FeedBottomExtra))
         }
     }
 }
@@ -206,3 +210,10 @@ internal object DiagnosticsCopy {
 }
 
 internal fun diagnosticsHeaderSubtitle(): String? = null
+
+/** Open tool sits tight under the Diagnostics title; last row/terminal hugs the tab pill. */
+internal fun diagnosticsChromeFade() = ArdttSpacing.None
+
+internal fun diagnosticsFeedSpacing() = ArdttSpacing.Tiny
+
+internal fun diagnosticsFeedBottomExtra() = ArdttSpacing.None
