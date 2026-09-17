@@ -2,6 +2,7 @@ package com.ardtt.app.core
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -430,6 +431,48 @@ class ConnectPathTest {
                     message = "Передача данных не подтверждена",
                 ),
                 underlayKind = UnderlayKind.Cellular,
+            ),
+        )
+    }
+
+    @Test
+    fun recoveryDirectClearsOnlyWhenWhitelistEnterAndFreshStrong() {
+        assertNull(
+            connectClearsRecoveryDirectForWhitelist(
+                whitelistBypass = true,
+                forced = VpnPath.Direct,
+            ),
+        )
+        assertEquals(
+            VpnPath.Direct,
+            connectClearsRecoveryDirectForWhitelist(
+                whitelistBypass = false,
+                forced = VpnPath.Direct,
+            ),
+        )
+        assertEquals(
+            VpnPath.Bypass,
+            connectClearsRecoveryDirectForWhitelist(
+                whitelistBypass = true,
+                forced = VpnPath.Bypass,
+            ),
+        )
+        assertFalse(
+            RestrictionScore.mayEnterBypassForWhitelist(
+                scorePercent = 0,
+                freshStrongConfirmation = false,
+            ),
+        )
+        assertFalse(
+            RestrictionScore.mayEnterBypassForWhitelist(
+                scorePercent = 80,
+                freshStrongConfirmation = false,
+            ),
+        )
+        assertTrue(
+            RestrictionScore.mayEnterBypassForWhitelist(
+                scorePercent = 80,
+                freshStrongConfirmation = true,
             ),
         )
     }
