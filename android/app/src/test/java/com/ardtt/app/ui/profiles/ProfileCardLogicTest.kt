@@ -7,6 +7,7 @@ import com.ardtt.app.profile.DirectConfig
 import com.ardtt.app.profile.VpnProfile
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProfileCardLogicTest {
@@ -83,6 +84,53 @@ class ProfileCardLogicTest {
         assertEquals(8_000L, facts.trafficLimitBytes)
         assertEquals(99L, facts.expiresAt)
         assertNull(profileLiveFactsFromUsers("missing", emptyList()))
+    }
+
+    @Test
+    fun cardSlotOrderMatchesServerIdentity() {
+        assertEquals(
+            listOf(
+                ProfileCardSlot.Title,
+                ProfileCardSlot.ExpiresBadge,
+                ProfileCardSlot.Overflow,
+                ProfileCardSlot.Hosts,
+                ProfileCardSlot.Presence,
+                ProfileCardSlot.Traffic,
+            ),
+            profileCardSlotOrder(),
+        )
+        assertEquals(
+            ProfileCardOverflowAnchor.TrailingOutside,
+            profileCardOverflowAnchor(),
+        )
+    }
+
+    @Test
+    fun overflowSitsOutsideLikeServerListChevron() {
+        assertEquals(
+            ProfileCardOverflowAnchor.TrailingOutside,
+            profileCardOverflowAnchor(),
+        )
+        assertTrue(profileCardOverflowUsesCompactIcon())
+    }
+
+    @Test
+    fun presenceSitsOnTheHostRowLikeServerOnline() {
+        assertEquals("● Активен", profileCardPresenceLabel(active = true))
+        assertNull(profileCardPresenceLabel(active = false))
+    }
+
+    @Test
+    fun cardChromeMatchesServerIdentity() {
+        assertEquals(ProfileCardBadgeKind.OsSurface, profileCardBadgeKind())
+        assertEquals(ProfileCardSelectionChrome.DefaultContour, profileCardSelectionChrome())
+        assertEquals(ProfileCardTitleTone.OnSurface, profileCardTitleTone())
+        assertEquals(ProfileCardHostLayout.InnerWeightedRow, profileCardHostLayout())
+    }
+
+    @Test
+    fun profileFeedUsesServerListTopSpacing() {
+        assertTrue(profileFeedAddsTopSpacing())
     }
 
     @Test

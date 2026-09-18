@@ -94,6 +94,28 @@ class UnderlayAccessTest {
     }
 
     @Test
+    fun wifiSignalQualityUsesRssiBands() {
+        assertEquals(UnderlaySignalQuality.Unknown, wifiSignalQuality(null))
+        assertEquals(UnderlaySignalQuality.Excellent, wifiSignalQuality(-50))
+        assertEquals(UnderlaySignalQuality.Good, wifiSignalQuality(-51))
+        assertEquals(UnderlaySignalQuality.Good, wifiSignalQuality(-60))
+        assertEquals(UnderlaySignalQuality.Fair, wifiSignalQuality(-61))
+        assertEquals(UnderlaySignalQuality.Fair, wifiSignalQuality(-70))
+        assertEquals(UnderlaySignalQuality.Poor, wifiSignalQuality(-71))
+    }
+
+    @Test
+    fun cellularSignalQualityUsesRsrpBands() {
+        assertEquals(UnderlaySignalQuality.Unknown, cellularSignalQuality(null))
+        assertEquals(UnderlaySignalQuality.Excellent, cellularSignalQuality(-80))
+        assertEquals(UnderlaySignalQuality.Good, cellularSignalQuality(-81))
+        assertEquals(UnderlaySignalQuality.Good, cellularSignalQuality(-90))
+        assertEquals(UnderlaySignalQuality.Fair, cellularSignalQuality(-91))
+        assertEquals(UnderlaySignalQuality.Fair, cellularSignalQuality(-100))
+        assertEquals(UnderlaySignalQuality.Poor, cellularSignalQuality(-101))
+    }
+
+    @Test
     fun noUnderlay() {
         assertEquals(
             "Нет сети",

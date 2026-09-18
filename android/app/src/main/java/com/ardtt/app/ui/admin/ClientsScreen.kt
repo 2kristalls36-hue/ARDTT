@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -21,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.People
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -60,11 +60,10 @@ import com.ardtt.app.ui.components.control.ArdttPrimaryButton
 import com.ardtt.app.ui.components.control.ArdttTextField
 import com.ardtt.app.ui.components.feedback.ArdttEmptyState
 import com.ardtt.app.ui.components.feedback.ArdttErrorState
+import com.ardtt.app.ui.components.feedback.ArdttIdentityBadge
 import com.ardtt.app.ui.components.feedback.ArdttIpChip
 import com.ardtt.app.ui.components.feedback.ArdttLinearProgress
 import com.ardtt.app.ui.components.feedback.ArdttLoadingState
-import com.ardtt.app.ui.components.feedback.ArdttStatusChip
-import com.ardtt.app.ui.components.feedback.ArdttStatusDot
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
 import com.ardtt.app.ui.components.layout.ArdttPullRefresh
 import com.ardtt.app.ui.components.layout.ArdttScrollChrome
@@ -75,11 +74,9 @@ import com.ardtt.app.ui.components.surface.ArdttCompactCard
 import com.ardtt.app.ui.components.surface.ArdttConfirmDialog
 import com.ardtt.app.ui.components.surface.ArdttDialog
 import com.ardtt.app.ui.components.surface.ArdttDialogAction
+import com.ardtt.app.ui.components.surface.ArdttLeadingIcon
 import com.ardtt.app.ui.latestAppVersionCode
-import com.ardtt.app.ui.theme.ArdttAlpha
-import com.ardtt.app.ui.theme.ArdttColors
 import com.ardtt.app.ui.theme.ArdttLayout
-import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
 import com.ardtt.app.ui.theme.connectedStatusColor
 import com.ardtt.app.ui.theme.warningStatusColor
@@ -717,20 +714,21 @@ private fun ClientCard(
     val deviceLine = deviceDisplayLabels(user.deviceIds, user.deviceModels)
         .joinToString(" · ")
         .ifBlank { "" }
-    val presence = when {
-        user.deactivated -> "отключён"
-        !subActive -> "истекла"
-        user.online -> "онлайн"
-        user.lastSeenAt > 0L -> formatClientRelative(user.lastSeenAt * 1000L)
-        else -> "оффлайн"
-    }
+    val presence = clientCardPresenceLabel(
+        online = user.online,
+        deactivated = user.deactivated,
+        subscriptionActive = subActive,
+        lastSeenAt = user.lastSeenAt,
+    )
     val presenceColor = when {
         user.deactivated || !subActive -> MaterialTheme.colorScheme.error
+        user.online -> connectedStatusColor()
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     val expiresTone = clientExpiresTone(user.expiresAt)
     val expiresColor = when (expiresTone) {
-        ClientExpiresTone.Unlimited, ClientExpiresTone.Active -> connectedStatusColor()
+        ClientExpiresTone.Unlimited, ClientExpiresTone.Active ->
+            MaterialTheme.colorScheme.onSurface
         ClientExpiresTone.ExpiringSoon -> warningStatusColor()
         ClientExpiresTone.Expired -> MaterialTheme.colorScheme.error
     }
@@ -741,20 +739,29 @@ private fun ClientCard(
         ClientAppVersionTone.Unknown -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     val externalIp = user.lastExternalIp.trim()
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
     ArdttCompactCard {
-        Column(
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(ArdttLayout.CompactCardSpacing),
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Medium),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
+            if (clientCardShowsLeadingIcon()) {
+                ArdttLeadingIcon(
+                    imageVector = Icons.Filled.People,
+                    contentDescription = "Клиент",
+                )
+            }
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable(enabled = !busy, onClick = onOpenProfile),
+                verticalArrangement = Arrangement.spacedBy(ArdttLayout.CompactCardSpacing),
             ) {
                 Row(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clickable(enabled = !busy, onClick = onOpenProfile),
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
                 ) {
                     Text(
                         user.name.ifBlank { "user" },
@@ -765,75 +772,41 @@ private fun ClientCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    ArdttStatusDot(
-                        color = if (user.online) {
-                            ArdttColors.Connected
-                        } else {
-                            MaterialTheme.colorScheme.outlineVariant
-                        },
-                        modifier = Modifier.padding(end = ArdttSpacing.TinyPlus),
+                    ArdttIdentityBadge(
+                        text = formatClientExpires(user.expiresAt),
+                        contentColor = expiresColor,
                     )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.TinyPlus),
+                    ) {
+                        Text(
+                            if (limit > 0L) {
+                                "${formatClientBytes(used)} / ${formatClientBytes(limit)}"
+                            } else {
+                                formatClientBytes(used)
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = trafficColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                     Text(
                         presence,
                         style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
                         color = presenceColor,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Box {
-                    ArdttButton(
-                        onClick = { menuExpanded = true },
-                        enabled = !busy,
-                        variant = ArdttButtonVariant.Icon,
-                        icon = Icons.Filled.MoreVert,
-                        contentDescription = "Действия",
-                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    ArdttOverflowMenu(
-                        expanded = menuExpanded,
-                        onDismissRequest = { menuExpanded = false },
-                    ) {
-                        ArdttOverflowMenuItem(
-                            text = "Удалить",
-                            enabled = !busy,
-                            destructive = true,
-                            leadingIcon = Icons.Filled.Delete,
-                            onClick = {
-                                menuExpanded = false
-                                onDelete()
-                            },
-                        )
-                    }
-                }
-            }
-
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(enabled = !busy, onClick = onOpenProfile),
-                verticalArrangement = Arrangement.spacedBy(ArdttLayout.CompactCardSpacing),
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        if (limit > 0L) {
-                            "${formatClientBytes(used)} / ${formatClientBytes(limit)}"
-                        } else {
-                            formatClientBytes(used)
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = trafficColor,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    ArdttStatusChip(
-                        text = appVer.label,
-                        accent = appVerColor,
                     )
                 }
                 Row(
@@ -844,14 +817,18 @@ private fun ClientCard(
                     Text(
                         clientDeviceCountLabel(user.deviceIds.size, user.maxDevices),
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = muted,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
-                    ArdttStatusChip(
-                        text = formatClientExpires(user.expiresAt),
-                        accent = expiresColor,
+                    Text(
+                        appVer.label,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = appVerColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
                 if (limit > 0L) {
@@ -872,7 +849,7 @@ private fun ClientCard(
                             Text(
                                 deviceLine,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = muted,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f),
@@ -886,26 +863,58 @@ private fun ClientCard(
                     }
                 }
             }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                ClientActionButton("Лимит", busy, Modifier.weight(1f), onClick = onEditLimits)
-                val enableAction = clientEnableAction(user.deactivated)
-                ClientActionButton(
-                    label = enableAction.label,
-                    busy = busy,
-                    modifier = Modifier.weight(1f),
-                    accent = if (enableAction.nextDeactivated) {
-                        MaterialTheme.colorScheme.error
-                    } else {
-                        connectedStatusColor()
-                    },
-                    onClick = { onSetDeactivated(enableAction.nextDeactivated) },
-                )
+            if (clientCardOverflowAnchor() == ClientCardOverflowAnchor.TrailingOutside) {
+                Box {
+                    ArdttButton(
+                        onClick = { menuExpanded = true },
+                        enabled = !busy,
+                        variant = ArdttButtonVariant.Icon,
+                        size = if (clientCardOverflowUsesCompactIcon()) {
+                            ArdttButtonSize.Compact
+                        } else {
+                            ArdttButtonSize.Regular
+                        },
+                        icon = Icons.Filled.MoreVert,
+                        contentDescription = "Действия",
+                        contentColor = MaterialTheme.colorScheme.primary,
+                    )
+                    ArdttOverflowMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false },
+                    ) {
+                        ArdttOverflowMenuItem(
+                            text = "Удалить",
+                            enabled = !busy,
+                            destructive = true,
+                            leadingIcon = Icons.Filled.Delete,
+                            onClick = {
+                                menuExpanded = false
+                                onDelete()
+                            },
+                        )
+                    }
+                }
             }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ClientActionButton("Лимит", busy, Modifier.weight(1f), onClick = onEditLimits)
+            val enableAction = clientEnableAction(user.deactivated)
+            ClientActionButton(
+                label = enableAction.label,
+                busy = busy,
+                modifier = Modifier.weight(1f),
+                accent = if (enableAction.nextDeactivated) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    connectedStatusColor()
+                },
+                onClick = { onSetDeactivated(enableAction.nextDeactivated) },
+            )
         }
     }
 }

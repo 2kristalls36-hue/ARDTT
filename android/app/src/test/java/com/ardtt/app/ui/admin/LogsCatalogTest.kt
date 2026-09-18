@@ -1,6 +1,11 @@
 package com.ardtt.app.ui.admin
 
 import com.ardtt.app.core.AppLog
+import com.ardtt.app.ui.components.control.ArdttButtonSize
+import com.ardtt.app.ui.components.control.ArdttButtonVariant
+import com.ardtt.app.ui.components.control.ardttButtonMinHeight
+import com.ardtt.app.ui.components.control.ardttCompactIconUsesExactMinSize
+import com.ardtt.app.ui.theme.ArdttSize
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -77,8 +82,56 @@ class LogsCatalogTest {
     }
 
     @Test
-    fun journalActionsStayInThePageHeader() {
+    fun journalActionsLiveInTheTerminalHeader() {
+        assertEquals(LogsChromeActionAnchor.TerminalHeader, logsChromeActionAnchor())
         assertFalse(logsShowsInlineActionRow(embedded = true))
         assertFalse(logsShowsInlineActionRow(embedded = false))
+        assertFalse(logsActionsInPageHeader(embedded = true))
+        assertFalse(logsActionsInPageHeader(embedded = false))
+    }
+
+    @Test
+    fun terminalHeaderStaysVisibleWithoutSession() {
+        assertTrue(logsShowsTerminalHeaderWithoutSession())
+        assertEquals(
+            LogsChromeUptimePlacement.Start,
+            logsChromeUptimePlacement(),
+        )
+        assertTrue(logsTerminalHeaderAlwaysShowsUptime())
+    }
+
+    @Test
+    fun terminalHeaderMatchesOriginalSlimTimerStrip() {
+        assertEquals(ArdttSize.IconLarge, logsTerminalHeaderIconSize())
+        assertTrue(ardttCompactIconUsesExactMinSize())
+        assertEquals(
+            logsTerminalHeaderIconSize(),
+            ardttButtonMinHeight(ArdttButtonVariant.Icon, ArdttButtonSize.Compact),
+        )
+        assertTrue(
+            ardttButtonMinHeight(ArdttButtonVariant.Icon, ArdttButtonSize.Compact) <
+                ArdttSize.TouchTarget,
+        )
+    }
+
+    @Test
+    fun journalUptimeSitsOnTheLeftFromSessionStartNotLogText() {
+        assertEquals("00:00", LogsCopy.UPTIME_IDLE)
+        assertEquals(
+            "00:00",
+            formatJournalUptime(sessionUp = false, startedAtMs = 9_000L, nowMs = 90_000L),
+        )
+        assertEquals(
+            "00:00",
+            formatJournalUptime(sessionUp = true, startedAtMs = 0L, nowMs = 90_000L),
+        )
+        assertEquals(
+            "01:05",
+            formatJournalUptime(sessionUp = true, startedAtMs = 1_000L, nowMs = 66_000L),
+        )
+        assertEquals(
+            "1:02:03",
+            formatJournalUptime(sessionUp = true, startedAtMs = 1_000L, nowMs = 3_724_000L),
+        )
     }
 }

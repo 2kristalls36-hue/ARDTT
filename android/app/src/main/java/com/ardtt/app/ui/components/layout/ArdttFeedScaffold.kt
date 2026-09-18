@@ -26,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.zIndex
+import com.ardtt.app.ui.theme.ArdttChrome
 import com.ardtt.app.ui.theme.ArdttLayout
 import com.ardtt.app.ui.theme.ArdttSpacing
 
@@ -56,6 +57,8 @@ fun ArdttFeedScaffold(
     verticalArrangement: Arrangement.Vertical = Arrangement.spacedBy(ArdttLayout.FeedSpacing),
     bottomExtra: Dp = ArdttLayout.FeedBottomExtra,
     scrollBottomPadding: Dp? = null,
+    fadeHeight: Dp = ArdttChrome.FadeHeight,
+    stickyBottomPadding: Dp? = null,
     refreshing: Boolean = false,
     onRefresh: (() -> Unit)? = null,
     stickyContent: (@Composable BoxScope.() -> Unit)? = null,
@@ -71,6 +74,7 @@ fun ArdttFeedScaffold(
 
     ArdttScrollChrome(
         modifier = modifier,
+        fadeHeight = fadeHeight,
         header = header,
     ) { topPad ->
         val feed: @Composable (Modifier) -> Unit = { feedModifier ->
@@ -103,7 +107,11 @@ fun ArdttFeedScaffold(
         } else {
             Box(modifier = Modifier.fillMaxSize()) {
                 host(Modifier)
-                ArdttStickyBottomBar(horizontalPadding = horizontalPadding, content = stickyContent)
+                ArdttStickyBottomBar(
+                    horizontalPadding = horizontalPadding,
+                    bottomPadding = stickyBottomPadding ?: ArdttBottomChrome.stickyBottomPadding(),
+                    content = stickyContent,
+                )
             }
         }
     }
@@ -115,6 +123,7 @@ fun ArdttLazyFeedScaffold(
     modifier: Modifier = Modifier,
     listState: LazyListState = rememberLazyListState(),
     horizontalPadding: Dp = ArdttLayout.ScreenPadding,
+    contentTopExtra: Dp = ArdttSpacing.None,
     bottomExtra: Dp = ArdttLayout.FeedBottomExtra,
     scrollBottomPadding: Dp? = null,
     refreshing: Boolean = false,
@@ -141,7 +150,7 @@ fun ArdttLazyFeedScaffold(
                 contentPadding = PaddingValues(
                     start = horizontalPadding,
                     end = horizontalPadding,
-                    top = topPad,
+                    top = topPad + contentTopExtra,
                     bottom = bottomPadding,
                 ),
                 verticalArrangement = Arrangement.spacedBy(ArdttLayout.ListSpacing),
@@ -179,6 +188,7 @@ fun ArdttLazyFeedScaffold(
 fun BoxScope.ArdttStickyBottomBar(
     modifier: Modifier = Modifier,
     horizontalPadding: Dp = ArdttLayout.ScreenPadding,
+    bottomPadding: Dp = ArdttBottomChrome.stickyBottomPadding(),
     content: @Composable BoxScope.() -> Unit,
 ) {
     Box(
@@ -187,7 +197,7 @@ fun BoxScope.ArdttStickyBottomBar(
             .fillMaxWidth()
             .zIndex(StickyZIndex)
             .padding(horizontal = horizontalPadding)
-            .padding(bottom = ArdttBottomChrome.stickyBottomPadding()),
+            .padding(bottom = bottomPadding),
         content = content,
     )
 }

@@ -232,7 +232,7 @@ internal object UserTunnelDefaults {
     const val PulseScaleLit = 1.08f
     const val PulseAlphaLit = 0.28f
     const val PulseAlphaIdle = 0.12f
-    const val DroneExitDurationMs = 980L
+    val DroneExitDurationMs: Long get() = droneBlowAwayDurationMs().toLong()
 
     fun ringSize(viewportHeight: Dp): Dp =
         (viewportHeight * RingHeightFraction).coerceIn(MinRingSize, RingSize)

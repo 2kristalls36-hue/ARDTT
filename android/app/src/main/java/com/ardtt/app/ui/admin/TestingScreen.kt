@@ -72,6 +72,7 @@ import com.ardtt.app.telemetry.testingTicketReadLabel
 import com.ardtt.app.telemetry.testingTicketTitle
 import com.ardtt.app.telemetry.testingUploadNeedsCommentPrompt
 import com.ardtt.app.ui.components.control.ArdttButton
+import com.ardtt.app.ui.components.control.ArdttButtonSize
 import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.components.control.ArdttChoice
 import com.ardtt.app.ui.components.control.ArdttChoiceChipRow
@@ -689,6 +690,7 @@ private fun LogRow(
                 onClick = onUpload,
                 enabled = !uploading,
                 variant = ArdttButtonVariant.Icon,
+                size = ArdttButtonSize.Compact,
                 icon = Icons.AutoMirrored.Outlined.Send,
                 contentDescription = "Отправить",
                 contentColor = MaterialTheme.colorScheme.primary,
@@ -697,6 +699,7 @@ private fun LogRow(
                 onClick = onDelete,
                 enabled = !uploading,
                 variant = ArdttButtonVariant.Icon,
+                size = ArdttButtonSize.Compact,
                 icon = Icons.Outlined.Delete,
                 contentDescription = "Удалить",
                 contentColor = MaterialTheme.colorScheme.error,

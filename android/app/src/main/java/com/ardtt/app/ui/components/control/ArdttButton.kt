@@ -1,5 +1,7 @@
 package com.ardtt.app.ui.components.control
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
@@ -19,7 +21,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
@@ -192,18 +196,29 @@ fun ArdttButton(
             ) { content() }
         }
         ArdttButtonVariant.Icon -> {
-            IconButton(
-                onClick = onClick,
-                enabled = clickable,
-                modifier = sized.defaultMinSize(
-                    minWidth = ArdttSize.TouchTarget,
-                    minHeight = ArdttSize.TouchTarget,
-                ),
-                colors = IconButtonDefaults.iconButtonColors(
-                    contentColor = pair.content,
-                    disabledContentColor = disabledPair.content,
-                ),
-            ) { content() }
+            val iconMin = ardttButtonMinHeight(variant, size)
+            if (size == ArdttButtonSize.Compact && ardttCompactIconUsesExactMinSize()) {
+                Box(
+                    modifier = sized
+                        .size(iconMin)
+                        .clip(ArdttShapes.Pill)
+                        .clickable(enabled = clickable, onClick = onClick),
+                    contentAlignment = Alignment.Center,
+                ) { content() }
+            } else {
+                IconButton(
+                    onClick = onClick,
+                    enabled = clickable,
+                    modifier = sized.defaultMinSize(
+                        minWidth = iconMin,
+                        minHeight = iconMin,
+                    ),
+                    colors = IconButtonDefaults.iconButtonColors(
+                        contentColor = pair.content,
+                        disabledContentColor = disabledPair.content,
+                    ),
+                ) { content() }
+            }
         }
     }
 }
@@ -235,7 +250,11 @@ internal fun ardttDisabledButtonColors(
     return ButtonPair(container, pair.content.copy(alpha = pair.content.alpha * contentAlpha))
 }
 
+/** Compact icon chrome stays on the glyph box, not the 48 dp IconButton target. */
+internal fun ardttCompactIconUsesExactMinSize(): Boolean = true
+
 internal fun ardttButtonMinHeight(variant: ArdttButtonVariant, size: ArdttButtonSize) = when {
+    variant == ArdttButtonVariant.Icon && size == ArdttButtonSize.Compact -> ArdttSize.IconLarge
     variant == ArdttButtonVariant.Icon -> ArdttSize.TouchTarget
     size == ArdttButtonSize.Compact -> ArdttSize.ButtonCompact
     else -> ArdttSize.Button
@@ -248,7 +267,7 @@ internal fun ardttButtonFillsWidth(
     variant: ArdttButtonVariant,
     size: ArdttButtonSize,
     text: String,
-): Boolean = variant == ArdttButtonVariant.Primary &&
+): Boolean = (variant == ArdttButtonVariant.Primary || variant == ArdttButtonVariant.Danger) &&
     size == ArdttButtonSize.Regular &&
     ardttButtonShowsText(variant, text)
 

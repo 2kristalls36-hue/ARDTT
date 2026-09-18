@@ -3,7 +3,6 @@ package com.ardtt.app.ui.profiles
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.Arrangement
@@ -68,8 +67,8 @@ import com.ardtt.app.ui.components.control.ArdttPrimaryButton
 import com.ardtt.app.ui.components.control.ArdttTextField
 import com.ardtt.app.ui.components.control.ArdttTextFieldDefaults
 import com.ardtt.app.ui.components.feedback.ArdttEmptyState
+import com.ardtt.app.ui.components.feedback.ArdttIdentityBadge
 import com.ardtt.app.ui.components.feedback.ArdttIpHostRow
-import com.ardtt.app.ui.components.feedback.ArdttStatusChip
 import com.ardtt.app.ui.components.layout.ArdttLazyFeedScaffold
 import com.ardtt.app.ui.components.layout.ArdttTabHeader
 import com.ardtt.app.ui.components.surface.ArdttCompactCard
@@ -78,9 +77,7 @@ import com.ardtt.app.ui.components.surface.ArdttDialog
 import com.ardtt.app.ui.components.surface.ArdttDialogAction
 import com.ardtt.app.ui.components.surface.ArdttDialogDefaults
 import com.ardtt.app.ui.components.surface.ArdttLeadingIcon
-import com.ardtt.app.ui.components.surface.ArdttSectionCardDefaults
 import com.ardtt.app.ui.theme.ArdttAlpha
-import com.ardtt.app.ui.theme.ArdttColors
 import com.ardtt.app.ui.theme.connectedStatusColor
 import com.ardtt.app.ui.theme.warningStatusColor
 import com.ardtt.app.ui.theme.ArdttLayout
@@ -243,6 +240,11 @@ fun ProfilesScreen(
     }
 
     ArdttLazyFeedScaffold(
+        contentTopExtra = if (profileFeedAddsTopSpacing()) {
+            ArdttSpacing.Small
+        } else {
+            ArdttSpacing.None
+        },
         stickyContent = {
             ArdttPrimaryButton(
                 text = if (busy) "Импорт…" else stringResource(R.string.profiles_add),
@@ -498,33 +500,26 @@ private fun ProfileCard(
     val connectEnabled = !selectionLocked || active
     val deleteEnabled = !selectionLocked || !active
     val muted = colors.onSurfaceVariant.copy(alpha = if (selectionLocked && !active) 0.72f else 1f)
-    val titleColor = when {
-        active -> connectedStatusColor()
-        selectionLocked -> colors.onSurface.copy(alpha = 0.62f)
-        else -> colors.onSurface
+    val titleColor = if (selectionLocked && !active) {
+        colors.onSurface.copy(alpha = 0.62f)
+    } else {
+        colors.onSurface
     }
     val facts = profileCardFacts(item.profile, liveFacts)
     val addressHosts = profileCardAddressHosts(item.profile, servers)
     val expiresTone = clientExpiresTone(facts.expiresAt)
     val expiresColor = when (expiresTone) {
-        ClientExpiresTone.Unlimited, ClientExpiresTone.Active -> connectedStatusColor()
+        ClientExpiresTone.Unlimited, ClientExpiresTone.Active -> colors.onSurface
         ClientExpiresTone.ExpiringSoon -> warningStatusColor()
         ClientExpiresTone.Expired -> colors.error
     }
     ArdttCompactCard(
-        // Same compact identity preset as ServerCard (`ArdttLayout.CompactCardPadding`).
-        contentPadding = ArdttLayout.CompactCardPadding,
         modifier = Modifier.selectable(
             selected = active,
             enabled = !selectionLocked,
             role = Role.RadioButton,
             onClick = onSelect,
         ),
-        border = if (active) {
-            BorderStroke(ArdttSectionCardDefaults.ContourWidth, ArdttColors.Connected)
-        } else {
-            null
-        },
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -542,7 +537,7 @@ private fun ProfileCard(
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.TinyPlus),
+                    horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
                 ) {
                     Text(
                         item.profile.name,
@@ -553,58 +548,42 @@ private fun ProfileCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Box {
-                        ArdttButton(
-                            onClick = { menu = true },
-                            variant = ArdttButtonVariant.Icon,
-                            icon = Icons.Filled.MoreVert,
-                            contentDescription = "Действия",
-                            contentColor = if (selectionLocked) {
-                                colors.onSurface.copy(alpha = ArdttAlpha.Disabled)
-                            } else {
-                                colors.onSurfaceVariant
-                            },
-                        )
-                        ArdttOverflowMenu(
-                            expanded = menu,
-                            onDismissRequest = { menu = false },
+                    ArdttIdentityBadge(
+                        text = formatClientExpires(facts.expiresAt),
+                        contentColor = expiresColor,
+                    )
+                }
+                val presence = profileCardPresenceLabel(active)
+                if (addressHosts.isNotEmpty() || presence != null) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
+                    ) {
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.TinyPlus),
                         ) {
-                            ArdttOverflowMenuItem(
-                                text = "Подключить",
-                                enabled = connectEnabled,
-                                leadingIcon = Icons.Filled.VpnKey,
-                                onClick = { menu = false; onOpen() },
-                            )
-                            ArdttOverflowMenuItem(
-                                text = "Копировать JSON",
-                                leadingIcon = Icons.Filled.ContentCopy,
-                                onClick = { menu = false; onCopy() },
-                            )
-                            ArdttOverflowMenuItem(
-                                text = "Ссылка / QR",
-                                leadingIcon = Icons.Filled.QrCode,
-                                onClick = { menu = false; onShare() },
-                            )
-                            ArdttOverflowMenuItem(
-                                text = "Переименовать",
-                                leadingIcon = Icons.Filled.Edit,
-                                onClick = { menu = false; onRename() },
-                            )
-                            ArdttOverflowMenuItem(
-                                text = "Удалить",
-                                enabled = deleteEnabled,
-                                destructive = true,
-                                leadingIcon = Icons.Filled.Delete,
-                                onClick = { menu = false; onDelete() },
+                            if (addressHosts.isNotEmpty()) {
+                                ArdttIpHostRow(
+                                    hosts = addressHosts,
+                                    muted = muted,
+                                )
+                            }
+                        }
+                        if (presence != null) {
+                            Text(
+                                presence,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = connectedStatusColor(),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
                         }
                     }
                 }
-                ArdttIpHostRow(
-                    hosts = addressHosts,
-                    modifier = Modifier.fillMaxWidth(),
-                    muted = muted,
-                )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -613,14 +592,62 @@ private fun ProfileCard(
                     Text(
                         profileTrafficRemainingLabel(facts.trafficLimitBytes, facts.usedBytes),
                         style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
                         color = muted,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
-                    ArdttStatusChip(
-                        text = formatClientExpires(facts.expiresAt),
-                        accent = expiresColor,
+                }
+            }
+            Box {
+                ArdttButton(
+                    onClick = { menu = true },
+                    variant = ArdttButtonVariant.Icon,
+                    size = if (profileCardOverflowUsesCompactIcon()) {
+                        ArdttButtonSize.Compact
+                    } else {
+                        ArdttButtonSize.Regular
+                    },
+                    icon = Icons.Filled.MoreVert,
+                    contentDescription = "Действия",
+                    contentColor = if (selectionLocked) {
+                        colors.onSurface.copy(alpha = ArdttAlpha.Disabled)
+                    } else {
+                        colors.primary
+                    },
+                )
+                ArdttOverflowMenu(
+                    expanded = menu,
+                    onDismissRequest = { menu = false },
+                ) {
+                    ArdttOverflowMenuItem(
+                        text = "Подключить",
+                        enabled = connectEnabled,
+                        leadingIcon = Icons.Filled.VpnKey,
+                        onClick = { menu = false; onOpen() },
+                    )
+                    ArdttOverflowMenuItem(
+                        text = "Копировать JSON",
+                        leadingIcon = Icons.Filled.ContentCopy,
+                        onClick = { menu = false; onCopy() },
+                    )
+                    ArdttOverflowMenuItem(
+                        text = "Ссылка / QR",
+                        leadingIcon = Icons.Filled.QrCode,
+                        onClick = { menu = false; onShare() },
+                    )
+                    ArdttOverflowMenuItem(
+                        text = "Переименовать",
+                        leadingIcon = Icons.Filled.Edit,
+                        onClick = { menu = false; onRename() },
+                    )
+                    ArdttOverflowMenuItem(
+                        text = "Удалить",
+                        enabled = deleteEnabled,
+                        destructive = true,
+                        leadingIcon = Icons.Filled.Delete,
+                        onClick = { menu = false; onDelete() },
                     )
                 }
             }

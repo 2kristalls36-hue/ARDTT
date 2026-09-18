@@ -18,6 +18,7 @@ class VkSessionActionTest {
         assertEquals("Авторизация", action.label)
         assertFalse(action.destructive)
         assertTrue(action.enabled)
+        assertTrue(action.fillMaxWidth)
     }
 
     @Test
@@ -28,9 +29,10 @@ class VkSessionActionTest {
             busy = false,
             hasProfile = true,
         )
-        assertEquals("Завершить сессию", action.label)
+        assertEquals("Завершить", action.label)
         assertTrue(action.destructive)
         assertTrue(action.enabled)
+        assertTrue(action.fillMaxWidth)
     }
 
     @Test
@@ -53,7 +55,7 @@ class VkSessionActionTest {
             busy = false,
             hasProfile = false,
         )
-        assertEquals("Завершить сессию", action.label)
+        assertEquals("Завершить", action.label)
         assertTrue(action.enabled)
     }
 
@@ -74,7 +76,7 @@ class VkSessionActionTest {
         assertFalse(login.enabled)
         assertFalse(logout.enabled)
         assertEquals("Авторизация", login.label)
-        assertEquals("Завершить сессию", logout.label)
+        assertEquals("Завершить", logout.label)
     }
 
     @Test

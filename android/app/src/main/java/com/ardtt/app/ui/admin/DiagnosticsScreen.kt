@@ -4,10 +4,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Terminal
@@ -21,6 +19,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.Dp
 import com.ardtt.app.deploy.ServersRepository
 import com.ardtt.app.profile.ProfileRepository
 import com.ardtt.app.settings.AppSettingsRepository
@@ -30,6 +29,7 @@ import com.ardtt.app.ui.components.layout.ArdttFeedScaffold
 import com.ardtt.app.ui.components.layout.ArdttScrollChrome
 import com.ardtt.app.ui.components.layout.ArdttTabHeader
 import com.ardtt.app.ui.theme.ArdttLayout
+import com.ardtt.app.ui.theme.ArdttSpacing
 
 @Composable
 fun DiagnosticsScreen(
@@ -75,17 +75,24 @@ fun DiagnosticsScreen(
     }
 
     if (!layout.showsTool) {
+        val hugBottom = diagnosticsContentBottomPadding()
         ArdttFeedScaffold(
             modifier = Modifier.fillMaxSize(),
+            fadeHeight = diagnosticsChromeFade(),
             header = {
                 ArdttTabHeader(
                     title = DiagnosticsCopy.TITLE,
-                    subtitle = DiagnosticsCopy.SUBTITLE,
+                    subtitle = diagnosticsHeaderSubtitle(),
+                    bottomPadding = diagnosticsHeaderBottomPadding(),
+                    titleRowHeight = diagnosticsTitleRowMinHeight(),
                 )
             },
+            verticalArrangement = Arrangement.spacedBy(diagnosticsFeedSpacing()),
+            bottomExtra = diagnosticsFeedBottomExtra(),
+            stickyBottomPadding = hugBottom,
             stickyContent = {
                 Column(
-                    verticalArrangement = Arrangement.spacedBy(ArdttLayout.FeedSpacing),
+                    verticalArrangement = Arrangement.spacedBy(diagnosticsFeedSpacing()),
                 ) {
                     layout.trailing.forEach { tool ->
                         DiagnosticsToolRow(
@@ -105,11 +112,14 @@ fun DiagnosticsScreen(
     val openTool = layout.expanded ?: return
     ArdttScrollChrome(
         modifier = Modifier.fillMaxSize(),
+        fadeHeight = diagnosticsChromeFade(),
         header = {
             ArdttTabHeader(
                 title = DiagnosticsCopy.TITLE,
-                subtitle = DiagnosticsCopy.SUBTITLE,
-                actions = if (openTool == DiagnosticsTool.Logs) {
+                subtitle = diagnosticsHeaderSubtitle(),
+                bottomPadding = diagnosticsHeaderBottomPadding(),
+                titleRowHeight = diagnosticsTitleRowMinHeight(),
+                actions = if (openTool == DiagnosticsTool.Logs && logsActionsInPageHeader(embedded = true)) {
                     { LogsJournalHeaderActions() }
                 } else {
                     null
@@ -121,8 +131,11 @@ fun DiagnosticsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = ArdttLayout.ScreenPadding)
-                .padding(top = topPad, bottom = ArdttBottomChrome.navigationReserve()),
-            verticalArrangement = Arrangement.spacedBy(ArdttLayout.FeedSpacing),
+                .padding(
+                    top = topPad,
+                    bottom = diagnosticsContentBottomPadding(),
+                ),
+            verticalArrangement = Arrangement.spacedBy(diagnosticsFeedSpacing()),
         ) {
             layout.leading.forEach { tool ->
                 DiagnosticsToolRow(
@@ -159,7 +172,6 @@ fun DiagnosticsScreen(
                     onClick = { select(tool) },
                 )
             }
-            Spacer(Modifier.height(ArdttLayout.FeedBottomExtra))
         }
     }
 }
@@ -201,7 +213,26 @@ private fun diagnosticsToolSpec(tool: DiagnosticsTool): DiagnosticsToolSpec = wh
 
 internal object DiagnosticsCopy {
     const val TITLE = "Диагностика"
-    const val SUBTITLE = "Сеть и журнал"
     const val NETWORK_SUBTITLE = "Карта пути и задержки"
     const val LOGS_SUBTITLE = "События туннеля и деплоя"
 }
+
+internal fun diagnosticsHeaderSubtitle(): String? = null
+
+/** Open tool sits tight under the Diagnostics title; last row/terminal hugs the tab pill. */
+internal fun diagnosticsChromeFade() = ArdttSpacing.None
+
+internal fun diagnosticsHeaderBottomPadding() = ArdttSpacing.None
+
+internal fun diagnosticsTitleRowMinHeight() = ArdttSpacing.None
+
+internal fun diagnosticsFeedSpacing() = ArdttSpacing.Tiny
+
+internal fun diagnosticsFeedBottomExtra() = ArdttSpacing.None
+
+/** Drop the unused 8 dp air above the pill track so the last row sits on the bar. */
+internal fun diagnosticsNavReserveTrim() = ArdttSpacing.Small
+
+@Composable
+internal fun diagnosticsContentBottomPadding(): Dp =
+    ArdttBottomChrome.navigationReserve() - diagnosticsNavReserveTrim() + diagnosticsFeedBottomExtra()
