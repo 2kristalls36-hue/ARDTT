@@ -18,6 +18,7 @@ class VkSessionActionTest {
         assertEquals("Авторизация", action.label)
         assertFalse(action.destructive)
         assertTrue(action.enabled)
+        assertTrue(action.fillMaxWidth)
     }
 
     @Test
@@ -31,6 +32,7 @@ class VkSessionActionTest {
         assertEquals("Завершить", action.label)
         assertTrue(action.destructive)
         assertTrue(action.enabled)
+        assertTrue(action.fillMaxWidth)
     }
 
     @Test
