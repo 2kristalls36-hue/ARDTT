@@ -187,6 +187,7 @@ fun CallHashSettingsContent(
             },
             enabled = sessionAction.enabled,
             busy = busy,
+            fillMaxWidth = sessionAction.fillMaxWidth,
             variant = if (sessionAction.destructive) {
                 ArdttButtonVariant.Danger
             } else {

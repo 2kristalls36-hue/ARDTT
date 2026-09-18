@@ -23,6 +23,13 @@ class ArdttButtonContractTest {
     }
 
     @Test
+    fun labeledDangerFillsWidthLikePrimary() {
+        assertTrue(ardttButtonFillsWidth(ArdttButtonVariant.Primary, ArdttButtonSize.Regular, "Авторизация"))
+        assertTrue(ardttButtonFillsWidth(ArdttButtonVariant.Danger, ArdttButtonSize.Regular, "Завершить"))
+        assertFalse(ardttButtonFillsWidth(ArdttButtonVariant.Danger, ArdttButtonSize.Compact, "Завершить"))
+    }
+
+    @Test
     fun iconOnlyPrimaryStaysInTheClusterSlot() {
         assertFalse(ardttButtonShowsText(ArdttButtonVariant.Primary, ""))
         assertFalse(ardttButtonShowsText(ArdttButtonVariant.Primary, "  "))

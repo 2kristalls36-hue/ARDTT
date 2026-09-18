@@ -267,7 +267,7 @@ internal fun ardttButtonFillsWidth(
     variant: ArdttButtonVariant,
     size: ArdttButtonSize,
     text: String,
-): Boolean = variant == ArdttButtonVariant.Primary &&
+): Boolean = (variant == ArdttButtonVariant.Primary || variant == ArdttButtonVariant.Danger) &&
     size == ArdttButtonSize.Regular &&
     ardttButtonShowsText(variant, text)
 

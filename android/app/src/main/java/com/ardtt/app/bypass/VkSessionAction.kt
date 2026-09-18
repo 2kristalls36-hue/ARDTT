@@ -5,6 +5,7 @@ data class VkSessionAction(
     val label: String,
     val destructive: Boolean,
     val enabled: Boolean,
+    val fillMaxWidth: Boolean = true,
 )
 
 fun vkSessionAction(
