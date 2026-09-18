@@ -8,6 +8,19 @@ import org.junit.Test
 
 class DeployIssueTest {
     @Test
+    fun insufficientDiskOffersCleanup() {
+        val issue = DeployIssue.fromInstallerLine(
+            raw = "ARDTT_ERROR|code=INSUFFICIENT_DISK|Мало места на /opt/ardtt: свободно 100 Б",
+            hopRole = "entry",
+            hopHost = "1.2.3.4",
+            entryInstallStarted = false,
+        )
+        assertEquals(DeployIssue.INSUFFICIENT_DISK, issue.code)
+        assertTrue(DeployIssue.offersDiskCleanup(issue))
+        assertTrue(issue.summary.contains("мало места", ignoreCase = true))
+    }
+
+    @Test
     fun diskFullFromInstallerCode() {
         val issue = DeployIssue.fromInstallerLine(
             raw = "ARDTT_ERROR|code=DISK_FULL|message=Мало места на /opt/ardtt: свободно 2430 МБ",

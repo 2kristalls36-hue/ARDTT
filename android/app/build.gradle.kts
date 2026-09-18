@@ -137,8 +137,13 @@ val buildBypassClient = tasks.register<Exec>("buildBypassClient") {
     commandLine("bash", "scripts/build-bypass-client.sh")
 }
 
+val packHostfilesOverlay = tasks.register<Exec>("packHostfilesOverlay") {
+    workingDir = repoRoot
+    commandLine("bash", "scripts/pack-hostfiles-overlay.sh")
+}
+
 tasks.named("preBuild") {
-    dependsOn(buildBypassClient)
+    dependsOn(buildBypassClient, packHostfilesOverlay)
 }
 
 dependencies {

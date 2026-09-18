@@ -84,6 +84,28 @@ class DeployInstallEnvTest {
     }
 
     @Test
+    fun fetchCommandIncludesHostfilesOverlayWhenRequested() {
+        val command = DeployInstallEnv.fetchAndInstallCommand(
+            publicHost = "45.129.2.3",
+            directPort = 51820,
+            bypassPort = 56003,
+            deployVersion = "1.0.54",
+            role = "entry",
+            hostfilesOverlay = true,
+        )
+        assertTrue(command.contains("ARDTT_HOSTFILES_OVERLAY=1"))
+        assertTrue(command.contains("ARDTT_HOSTFILES_OVERLAY_PATH="))
+        assertTrue(command.contains(DeployInstallEnv.HOSTFILES_OVERLAY_REMOTE))
+        assertFalse(command.contains("git clone"))
+    }
+
+    @Test
+    fun fetchCommandOmitsHostfilesOverlayByDefault() {
+        val command = fetchCmd()
+        assertFalse(command.contains("ARDTT_HOSTFILES_OVERLAY"))
+    }
+
+    @Test
     fun manualPortsDisableAutoFlag() {
         val command = fetchCmd(autoPorts = false, directPort = 51821, bypassPort = 56004)
         assertTrue(command.contains("ARDTT_AUTO_PORTS=0"))

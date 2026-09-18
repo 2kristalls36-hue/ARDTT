@@ -83,8 +83,8 @@ services:
     ports:
       - "${ARDTT_DIRECT_PORT:-51820}:${ARDTT_DIRECT_LISTEN_PORT:-51820}/udp"
       - "${ARDTT_BYPASS_PORT:-56003}:${ARDTT_BYPASS_LISTEN_PORT:-56003}/udp"
-      - "${ARDTT_PROVISION_PORT:-9100}:9100/tcp"
-      - "${ARDTT_TELEMETRY_PORT:-9200}:9200/tcp"
+      - "${ARDTT_PROVISION_BIND:-127.0.0.1}:${ARDTT_PROVISION_PORT:-9100}:9100/tcp"
+      - "${ARDTT_TELEMETRY_BIND:-127.0.0.1}:${ARDTT_TELEMETRY_PORT:-9200}:9200/tcp"
     networks:
       ardtt:
     healthcheck:

@@ -21,6 +21,9 @@ ARCH="$(uname -m)"
 case "$ARCH" in x86_64|amd64) ARCH=amd64 ;; aarch64|arm64) ARCH=arm64 ;; esac
 DIST="$TMP/dist"
 mkdir -p "$DIST"
+ARDTT_ARDTTCTL_BIN="$TMP/ardttctl"
+bash "$ROOT/scripts/build-ardttctl.sh" "$ARCH" "$ARDTT_ARDTTCTL_BIN"
+export ARDTT_ARDTTCTL_BIN
 
 make_release() { # version [layer-seed]
   local ver="$1" seed="${2:-$1}" stage="$TMP/stage-$1"
@@ -77,6 +80,9 @@ legacy = [{"tag_name": "v0.5.290", "draft": False, "assets": [asset(f"ardtt-serv
 legacy_api = dist / "legacy" / "repos" / "o" / "r"
 legacy_api.mkdir(parents=True)
 (legacy_api / "releases").write_text(json.dumps(legacy), encoding="utf-8")
+empty_api = dist / "empty" / "repos" / "o" / "r"
+empty_api.mkdir(parents=True)
+(empty_api / "releases").write_text("[]", encoding="utf-8")
 # No-API fallback: <download host>/<repo>/releases/latest/download/<asset>
 gh = dist / "gh" / "o" / "r" / "releases" / "latest"
 gh.mkdir(parents=True)
@@ -196,11 +202,21 @@ RUN_PATH="$TMP/withdocker:$TMP/nodocker" RUN_API="$BASE/legacy" run_fetch G ARDT
 grep -q 'ARDTT_ERROR|code=INDEX_MISSING|' "$RUN_OUT" || err "G expected INDEX_MISSING"
 ok "G INDEX_MISSING"
 
-# --- H: unknown pinned version
-RUN_PATH="$TMP/withdocker:$TMP/nodocker" run_fetch H ARDTT_DEPLOY_VERSION=9.9.9
-[ "$RUN_RC" != 0 ] || err "H must fail"
-grep -q 'ARDTT_ERROR|code=PACKAGE_RESOLVE|' "$RUN_OUT" || err "H expected PACKAGE_RESOLVE"
-ok "H PACKAGE_RESOLVE"
+# --- H: unpublished pin (APK/git 1.0.54) while Releases only have an older stack
+# Use the legacy catalog (1.0.45 only): the main catalog's newest 1.0.47 is tampered.
+RUN_PATH="$TMP/withdocker:$TMP/nodocker" RUN_API="$BASE/legacy" run_fetch H ARDTT_DEPLOY_VERSION=1.0.54
+[ "$RUN_RC" = 0 ] || err "H exit $RUN_RC: $(tail -5 "$RUN_OUT")"
+grep -q 'ARDTT_WARN|в GitHub Releases нет стека 1.0.54' "$RUN_OUT" || err "H expected PINNED_MISSING warn: $(grep ARDTT_WARN "$RUN_OUT")"
+grep -q 'ARDTT_DONE|dry_run=1' "$RUN_OUT" || err "H missing ARDTT_DONE"
+grep -q 'deploy_version=1.0.45' "$RUN_OUT" || err "H must record published version, not the pin: $(grep ARDTT_DONE "$RUN_OUT")"
+grep -q 'deploy_version=1.0.54' "$RUN_OUT" && err "H must not record the missing pin as deploy_version"
+ok "H unpublished pin falls back to published stack"
+
+# --- H2: no ardtt-server packages at all → still fail-closed
+RUN_PATH="$TMP/withdocker:$TMP/nodocker" RUN_API="$BASE/empty" run_fetch H2 ARDTT_DEPLOY_VERSION=1.0.54
+[ "$RUN_RC" != 0 ] || err "H2 must fail"
+grep -q 'ARDTT_ERROR|code=PACKAGE_RESOLVE|' "$RUN_OUT" || err "H2 expected PACKAGE_RESOLVE: $(tail -3 "$RUN_OUT")"
+ok "H2 empty catalog PACKAGE_RESOLVE"
 
 # --- I: cold cache but the image is already loaded → layers come from `docker save`, not the network
 rm -rf "$INSTALL/cache"
