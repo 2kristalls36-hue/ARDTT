@@ -67,6 +67,9 @@ internal data class FlightPose(
     val alpha: Float,
 )
 
+/** How long the wind carries drones off-screen. Keep in lockstep with the scene delay. */
+internal fun droneBlowAwayDurationMs(): Int = 2_940
+
 /** Hover pose. Orbit is a function of time so Compose can skip recomposing the sprite. */
 internal fun flightPose(
     spec: FlightAssetSpec,
@@ -244,7 +247,7 @@ private fun AnimatedFlightAsset(
     )
     val blowAwayProgress by animateFloatAsState(
         targetValue = if (blowAway) 1f else 0f,
-        animationSpec = tween(durationMillis = 980, easing = FastOutLinearInEasing),
+        animationSpec = tween(durationMillis = droneBlowAwayDurationMs(), easing = FastOutLinearInEasing),
         label = "flight_blow_away_$index",
     )
     val dragDx by animateFloatAsState(
