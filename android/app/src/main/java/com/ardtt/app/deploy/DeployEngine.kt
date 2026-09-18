@@ -175,11 +175,15 @@ class DeployEngine(private val appContext: Context) {
                     .put("cascade_ssh_via_entry", target.cascadeEnabled),
             )
             append("Старт деплоя ${target.name.ifBlank { target.host }}")
-            // Prefer live Releases catalog; VPS fetches the package itself.
-            val deployVersion = runCatching {
+            // Card may show an unpublished git bump; VPS can only fetch a Release asset.
+            val catalogExpected = runCatching {
                 DeployVersionCatalog.refresh(appContext)
             }.getOrElse { DeployBundle.expectedVersion(appContext) }
+            val deployVersion = DeployVersionCatalog.installTargetVersion(appContext)
             append("Целевая версия стека: $deployVersion (VPS скачает пакет с GitHub)")
+            if (catalogExpected.isNotBlank() && catalogExpected != deployVersion) {
+                append("В git стек $catalogExpected, в Releases пока $deployVersion — ставим опубликованный пакет")
+            }
             if (diskCleanup) {
                 append("Перед установкой: безопасная очистка места на VPS (ARDTT_DISK_CLEANUP=1)")
             }

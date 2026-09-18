@@ -486,10 +486,16 @@ else:
     for c in cands.values():
         c["assets"] = dict(by_name)
 
+pinned_missing = ""
 if want:
     picked = cands.get(want)
     if not picked:
-        raise SystemExit(f"no ardtt-server-{want}-linux-{arch} package in releases")
+        if not cands:
+            raise SystemExit(f"no ardtt-server-{want}-linux-{arch} package in releases")
+        # APK/git may pin a stack that is not published yet (1.0.54 in git,
+        # only 1.0.53 on Releases). Install the newest published package.
+        picked = cands[max(cands, key=vkey)]
+        pinned_missing = want
 else:
     if not cands:
         raise SystemExit(f"no ardtt-server-*-linux-{arch} package in releases")
@@ -534,6 +540,8 @@ out = [
     "SUMS_URL=" + q(sums or ""),
     "DL_BASE=" + q(dl_base),
 ]
+if pinned_missing:
+    out.append("PINNED_MISSING=" + q(pinned_missing))
 print("\n".join(out))
 PY
 
@@ -561,6 +569,10 @@ else
 fi
 # shellcheck disable=SC1090
 . "$ENV_SNIPPET"
+if [ -n "${PINNED_MISSING:-}" ]; then
+  warn "в GitHub Releases нет стека ${PINNED_MISSING} — ставим опубликованный ${PKG_VER}"
+  export ARDTT_DEPLOY_VERSION="$PKG_VER"
+fi
 
 SUMS_FILE=""
 ensure_sums() {
@@ -614,7 +626,7 @@ fi
 
 run_install() {
   export ARDTT_PKG_DIR="$STAGING"
-  export ARDTT_DEPLOY_VERSION="${ARDTT_DEPLOY_VERSION:-$PKG_VER}"
+  export ARDTT_DEPLOY_VERSION="${PKG_VER:-${ARDTT_DEPLOY_VERSION}}"
   export ARDTT_INSTALL_DIR="$INSTALL_DIR"
   if [ "$LAYER_CACHE" != "0" ]; then
     export ARDTT_LAYER_CACHE_DIR="$CACHE_DIR"

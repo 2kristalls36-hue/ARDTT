@@ -79,5 +79,45 @@ assert found
 print("OK fetch resolve pin", want)
 PY
 
+# Extract the real resolver from fetch-and-install.sh and pin a version that
+# is not on Releases: must fall back to the latest published stack.
+python3 - "$ROOT/server/fetch-and-install.sh" "$TMP/resolve.py" <<'PY'
+from pathlib import Path
+import sys
+text = Path(sys.argv[1]).read_text(encoding="utf-8")
+start = text.index("cat > \"$RESOLVE_PY\" <<'PY'\n") + len("cat > \"$RESOLVE_PY\" <<'PY'\n")
+end = text.index("\nPY\n", start)
+Path(sys.argv[2]).write_text(text[start:end] + "\n", encoding="utf-8")
+PY
+
+cat > "$TMP/pin-missing.json" <<'JSON'
+[
+  {
+    "tag_name": "v0.5.265",
+    "draft": false,
+    "assets": [
+      {
+        "name": "ardtt-server-1.0.53-linux-amd64.tar.gz",
+        "browser_download_url": "https://example/ardtt-server-1.0.53-linux-amd64.tar.gz",
+        "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "size": 10
+      },
+      {
+        "name": "ardtt-server-1.0.53-linux-amd64.index.json",
+        "browser_download_url": "https://example/ardtt-server-1.0.53-linux-amd64.index.json",
+        "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "size": 2
+      }
+    ]
+  }
+]
+JSON
+
+out="$(WANT_VER=1.0.54 ARCH=amd64 REPO=2kristalls36-hue/ARDTT DL_HOST=https://github.com \
+  python3 "$TMP/resolve.py" api "$TMP/pin-missing.json")"
+echo "$out" | grep -q "PKG_VER='1.0.53'" || { echo "FAIL unpublished pin must install 1.0.53: $out" >&2; exit 1; }
+echo "$out" | grep -q "PINNED_MISSING='1.0.54'" || { echo "FAIL unpublished pin must set PINNED_MISSING: $out" >&2; exit 1; }
+echo "OK unpublished pin 1.0.54 → published 1.0.53"
+
 bash -n "$ROOT/server/fetch-and-install.sh"
 echo "OK test-fetch-and-install-resolve"

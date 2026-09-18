@@ -23,6 +23,7 @@ object DeployVersionCatalog {
     private const val TAG = "DeployVersionCatalog"
     private const val PREFS = "ardtt_deploy_version"
     private const val KEY_LATEST = "latest_deploy_version"
+    private const val KEY_PUBLISHED = "published_deploy_version"
     private const val KEY_CHECKED_AT = "latest_checked_at_ms"
 
     private val client = OkHttpClient.Builder()
@@ -33,6 +34,7 @@ object DeployVersionCatalog {
         .build()
 
     private val cached = AtomicReference<String?>(null)
+    private val publishedCached = AtomicReference<String?>(null)
     private val _latest = MutableStateFlow<String?>(null)
     val latest: StateFlow<String?> = _latest.asStateFlow()
 
@@ -43,6 +45,18 @@ object DeployVersionCatalog {
      */
     fun resolvedExpected(catalogLatest: String?, bundled: String): String =
         DeployBundle.maxVersion(catalogLatest.orEmpty(), bundled)
+
+    /**
+     * Version the VPS can actually fetch from GitHub Releases.
+     * Unpublished git bumps ([DeployBundle.FALLBACK_VERSION] ahead of the
+     * catalog) stay on the card, but must not be written to
+     * `ARDTT_DEPLOY_VERSION` or fetch-and-install fails with PACKAGE_RESOLVE.
+     */
+    fun installTarget(published: String?, bundled: String): String {
+        val fromReleases = published?.trim().orEmpty()
+        if (fromReleases.isNotEmpty()) return fromReleases
+        return bundled.trim()
+    }
 
     fun expectedVersion(context: Context): String {
         val bundled = DeployBundle.offlineFallback(context)
@@ -62,17 +76,32 @@ object DeployVersionCatalog {
         return bundled
     }
 
+    fun installTargetVersion(context: Context): String {
+        val bundled = DeployBundle.offlineFallback(context)
+        publishedCached.get()?.takeIf { it.isNotBlank() }?.let { return it }
+        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val stored = prefs.getString(KEY_PUBLISHED, null)?.trim().orEmpty()
+        if (stored.isNotEmpty()) return stored
+        return bundled
+    }
+
     suspend fun refresh(context: Context): String = withContext(Dispatchers.IO) {
         val app = context.applicationContext
         val bundled = DeployBundle.offlineFallback(app)
         val fromGithub = runCatching { fetchLatestFromGitHub() }.getOrNull()?.trim().orEmpty()
+        if (fromGithub.isNotEmpty()) {
+            publishedCached.set(fromGithub)
+        }
         val resolved = resolvedExpected(fromGithub, bundled)
         cached.set(resolved)
         _latest.value = resolved
-        app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+        val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString(KEY_LATEST, resolved)
             .putLong(KEY_CHECKED_AT, System.currentTimeMillis())
-            .apply()
+        if (fromGithub.isNotEmpty()) {
+            prefs.putString(KEY_PUBLISHED, fromGithub)
+        }
+        prefs.apply()
         if (fromGithub.isNotEmpty()) {
             AppLog.i(TAG, "deploy version: github=$fromGithub bundled=$bundled → $resolved")
         } else {
