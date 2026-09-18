@@ -1,6 +1,6 @@
 # Сервер ARDTT
 
-Продуктовое имя — **ARDTT** (Amnezia & Raw Dial over TURN Tunnel). Стек: **1.0.53** (`DEPLOY_VERSION`).  
+Продуктовое имя — **ARDTT** (Amnezia & Raw Dial over TURN Tunnel). Стек: **1.0.54** (`DEPLOY_VERSION`).  
 Продуктовая установка — готовый архив `ardtt-server-<версия>-linux-<amd64|arm64>.tar.gz` из GitHub Releases: [DEPLOY.md](../docs/DEPLOY.md).  
 Обновление из приложения идёт частичным деплоем: `fetch-and-install.sh` на VPS читает индекс релиза `ardtt-server-<версия>-linux-<arch>.index.json` и качает только недостающие компоненты (host-файлы, изменившиеся слои образа, Engine/Compose — лишь если их нет на хосте).  
 Лендинг: [../README.md](../README.md). Текущий релиз: [../CHANGELOG.md](../CHANGELOG.md).
@@ -33,6 +33,7 @@ export ARDTT_PACKAGE_SHA256='…'
 bash /opt/ardtt/staging/install.sh
 curl -s http://127.0.0.1:9100/health
 curl -s http://127.0.0.1:9100/ready
+curl -s -H "Authorization: Bearer $(tr -d '[:space:]' </opt/ardtt/data/admin.token)" http://127.0.0.1:9100/v1/users
 ```
 
 Обновление — тот же путь. Откат: `ARDTT_ACTION=rollback`.  

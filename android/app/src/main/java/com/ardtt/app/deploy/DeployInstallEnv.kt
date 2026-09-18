@@ -9,6 +9,8 @@ object DeployInstallEnv {
     const val FETCH_SCRIPT_REMOTE = "/opt/ardtt/bin/fetch-and-install.sh"
     const val FETCH_SCRIPT_CURRENT = "/opt/ardtt/current/fetch-and-install.sh"
     const val FETCH_ASSET = "deploy/fetch-and-install.sh"
+    const val HOSTFILES_OVERLAY_ASSET = "deploy/ardtt-hostfiles-overlay.tar.gz"
+    const val HOSTFILES_OVERLAY_REMOTE = "$PACKAGE_DIR/ardtt-hostfiles-overlay.tar.gz"
 
     fun packageRemotePath(deployVersion: String, arch: String): String =
         "$PACKAGE_DIR/${DeployStackSource.serverAssetName(deployVersion, arch)}"
@@ -37,6 +39,7 @@ object DeployInstallEnv {
         /** Host vCPU count (from `nproc`); clamps ARDTT_CPUS for 1-core VPS. */
         hostCpus: Int = 0,
         scriptPath: String = FETCH_SCRIPT_REMOTE,
+        hostfilesOverlay: Boolean = false,
     ): String = buildString {
         append("set -euo pipefail; ")
         append("SCRIPT="); append(SshClient.shellQuote(scriptPath)); append("; ")
@@ -66,6 +69,12 @@ object DeployInstallEnv {
         }
         if (hostCpus in 1 until 2) {
             append("ARDTT_MEM_LIMIT=512m ")
+        }
+        if (hostfilesOverlay) {
+            append("ARDTT_HOSTFILES_OVERLAY=1 ")
+            append("ARDTT_HOSTFILES_OVERLAY_PATH=")
+            append(SshClient.shellQuote(HOSTFILES_OVERLAY_REMOTE))
+            append(' ')
         }
         if (cascadeEnabled) {
             append("ARDTT_CASCADE_LISTEN_PORT="); append(cascadeListenPort); append(' ')
@@ -177,6 +186,7 @@ object DeployInstallEnv {
 
     /** Key/value fields from an `ARDTT_DONE|a=1|b=2` protocol line. */
     fun doneFields(line: String): Map<String, String> {
+        protocol2DoneFields(line)?.let { return it }
         if (!line.startsWith("ARDTT_DONE|")) return emptyMap()
         return line.removePrefix("ARDTT_DONE|")
             .split('|')
@@ -189,8 +199,65 @@ object DeployInstallEnv {
             .toMap()
     }
 
+    fun protocol2Progress(line: String): Pair<Float, String>? {
+        val obj = parseProtocol2(line) ?: return null
+        if (obj.optString("type") != "progress") return null
+        val frac = when {
+            obj.has("progress") && !obj.isNull("progress") ->
+                obj.optDouble("progress", 0.0).toFloat()
+            else -> 0f
+        }
+        val step = obj.optString("message").ifBlank { obj.optString("phase") }.take(160)
+        if (step.isBlank()) return null
+        return frac to step
+    }
+
+    fun protocol2Error(line: String): String? {
+        val obj = parseProtocol2(line) ?: return null
+        if (obj.optString("type") != "error") return null
+        val code = obj.optString("code")
+        val msg = obj.optString("message")
+        return if (code.isNotEmpty()) "code=$code|$msg" else msg
+    }
+
+    fun protocol2DoneFields(line: String): Map<String, String>? {
+        val obj = parseProtocol2(line) ?: return null
+        if (obj.optString("type") != "done") return null
+        val out = linkedMapOf<String, String>()
+        val done = obj.optJSONObject("done")
+        if (done != null) {
+            val keys = done.keys()
+            while (keys.hasNext()) {
+                val k = keys.next()
+                out[k] = done.optString(k)
+            }
+        }
+        val version = obj.optString("version")
+        if (out["deploy_version"].isNullOrEmpty() && version.isNotEmpty()) {
+            out["deploy_version"] = version
+        }
+        return out
+    }
+
+    private fun parseProtocol2(line: String): org.json.JSONObject? {
+        val trimmed = line.trim()
+        if (!trimmed.startsWith("{")) return null
+        return try {
+            val obj = org.json.JSONObject(trimmed)
+            if (obj.optInt("protocol") != 2) null else obj
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     fun intField(fields: Map<String, String>, key: String): Int? =
         fields[key]?.toIntOrNull()?.takeIf { it in 1..65535 }
+
+    /** Exit 0 without a terminal done payload is not a successful deploy. */
+    fun missingDonePayload(exitCode: Int, doneFields: Map<String, String>, failed: String?): Boolean {
+        if (failed != null) return false
+        return exitCode == 0 && doneFields.isEmpty()
+    }
 
     /**
      * Compact extractor run after the outer SHA-256 check. Rejects .. / absolute

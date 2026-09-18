@@ -48,7 +48,8 @@ for p in stage.rglob("*"):
     if p.is_file():
         assert p.relative_to(stage).as_posix() in files, f"hostfiles: {p.relative_to(stage)} not listed in index"
 for required in ("install.sh", "fetch-and-install.sh", "docker-compose.yml", "manifest.json",
-                 "images/layout.json", "scripts/layer-cache.py", "scripts/assemble-docker-save.py"):
+                 "images/layout.json", "scripts/layer-cache.py", "scripts/assemble-docker-save.py",
+                 "ardttctl"):
     assert required in files, f"hostfiles: {required} not shipped"
 assert (stage / "vendor").exists() is False and (stage / "bin").exists() is False, "hostfiles must not carry Engine/Compose"
 assert not list((stage / "images").glob("layers/*")), "hostfiles must not carry layer blobs"
