@@ -351,6 +351,8 @@ grep -q 'layer-cache.py' "$PACK_SERVER" || err "pack-server-package must ship la
 grep -q 'verify_index_staging' "$INSTALLER" || err "install.sh must verify partial staging against the index"
 grep -q 'adopt_layers_into_cache' "$INSTALLER" || err "install.sh must keep loaded layers in the cache"
 grep -q 'releases/latest/download' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must fall back to SHA256SUMS-server.txt when the API is down"
+grep -q 'PINNED_MISSING' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must fall back when ARDTT_DEPLOY_VERSION is not on Releases"
+
 grep -q 'flock' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must lock against concurrent runs"
 grep -q 'fetch_disk_preflight' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must preflight disk before large downloads"
 python3 -m py_compile "$ROOT/scripts/layer-cache.py" || err "layer-cache.py"
