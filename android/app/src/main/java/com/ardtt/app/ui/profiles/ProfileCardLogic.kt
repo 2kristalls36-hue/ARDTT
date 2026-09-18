@@ -40,7 +40,6 @@ internal fun profileLiveFactsFromUsers(
     )
 }
 
-/** Public hops for the address row: cascade `entry → exit`, else one host, ports stripped. */
 internal enum class ProfileCardSlot {
     Title,
     ExpiresBadge,
@@ -52,6 +51,30 @@ internal enum class ProfileCardSlot {
 
 internal enum class ProfileCardOverflowAnchor {
     AfterExpires,
+}
+
+/** Expiry chrome: OS badge (`Surface` + FillSoft), not `ArdttStatusChip` accent fill. */
+internal enum class ProfileCardBadgeKind {
+    StatusChip,
+    OsSurface,
+}
+
+/** Active profile must keep the default compact contour, like a server card. */
+internal enum class ProfileCardSelectionChrome {
+    ConnectedBorder,
+    DefaultContour,
+}
+
+/** Title stays onSurface; presence already marks the active profile. */
+internal enum class ProfileCardTitleTone {
+    ConnectedWhenActive,
+    OnSurface,
+}
+
+/** Host chips sit in an inner weighted row so they do not stretch toward «Активен». */
+internal enum class ProfileCardHostLayout {
+    WeightedHostRow,
+    InnerWeightedRow,
 }
 
 /**
@@ -69,6 +92,19 @@ internal fun profileCardSlotOrder(): List<ProfileCardSlot> = listOf(
 
 internal fun profileCardOverflowAnchor(): ProfileCardOverflowAnchor =
     ProfileCardOverflowAnchor.AfterExpires
+
+internal fun profileCardBadgeKind(): ProfileCardBadgeKind = ProfileCardBadgeKind.OsSurface
+
+internal fun profileCardSelectionChrome(): ProfileCardSelectionChrome =
+    ProfileCardSelectionChrome.DefaultContour
+
+internal fun profileCardTitleTone(): ProfileCardTitleTone = ProfileCardTitleTone.OnSurface
+
+internal fun profileCardHostLayout(): ProfileCardHostLayout =
+    ProfileCardHostLayout.InnerWeightedRow
+
+/** Same extra Small under the chrome as the servers list. */
+internal fun profileFeedAddsTopSpacing(): Boolean = true
 
 internal fun profileCardPresenceLabel(active: Boolean): String? =
     if (active) "● Активен" else null

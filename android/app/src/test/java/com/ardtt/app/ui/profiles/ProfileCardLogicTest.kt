@@ -7,6 +7,7 @@ import com.ardtt.app.profile.DirectConfig
 import com.ardtt.app.profile.VpnProfile
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProfileCardLogicTest {
@@ -108,6 +109,19 @@ class ProfileCardLogicTest {
     fun presenceSitsOnTheHostRowLikeServerOnline() {
         assertEquals("● Активен", profileCardPresenceLabel(active = true))
         assertNull(profileCardPresenceLabel(active = false))
+    }
+
+    @Test
+    fun cardChromeMatchesServerIdentity() {
+        assertEquals(ProfileCardBadgeKind.OsSurface, profileCardBadgeKind())
+        assertEquals(ProfileCardSelectionChrome.DefaultContour, profileCardSelectionChrome())
+        assertEquals(ProfileCardTitleTone.OnSurface, profileCardTitleTone())
+        assertEquals(ProfileCardHostLayout.InnerWeightedRow, profileCardHostLayout())
+    }
+
+    @Test
+    fun profileFeedUsesServerListTopSpacing() {
+        assertTrue(profileFeedAddsTopSpacing())
     }
 
     @Test
