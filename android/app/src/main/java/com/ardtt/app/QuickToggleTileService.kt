@@ -5,15 +5,14 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.graphics.drawable.Icon
+import android.net.VpnService
 import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import android.util.Log
-import com.ardtt.app.core.ConnState
+import android.widget.Toast
 import com.ardtt.app.core.ConnectionManager
 import com.ardtt.app.core.holdsUserSession
-import com.ardtt.app.ui.PendingUiAction
-import com.ardtt.app.ui.qsTileOpensCallHashSettings
 import com.ardtt.app.ui.qsToggleTileSubtitle
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -22,8 +21,10 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 /**
- * Quick Settings tile — qWDTT-parity toggle wired to [ConnectionManager].
- * Without a call hash the tile stays inactive and opens «Код звонка».
+ * Quick Settings tile — toggle the tunnel in-process so the shade stays open.
+ * After process death the catalog is loaded from disk the same way as the
+ * home widget. An Activity (and shade collapse) is used only for the system
+ * VPN consent dialog.
  */
 class QuickToggleTileService : TileService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -40,25 +41,39 @@ class QuickToggleTileService : TileService() {
 
     override fun onClick() {
         super.onClick()
-        runCatching {
-            val running = isRunning()
-            // Only trust in-process UI for the call-hash gate. After a process death
-            // ConnectionManager has no profile yet — trampoline like the widget.
-            val hasHash = ConnectionManager.getOrNull()?.ui?.value?.hasCallHash
-            if (hasHash == false && qsTileOpensCallHashSettings(false, running)) {
-                openCallHashSettings()
-                updateTile()
-                return
+        unlockAndRun {
+            scope.launch {
+                runCatching { handleClick() }
+                    .onFailure { e ->
+                        Log.e(TAG, "QS tile onClick failed", e)
+                        Toast.makeText(
+                            applicationContext,
+                            e.message ?: "Не удалось переключить туннель",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
             }
-            // WidgetToggleActivity loads the active profile and VPN consent on cold start.
-            openActivity(
-                Intent(this, WidgetToggleActivity::class.java).apply {
-                    flags = widgetToggleLaunchFlags()
-                },
-                103,
-            )
-        }.onFailure { e ->
-            Log.e(TAG, "QS tile onClick failed", e)
+        }
+    }
+
+    private suspend fun handleClick() {
+        val result = runQuickLaunchToggle(applicationContext) {
+            runCatching { VpnService.prepare(this@QuickToggleTileService) }.getOrNull()
+        }
+        when (result.outcome) {
+            QuickLaunchOutcome.MissingProfile -> {
+                Toast.makeText(applicationContext, "Нет активного профиля", Toast.LENGTH_LONG).show()
+            }
+            QuickLaunchOutcome.NeedVpnConsent -> {
+                openActivity(
+                    Intent(this, WidgetToggleActivity::class.java).apply {
+                        flags = widgetToggleLaunchFlags()
+                    },
+                    103,
+                )
+            }
+            QuickLaunchOutcome.ConnectInPlace,
+            QuickLaunchOutcome.Disconnect -> updateTile()
         }
     }
 
@@ -93,16 +108,6 @@ class QuickToggleTileService : TileService() {
             latest.updateTile()
         }
     }
-
-    private fun openCallHashSettings() {
-        PendingUiAction.requestCallHashSettings()
-        val intent = Intent(this, MainActivity::class.java).apply {
-            action = MainActivity.ACTION_OPEN_CALL_HASH
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-        }
-        openActivity(intent, 102)
-    }
-
 
     private fun openActivity(intent: Intent, requestCode: Int) {
         runCatching {

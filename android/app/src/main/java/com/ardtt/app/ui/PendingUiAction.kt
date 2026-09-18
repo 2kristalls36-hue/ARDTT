@@ -120,6 +120,6 @@ object PendingUiAction {
 /** Bypass chip / QS tile: without a call hash the control looks inactive. */
 internal fun callHashMissing(hasCallHash: Boolean): Boolean = !hasCallHash
 
-/** QS tile is inert (opens call-hash settings) only when disconnected and hash is missing. */
-internal fun qsTileOpensCallHashSettings(hasCallHash: Boolean, running: Boolean): Boolean =
-    !hasCallHash && !running
+/** Short-tap never opens Settings; the tile toggles the tunnel instead. */
+@Suppress("UNUSED_PARAMETER")
+internal fun qsTileOpensCallHashSettings(hasCallHash: Boolean, running: Boolean): Boolean = false
