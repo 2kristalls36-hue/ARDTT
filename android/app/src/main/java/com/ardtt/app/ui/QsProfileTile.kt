@@ -31,12 +31,12 @@ internal fun qsProfileTileSubtitle(profileCount: Int, sessionLocked: Boolean): S
     else -> "Сменить"
 }
 
+@Suppress("UNUSED_PARAMETER")
 internal fun qsToggleTileSubtitle(
     hasCallHash: Boolean,
     running: Boolean,
     profileName: String?,
 ): String {
-    if (qsTileOpensCallHashSettings(hasCallHash, running)) return "Код звонка"
     val name = profileName?.trim().orEmpty()
     if (name.isNotEmpty()) return name
     return if (running) "Подключено" else "Отключено"
