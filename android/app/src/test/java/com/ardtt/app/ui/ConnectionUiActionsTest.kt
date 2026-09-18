@@ -23,6 +23,6 @@ class ConnectionUiActionsTest {
         assertEquals(true, PendingUiAction.consumeOpenDiagnostics())
         assertEquals(false, PendingUiAction.consumeOpenDiagnostics())
         assertEquals(AppDestination.Diagnostics.route, ArdttNavPlan.diagnosticsRoute(admin = true))
-        assertEquals(AppDestination.Logs.route, ArdttNavPlan.diagnosticsRoute(admin = false))
+        assertEquals(AppDestination.Network.route, ArdttNavPlan.diagnosticsRoute(admin = false))
     }
 }

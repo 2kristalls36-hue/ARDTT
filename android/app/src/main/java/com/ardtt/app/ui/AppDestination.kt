@@ -14,9 +14,9 @@ import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.ui.graphics.vector.ImageVector
 
 /**
- * Bottom tabs (user): Tunnel → Profiles → Exceptions → Logs → Settings.
+ * Bottom tabs (user): Tunnel → Profiles → Exceptions → Network → Settings.
  * Bottom tabs (admin): Tunnel → Servers → Profiles → Diagnostics → Settings.
- * Network, Logs (admin), Testing (from Settings), Exceptions (admin) and Deploy stay as routes.
+ * Logs and Testing stay nested (Diagnostics / Settings). Exceptions (admin) and Deploy stay as routes.
  */
 enum class AppDestination(
     val route: String,
@@ -26,11 +26,11 @@ enum class AppDestination(
     val inBottomNav: Boolean = true,
 ) {
     Tunnel("tunnel", "Туннель", navLabel = "Туннель", adminOnly = false),
-    Network("network", "Сеть", adminOnly = true, inBottomNav = false),
+    Network("network", "Сеть", adminOnly = false),
     Servers("servers", "Серверы", navLabel = "Серверы", adminOnly = true),
     Profiles("profiles", "Профили", adminOnly = false),
     Exceptions("exceptions", "Обход", adminOnly = false),
-    Logs("logs", "Журнал", adminOnly = false),
+    Logs("logs", "Журнал", adminOnly = false, inBottomNav = false),
     Diagnostics("diagnostics", "Диагностика", navLabel = "Диагностика", adminOnly = true),
     Settings("settings", "Настройки", navLabel = "Настройки", adminOnly = false),
     Testing("testing", "Тестирование", navLabel = "Тестирование", adminOnly = false, inBottomNav = false),
