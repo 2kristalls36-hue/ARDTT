@@ -323,10 +323,13 @@ internal fun serverOverviewHeaderSubtitle(): String? = null
 internal enum class ServerOverviewOverflowAnchor {
     Header,
     CardAfterOs,
+    CardTrailingOutside,
 }
 
 internal fun serverOverviewOverflowAnchor(): ServerOverviewOverflowAnchor =
-    ServerOverviewOverflowAnchor.CardAfterOs
+    ServerOverviewOverflowAnchor.CardTrailingOutside
+
+internal fun serverOverviewOverflowUsesCompactIcon(): Boolean = true
 
 internal enum class ServerOverviewHostMetricsPlacement {
     StandaloneCard,

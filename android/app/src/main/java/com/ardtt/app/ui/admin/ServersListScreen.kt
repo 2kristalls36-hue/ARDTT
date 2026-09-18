@@ -628,7 +628,9 @@ private fun ServerIdentityBody(
                     osId = server.osId,
                     osVersion = server.osVersion,
                 )
-                overflow?.invoke()
+                if (serverOverviewOverflowAnchor() == ServerOverviewOverflowAnchor.CardAfterOs) {
+                    overflow?.invoke()
+                }
             }
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -656,6 +658,9 @@ private fun ServerIdentityBody(
                 health = health,
                 expectedVersion = expectedVersion,
             )
+        }
+        if (serverOverviewOverflowAnchor() == ServerOverviewOverflowAnchor.CardTrailingOutside) {
+            overflow?.invoke()
         }
         if (showOpenHint) {
             Icon(

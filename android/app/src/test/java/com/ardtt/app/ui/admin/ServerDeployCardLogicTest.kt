@@ -402,9 +402,10 @@ class ServerDeployCardLogicTest {
     fun overviewChromeDropsManagementSubtitleAndMovesOverflowToCard() {
         assertNull(serverOverviewHeaderSubtitle())
         assertEquals(
-            ServerOverviewOverflowAnchor.CardAfterOs,
+            ServerOverviewOverflowAnchor.CardTrailingOutside,
             serverOverviewOverflowAnchor(),
         )
+        assertTrue(serverOverviewOverflowUsesCompactIcon())
     }
 
     @Test
