@@ -61,6 +61,8 @@ fun ArdttTabHeader(
     subtitle: String? = null,
     onBack: (() -> Unit)? = null,
     actions: (@Composable RowScope.() -> Unit)? = null,
+    bottomPadding: Dp = ArdttHeaderDefaults.BottomPaddingBelowTitle,
+    titleRowHeight: Dp? = ArdttHeaderDefaults.TitleRowHeight,
 ) {
     PageHeaderChrome(
         title = title,
@@ -68,7 +70,8 @@ fun ArdttTabHeader(
         onBack = onBack,
         actions = actions,
         topPadding = ArdttHeaderDefaults.TopPaddingAfterStatusBar,
-        titleRowHeight = ArdttHeaderDefaults.TitleRowHeight,
+        titleRowHeight = titleRowHeight,
+        bottomPadding = bottomPadding,
     )
 }
 
@@ -104,6 +107,7 @@ fun ArdttPageHeader(
         actions = actions,
         topPadding = ArdttHeaderDefaults.TopPaddingAfterStatusBar,
         titleRowHeight = null,
+        bottomPadding = ArdttHeaderDefaults.BottomPaddingBelowTitle,
     )
 }
 
@@ -115,6 +119,7 @@ private fun PageHeaderChrome(
     actions: (@Composable RowScope.() -> Unit)?,
     topPadding: Dp,
     titleRowHeight: Dp?,
+    bottomPadding: Dp,
 ) {
     val titleShadow = if (illustratedBackdropActive()) ArdttWallpaperTextShadow else null
     val minTitle = titleRowHeight ?: ArdttHeaderDefaults.TitleRowHeight
@@ -126,7 +131,7 @@ private fun PageHeaderChrome(
                 start = ArdttHeaderDefaults.HorizontalPadding,
                 end = ArdttHeaderDefaults.HorizontalPadding,
                 top = topPadding,
-                bottom = ArdttHeaderDefaults.BottomPaddingBelowTitle,
+                bottom = bottomPadding,
             ),
         verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Hairline),
     ) {

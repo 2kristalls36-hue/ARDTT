@@ -66,7 +66,7 @@ class QsProfileTileTest {
 
     @Test
     fun toggleSubtitlePrefersProfileName() {
-        assertEquals("Код звонка", qsToggleTileSubtitle(hasCallHash = false, running = false, profileName = "Дом"))
+        assertEquals("Дом", qsToggleTileSubtitle(hasCallHash = false, running = false, profileName = "Дом"))
         assertEquals("Дом", qsToggleTileSubtitle(hasCallHash = true, running = true, profileName = "Дом"))
         assertEquals("Дом", qsToggleTileSubtitle(hasCallHash = true, running = false, profileName = " Дом "))
         assertEquals("Подключено", qsToggleTileSubtitle(hasCallHash = true, running = true, profileName = null))

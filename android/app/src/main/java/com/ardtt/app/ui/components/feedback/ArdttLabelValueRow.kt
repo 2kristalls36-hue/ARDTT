@@ -33,7 +33,8 @@ private val InlineLabelWidth = 148.dp
  * Label on the left, value on the right — the tunnel status panel form.
  *
  * [pending] swaps the value for a small spinner so callers stop hand-rolling
- * that branch, and [leadingIcon] hosts the Cloudflare / provider glyphs.
+ * that branch, [leadingIcon] hosts the Cloudflare / provider glyphs, and
+ * [trailing] replaces the text value for composite metrics such as signal.
  */
 @Composable
 fun ArdttInlineFactRow(
@@ -45,6 +46,7 @@ fun ArdttInlineFactRow(
     labelWidth: Dp = InlineLabelWidth,
     maxLines: Int = 2,
     leadingIcon: (@Composable () -> Unit)? = null,
+    trailing: (@Composable () -> Unit)? = null,
 ) {
     Row(
         modifier = modifier.fillMaxWidth(),
@@ -70,6 +72,8 @@ fun ArdttInlineFactRow(
                     strokeWidth = ArdttSize.Stroke,
                     color = MaterialTheme.colorScheme.primary,
                 )
+            } else if (trailing != null) {
+                trailing()
             } else {
                 leadingIcon?.invoke()
                 Text(

@@ -183,6 +183,33 @@ class ClientPresentationTest {
     }
 
     @Test
+    fun clientCardChromeMatchesServerIdentity() {
+        assertEquals(ClientCardOverflowAnchor.TrailingOutside, clientCardOverflowAnchor())
+        assertTrue(clientCardOverflowUsesCompactIcon())
+        assertTrue(clientCardShowsLeadingIcon())
+        assertEquals(ClientCardBadgeKind.OsSurface, clientCardBadgeKind())
+        assertEquals(ClientCardPresencePlacement.MetaRow, clientCardPresencePlacement())
+        assertEquals(
+            "● Онлайн",
+            clientCardPresenceLabel(
+                online = true,
+                deactivated = false,
+                subscriptionActive = true,
+                lastSeenAt = 0L,
+            ),
+        )
+        assertEquals(
+            "● Оффлайн",
+            clientCardPresenceLabel(
+                online = false,
+                deactivated = false,
+                subscriptionActive = true,
+                lastSeenAt = 0L,
+            ),
+        )
+    }
+
+    @Test
     fun addToPhoneKeepsExistingDeviceId() {
         val profile = VpnProfileJson.parse(
             """

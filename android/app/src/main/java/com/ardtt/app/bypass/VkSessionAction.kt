@@ -5,6 +5,7 @@ data class VkSessionAction(
     val label: String,
     val destructive: Boolean,
     val enabled: Boolean,
+    val fillMaxWidth: Boolean = true,
 )
 
 fun vkSessionAction(
@@ -16,7 +17,7 @@ fun vkSessionAction(
     val idle = !vpnActive && !busy
     return if (loggedIn) {
         VkSessionAction(
-            label = "Завершить сессию",
+            label = "Завершить",
             destructive = true,
             enabled = idle,
         )

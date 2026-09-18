@@ -67,4 +67,10 @@ class TunnelDroneFlightTest {
         assertTrue(gone.alpha < 0.05f)
         assertTrue(gone.x < a.x)
     }
+
+    @Test
+    fun blowAwayLastsThreeTimesTheOriginalWindExit() {
+        assertEquals(2_940, droneBlowAwayDurationMs())
+        assertEquals(2_940L, UserTunnelDefaults.DroneExitDurationMs)
+    }
 }

@@ -222,3 +222,43 @@ internal fun clientAppVersionView(
     }
     return ClientAppVersionView(label, tone)
 }
+
+internal enum class ClientCardOverflowAnchor {
+    InTitleRow,
+    TrailingOutside,
+}
+
+internal enum class ClientCardBadgeKind {
+    StatusChip,
+    OsSurface,
+}
+
+internal enum class ClientCardPresencePlacement {
+    TitleRow,
+    MetaRow,
+}
+
+internal fun clientCardOverflowAnchor(): ClientCardOverflowAnchor =
+    ClientCardOverflowAnchor.TrailingOutside
+
+internal fun clientCardOverflowUsesCompactIcon(): Boolean = true
+
+internal fun clientCardShowsLeadingIcon(): Boolean = true
+
+internal fun clientCardBadgeKind(): ClientCardBadgeKind = ClientCardBadgeKind.OsSurface
+
+internal fun clientCardPresencePlacement(): ClientCardPresencePlacement =
+    ClientCardPresencePlacement.MetaRow
+
+internal fun clientCardPresenceLabel(
+    online: Boolean,
+    deactivated: Boolean,
+    subscriptionActive: Boolean,
+    lastSeenAt: Long,
+): String = when {
+    deactivated -> "● Отключён"
+    !subscriptionActive -> "● Истекла"
+    online -> "● Онлайн"
+    lastSeenAt > 0L -> formatClientRelative(lastSeenAt * 1000L)
+    else -> "● Оффлайн"
+}

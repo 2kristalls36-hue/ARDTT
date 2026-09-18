@@ -15,8 +15,8 @@ object ArdttNavPlan {
         when (dest) {
             // testingVisible must not rebuild the bar; Testing stays a nested route.
             AppDestination.Testing -> false && testingVisible
-            AppDestination.Network -> false
-            AppDestination.Logs -> !admin
+            AppDestination.Network -> !admin
+            AppDestination.Logs -> false
             AppDestination.Exceptions -> !admin
             AppDestination.Diagnostics -> admin
             else -> !dest.adminOnly || admin
@@ -41,7 +41,7 @@ object ArdttNavPlan {
                 AppDestination.Tunnel,
                 AppDestination.Profiles,
                 AppDestination.Exceptions,
-                AppDestination.Logs,
+                AppDestination.Network,
                 AppDestination.Settings,
             )
         }
@@ -93,7 +93,16 @@ object ArdttNavPlan {
     }
 
     fun diagnosticsRoute(admin: Boolean): String =
-        if (admin) AppDestination.Diagnostics.route else AppDestination.Logs.route
+        if (admin) AppDestination.Diagnostics.route else AppDestination.Network.route
+
+    /**
+     * User bottom bar no longer has Журнал. Restore / deep-link to logs
+     * opens the network map instead.
+     */
+    fun replaceUnavailableUserRoute(currentRoute: String, admin: Boolean): String? {
+        if (admin) return null
+        return AppDestination.Network.route.takeIf { currentRoute == AppDestination.Logs.route }
+    }
 
     /**
      * Where the system Back gesture leads from [currentRoute].

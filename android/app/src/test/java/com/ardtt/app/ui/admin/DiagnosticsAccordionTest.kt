@@ -1,5 +1,10 @@
 package com.ardtt.app.ui.admin
 
+import androidx.compose.ui.unit.dp
+import com.ardtt.app.ui.components.layout.ArdttHeaderDefaults
+import com.ardtt.app.ui.components.layout.ardttScrollChromeTopPadding
+import com.ardtt.app.ui.theme.ArdttLayout
+import com.ardtt.app.ui.theme.ArdttSpacing
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -66,5 +71,27 @@ class DiagnosticsAccordionTest {
             .layout(tools)
         assertNull(layout.expanded)
         assertEquals(tools, layout.trailing)
+    }
+
+    @Test
+    fun diagnosticsHeaderOmitsNetworkAndLogsSubtitle() {
+        assertTrue(diagnosticsHeaderSubtitle().isNullOrBlank())
+    }
+
+    @Test
+    fun diagnosticsPacksOpenToolAgainstHeaderAndTabPill() {
+        assertEquals(ArdttSpacing.None, diagnosticsChromeFade())
+        assertEquals(ArdttSpacing.None, diagnosticsHeaderBottomPadding())
+        assertEquals(ArdttSpacing.None, diagnosticsTitleRowMinHeight())
+        assertEquals(ArdttSpacing.Tiny, diagnosticsFeedSpacing())
+        assertEquals(ArdttSpacing.None, diagnosticsFeedBottomExtra())
+        assertEquals(ArdttSpacing.Small, diagnosticsNavReserveTrim())
+        assertTrue(diagnosticsFeedSpacing() < ArdttLayout.FeedSpacing)
+        assertTrue(diagnosticsFeedBottomExtra() < ArdttLayout.FeedBottomExtra)
+        assertTrue(diagnosticsHeaderBottomPadding() < ArdttHeaderDefaults.BottomPaddingBelowTitle)
+        assertEquals(
+            72.dp,
+            ardttScrollChromeTopPadding(72.dp, diagnosticsChromeFade()),
+        )
     }
 }

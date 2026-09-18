@@ -40,6 +40,80 @@ internal fun profileLiveFactsFromUsers(
     )
 }
 
+internal enum class ProfileCardSlot {
+    Title,
+    ExpiresBadge,
+    Overflow,
+    Hosts,
+    Presence,
+    Traffic,
+}
+
+internal enum class ProfileCardOverflowAnchor {
+    AfterExpires,
+    TrailingOutside,
+}
+
+/** Expiry chrome: OS badge (`Surface` + FillSoft), not `ArdttStatusChip` accent fill. */
+internal enum class ProfileCardBadgeKind {
+    StatusChip,
+    OsSurface,
+}
+
+/** Active profile must keep the default compact contour, like a server card. */
+internal enum class ProfileCardSelectionChrome {
+    ConnectedBorder,
+    DefaultContour,
+}
+
+/** Title stays onSurface; presence already marks the active profile. */
+internal enum class ProfileCardTitleTone {
+    ConnectedWhenActive,
+    OnSurface,
+}
+
+/** Host chips sit in an inner weighted row so they do not stretch toward «Активен». */
+internal enum class ProfileCardHostLayout {
+    WeightedHostRow,
+    InnerWeightedRow,
+}
+
+/**
+ * Same identity order as the server list card: title → badge,
+ * trailing ⋮ outside the column like the chevron, hosts left / presence right,
+ * remaining traffic on the fact row.
+ */
+internal fun profileCardSlotOrder(): List<ProfileCardSlot> = listOf(
+    ProfileCardSlot.Title,
+    ProfileCardSlot.ExpiresBadge,
+    ProfileCardSlot.Overflow,
+    ProfileCardSlot.Hosts,
+    ProfileCardSlot.Presence,
+    ProfileCardSlot.Traffic,
+)
+
+internal fun profileCardOverflowAnchor(): ProfileCardOverflowAnchor =
+    ProfileCardOverflowAnchor.TrailingOutside
+
+/** Same 24 dp glyph box as the servers-list chevron, not a 48 dp IconButton. */
+internal fun profileCardOverflowUsesCompactIcon(): Boolean = true
+
+internal fun profileCardBadgeKind(): ProfileCardBadgeKind = ProfileCardBadgeKind.OsSurface
+
+internal fun profileCardSelectionChrome(): ProfileCardSelectionChrome =
+    ProfileCardSelectionChrome.DefaultContour
+
+internal fun profileCardTitleTone(): ProfileCardTitleTone = ProfileCardTitleTone.OnSurface
+
+internal fun profileCardHostLayout(): ProfileCardHostLayout =
+    ProfileCardHostLayout.InnerWeightedRow
+
+/** Same extra Small under the chrome as the servers list. */
+internal fun profileFeedAddsTopSpacing(): Boolean = true
+
+internal fun profileCardPresenceLabel(active: Boolean): String? =
+    if (active) "● Активен" else null
+
 /** Public hops for the address row: cascade `entry → exit`, else one host, ports stripped. */
 internal fun profileCardAddressHosts(
     profile: VpnProfile,

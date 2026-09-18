@@ -71,6 +71,7 @@ import com.ardtt.app.ui.theme.isDarkSurface
 @Composable
 fun ArdttScrollChrome(
     modifier: Modifier = Modifier,
+    fadeHeight: Dp = ArdttChrome.FadeHeight,
     header: @Composable () -> Unit,
     content: @Composable (topContentPadding: Dp) -> Unit,
 ) {
@@ -80,7 +81,7 @@ fun ArdttScrollChrome(
         .asPaddingValues()
         .calculateTopPadding()
     var headerHeight by remember { mutableStateOf(ArdttHeaderDefaults.TitleRowHeight) }
-    val fade = ArdttChrome.FadeHeight
+    val fade = fadeHeight
     val chromeHeight = status + headerHeight
     val topPadding = ardttScrollChromeTopPadding(chromeHeight, fade)
     val overlayHeight = chromeHeight + fade

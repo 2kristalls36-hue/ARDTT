@@ -32,23 +32,26 @@ class ArdttNavPlanTest {
     }
 
     @Test
-    fun userPrimaryKeepsLogsAndSettingsWithoutMore() {
+    fun userPrimaryShowsNetworkMapNotLogs() {
         val primary = ArdttNavPlan.primary(admin = false, testingVisible = false)
         assertEquals(
             listOf(
                 AppDestination.Tunnel,
                 AppDestination.Profiles,
                 AppDestination.Exceptions,
-                AppDestination.Logs,
+                AppDestination.Network,
                 AppDestination.Settings,
             ),
             primary,
         )
         assertTrue(ArdttNavPlan.overflow(admin = false, testingVisible = true).isEmpty())
-        assertFalse(primary.contains(AppDestination.Network))
+        assertFalse(primary.contains(AppDestination.Logs))
         assertFalse(primary.contains(AppDestination.Servers))
         assertFalse(primary.contains(AppDestination.Diagnostics))
         assertFalse(primary.contains(AppDestination.Testing))
+        assertFalse(AppDestination.Network.adminOnly)
+        assertTrue(AppDestination.Network.inBottomNav)
+        assertFalse(AppDestination.Logs.inBottomNav)
     }
 
     @Test
@@ -91,6 +94,10 @@ class ArdttNavPlanTest {
             ArdttNavPlan.barSelectedRoute(AppDestination.Exceptions.route, userPrimary, admin = false),
         )
         assertEquals(
+            AppDestination.Network.route,
+            ArdttNavPlan.barSelectedRoute(AppDestination.Network.route, userPrimary, admin = false),
+        )
+        assertEquals(
             AppDestination.Settings.route,
             ArdttNavPlan.barSelectedRoute(AppDestination.Settings.route, userPrimary, admin = false),
         )
@@ -118,6 +125,7 @@ class ArdttNavPlanTest {
             AppDestination.Settings.route,
             ArdttNavPlan.backTarget(AppDestination.Testing.route, admin = false),
         )
+        assertNull(ArdttNavPlan.backTarget(AppDestination.Network.route, admin = false))
     }
 
     @Test
@@ -141,5 +149,15 @@ class ArdttNavPlanTest {
             ArdttNavPlan.navBadgeRoute(admin = false, isRecording = true),
         )
         assertNull(ArdttNavPlan.navBadgeRoute(admin = true, isRecording = false))
+    }
+
+    @Test
+    fun userLogsRouteOpensNetworkMap() {
+        assertEquals(
+            AppDestination.Network.route,
+            ArdttNavPlan.replaceUnavailableUserRoute(AppDestination.Logs.route, admin = false),
+        )
+        assertNull(ArdttNavPlan.replaceUnavailableUserRoute(AppDestination.Logs.route, admin = true))
+        assertNull(ArdttNavPlan.replaceUnavailableUserRoute(AppDestination.Network.route, admin = false))
     }
 }

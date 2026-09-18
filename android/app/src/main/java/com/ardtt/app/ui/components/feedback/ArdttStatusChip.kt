@@ -60,6 +60,37 @@ fun ArdttStatusChip(
 }
 
 /**
+ * Neutral identity badge: same fill and padding as the server OS mark
+ * (`primary` + [ArdttAlpha.FillSoft], [ArdttShapes.Badge], 3.dp vertical).
+ */
+@Composable
+fun ArdttIdentityBadge(
+    text: String,
+    modifier: Modifier = Modifier,
+    contentColor: Color = MaterialTheme.colorScheme.onSurface,
+) {
+    Surface(
+        modifier = modifier,
+        shape = ArdttShapes.Badge,
+        color = MaterialTheme.colorScheme.primary.copy(alpha = ArdttAlpha.FillSoft),
+        contentColor = contentColor,
+    ) {
+        Text(
+            text,
+            modifier = Modifier.padding(
+                horizontal = ArdttSpacing.Small,
+                vertical = BadgeVerticalPadding,
+            ),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = contentColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/**
  * Pill-shaped status label built from a container/content color pair, for
  * states that need a solid fill rather than a tint (recording, blocking).
  */

@@ -20,3 +20,5 @@ internal fun settingsAppearanceSections(
         showClassicLook = !admin,
     )
 }
+
+internal fun testingOpenRowShowsRecordingBorder(recordingActive: Boolean): Boolean = recordingActive

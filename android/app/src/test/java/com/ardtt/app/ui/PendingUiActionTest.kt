@@ -13,8 +13,8 @@ class PendingUiActionTest {
     }
 
     @Test
-    fun qsTileOpensSettingsOnlyWhenIdleAndNoHash() {
-        assertTrue(qsTileOpensCallHashSettings(hasCallHash = false, running = false))
+    fun qsTileClickNeverOpensSettings() {
+        assertFalse(qsTileOpensCallHashSettings(hasCallHash = false, running = false))
         assertFalse(qsTileOpensCallHashSettings(hasCallHash = false, running = true))
         assertFalse(qsTileOpensCallHashSettings(hasCallHash = true, running = false))
         assertFalse(qsTileOpensCallHashSettings(hasCallHash = true, running = true))
