@@ -123,6 +123,7 @@ fun ArdttLazyFeedScaffold(
     modifier: Modifier = Modifier,
     listState: LazyListState = rememberLazyListState(),
     horizontalPadding: Dp = ArdttLayout.ScreenPadding,
+    contentTopExtra: Dp = ArdttSpacing.None,
     bottomExtra: Dp = ArdttLayout.FeedBottomExtra,
     scrollBottomPadding: Dp? = null,
     refreshing: Boolean = false,
@@ -149,7 +150,7 @@ fun ArdttLazyFeedScaffold(
                 contentPadding = PaddingValues(
                     start = horizontalPadding,
                     end = horizontalPadding,
-                    top = topPad,
+                    top = topPad + contentTopExtra,
                     bottom = bottomPadding,
                 ),
                 verticalArrangement = Arrangement.spacedBy(ArdttLayout.ListSpacing),

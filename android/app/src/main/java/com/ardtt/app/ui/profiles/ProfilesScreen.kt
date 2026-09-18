@@ -3,14 +3,12 @@ package com.ardtt.app.ui.profiles
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material.icons.Icons
@@ -69,8 +67,8 @@ import com.ardtt.app.ui.components.control.ArdttPrimaryButton
 import com.ardtt.app.ui.components.control.ArdttTextField
 import com.ardtt.app.ui.components.control.ArdttTextFieldDefaults
 import com.ardtt.app.ui.components.feedback.ArdttEmptyState
+import com.ardtt.app.ui.components.feedback.ArdttIdentityBadge
 import com.ardtt.app.ui.components.feedback.ArdttIpHostRow
-import com.ardtt.app.ui.components.feedback.ArdttStatusChip
 import com.ardtt.app.ui.components.layout.ArdttLazyFeedScaffold
 import com.ardtt.app.ui.components.layout.ArdttTabHeader
 import com.ardtt.app.ui.components.surface.ArdttCompactCard
@@ -79,9 +77,7 @@ import com.ardtt.app.ui.components.surface.ArdttDialog
 import com.ardtt.app.ui.components.surface.ArdttDialogAction
 import com.ardtt.app.ui.components.surface.ArdttDialogDefaults
 import com.ardtt.app.ui.components.surface.ArdttLeadingIcon
-import com.ardtt.app.ui.components.surface.ArdttSectionCardDefaults
 import com.ardtt.app.ui.theme.ArdttAlpha
-import com.ardtt.app.ui.theme.ArdttColors
 import com.ardtt.app.ui.theme.connectedStatusColor
 import com.ardtt.app.ui.theme.warningStatusColor
 import com.ardtt.app.ui.theme.ArdttLayout
@@ -244,6 +240,11 @@ fun ProfilesScreen(
     }
 
     ArdttLazyFeedScaffold(
+        contentTopExtra = if (profileFeedAddsTopSpacing()) {
+            ArdttSpacing.Small
+        } else {
+            ArdttSpacing.None
+        },
         stickyContent = {
             ArdttPrimaryButton(
                 text = if (busy) "Импорт…" else stringResource(R.string.profiles_add),
@@ -499,33 +500,26 @@ private fun ProfileCard(
     val connectEnabled = !selectionLocked || active
     val deleteEnabled = !selectionLocked || !active
     val muted = colors.onSurfaceVariant.copy(alpha = if (selectionLocked && !active) 0.72f else 1f)
-    val titleColor = when {
-        active -> connectedStatusColor()
-        selectionLocked -> colors.onSurface.copy(alpha = 0.62f)
-        else -> colors.onSurface
+    val titleColor = if (selectionLocked && !active) {
+        colors.onSurface.copy(alpha = 0.62f)
+    } else {
+        colors.onSurface
     }
     val facts = profileCardFacts(item.profile, liveFacts)
     val addressHosts = profileCardAddressHosts(item.profile, servers)
     val expiresTone = clientExpiresTone(facts.expiresAt)
     val expiresColor = when (expiresTone) {
-        ClientExpiresTone.Unlimited, ClientExpiresTone.Active -> connectedStatusColor()
+        ClientExpiresTone.Unlimited, ClientExpiresTone.Active -> colors.onSurface
         ClientExpiresTone.ExpiringSoon -> warningStatusColor()
         ClientExpiresTone.Expired -> colors.error
     }
     ArdttCompactCard(
-        // Same compact identity preset as ServerCard (`ArdttLayout.CompactCardPadding`).
-        contentPadding = ArdttLayout.CompactCardPadding,
         modifier = Modifier.selectable(
             selected = active,
             enabled = !selectionLocked,
             role = Role.RadioButton,
             onClick = onSelect,
         ),
-        border = if (active) {
-            BorderStroke(ArdttSectionCardDefaults.ContourWidth, ArdttColors.Connected)
-        } else {
-            null
-        },
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -554,9 +548,9 @@ private fun ProfileCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    ArdttStatusChip(
+                    ArdttIdentityBadge(
                         text = formatClientExpires(facts.expiresAt),
-                        accent = expiresColor,
+                        contentColor = expiresColor,
                     )
                     Box {
                         ArdttButton(
@@ -612,14 +606,17 @@ private fun ProfileCard(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
                     ) {
-                        if (addressHosts.isNotEmpty()) {
-                            ArdttIpHostRow(
-                                hosts = addressHosts,
-                                modifier = Modifier.weight(1f),
-                                muted = muted,
-                            )
-                        } else {
-                            Spacer(modifier = Modifier.weight(1f))
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.TinyPlus),
+                        ) {
+                            if (addressHosts.isNotEmpty()) {
+                                ArdttIpHostRow(
+                                    hosts = addressHosts,
+                                    muted = muted,
+                                )
+                            }
                         }
                         if (presence != null) {
                             Text(
