@@ -47,15 +47,17 @@ object DeployVersionCatalog {
         DeployBundle.maxVersion(catalogLatest.orEmpty(), bundled)
 
     /**
-     * Version the VPS can actually fetch from GitHub Releases.
-     * Unpublished git bumps ([DeployBundle.FALLBACK_VERSION] ahead of the
-     * catalog) stay on the card, but must not be written to
-     * `ARDTT_DEPLOY_VERSION` or fetch-and-install fails with PACKAGE_RESOLVE.
+     * Version the VPS should install. Git bump in the APK (overlay hostfiles)
+     * wins over an older published Release so fetch can overlay 1.0.54
+     * installer onto 1.0.53 layers. When Releases are ahead, use that stack.
      */
-    fun installTarget(published: String?, bundled: String): String {
-        val fromReleases = published?.trim().orEmpty()
-        if (fromReleases.isNotEmpty()) return fromReleases
-        return bundled.trim()
+    fun installTarget(published: String?, bundled: String): String =
+        resolvedExpected(published, bundled)
+
+    fun publishedVersion(context: Context): String {
+        publishedCached.get()?.takeIf { it.isNotBlank() }?.let { return it }
+        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return prefs.getString(KEY_PUBLISHED, null)?.trim().orEmpty()
     }
 
     fun expectedVersion(context: Context): String {
@@ -78,11 +80,7 @@ object DeployVersionCatalog {
 
     fun installTargetVersion(context: Context): String {
         val bundled = DeployBundle.offlineFallback(context)
-        publishedCached.get()?.takeIf { it.isNotBlank() }?.let { return it }
-        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val stored = prefs.getString(KEY_PUBLISHED, null)?.trim().orEmpty()
-        if (stored.isNotEmpty()) return stored
-        return bundled
+        return installTarget(publishedVersion(context), bundled)
     }
 
     suspend fun refresh(context: Context): String = withContext(Dispatchers.IO) {

@@ -155,6 +155,7 @@ jobs:
           ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
           ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/27.0.12077973
         run: |
+          bash scripts/pack-hostfiles-overlay.sh
           bash scripts/build-bypass-client.sh
           cd android
           printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > local.properties
