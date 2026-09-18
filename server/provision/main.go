@@ -69,6 +69,7 @@ type User struct {
 	DirectPrivateKey      string            `json:"directPrivateKey,omitempty"`
 	DirectPublicKey       string            `json:"directPublicKey,omitempty"`
 	ServerPublicKey       string            `json:"serverPublicKey,omitempty"`
+	DeviceToken           string            `json:"deviceToken,omitempty"`
 }
 
 const onlineGraceSeconds = 120
@@ -92,6 +93,7 @@ type Profile struct {
 	TrafficLimitBytes int64  `json:"trafficLimitBytes,omitempty"`
 	UsedBytes         int64  `json:"usedBytes,omitempty"`
 	ProvisionPort     int    `json:"provisionPort,omitempty"`
+	DeviceToken       string `json:"deviceToken,omitempty"`
 	Direct            struct {
 		Endpoint      string         `json:"endpoint"`
 		PrivateKey    string         `json:"privateKey"`
@@ -188,6 +190,29 @@ func main() {
 }
 
 func runServer(store *Store, listen string) error {
+	dataDir := filepath.Dir(store.path)
+	creds, err := LoadCredentials(dataDir)
+	if err != nil {
+		return err
+	}
+	tlsState, err := EnsureTLS(filepath.Join(dataDir, "tls"))
+	if err != nil {
+		return err
+	}
+	mux := newAPIMux(store, creds, tlsState)
+	ln, err := net.Listen("tcp", listen)
+	if err != nil {
+		return err
+	}
+	fp := ""
+	if tlsState != nil {
+		fp = tlsState.Fingerprint
+	}
+	log.Printf("provision listening on %s (data=%s deploy=%s tls_fp=%s)", listen, store.path, resolveDeployVersion(), fp)
+	return serveProvision(ln, mux, tlsState)
+}
+
+func newAPIMux(store *Store, creds *Credentials, tlsState *TLSState) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		cascade := envOr("ARDTT_CASCADE_ENABLED", "0") == "1"
@@ -195,6 +220,10 @@ func runServer(store *Store, listen string) error {
 		cascadeHost := ""
 		if cascade {
 			cascadeHost = cascadeHostFromPeer(peer)
+		}
+		fp := ""
+		if tlsState != nil {
+			fp = tlsState.Fingerprint
 		}
 		writeJSON(w, map[string]any{
 			"ok":                  true,
@@ -210,12 +239,16 @@ func runServer(store *Store, listen string) error {
 			"bypassPort":          store.Config.BypassPort,
 			"provisionPort":       publicProvisionPort(),
 			"telemetryPort":       publicTelemetryPort(),
+			"provisionCertFp":     fp,
 			"host":                collectHostStats(),
 		})
 	})
 	mux.HandleFunc("/v1/cascade/peer", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !requireAdminOrCascade(w, r, creds) {
 			return
 		}
 		var body struct {
@@ -259,6 +292,9 @@ func runServer(store *Store, listen string) error {
 		})
 	})
 	mux.HandleFunc("/v1/users", func(w http.ResponseWriter, r *http.Request) {
+		if !requireAdmin(w, r, creds) {
+			return
+		}
 		switch r.Method {
 		case http.MethodGet:
 			writeJSON(w, store.ListUsersPublic())
@@ -285,6 +321,9 @@ func runServer(store *Store, listen string) error {
 	mux.HandleFunc("/v1/users/update", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodPatch {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !requireAdmin(w, r, creds) {
 			return
 		}
 		var body struct {
@@ -323,6 +362,9 @@ func runServer(store *Store, listen string) error {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+		if !requireAdmin(w, r, creds) {
+			return
+		}
 		var body struct {
 			Name     string `json:"name"`
 			DeviceID string `json:"deviceId"`
@@ -341,6 +383,9 @@ func runServer(store *Store, listen string) error {
 	mux.HandleFunc("/v1/users/delete", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost && r.Method != http.MethodDelete {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !requireAdmin(w, r, creds) {
 			return
 		}
 		var body struct {
@@ -377,6 +422,9 @@ func runServer(store *Store, listen string) error {
 			http.Error(w, `{"error":"deviceId or name required"}`, http.StatusBadRequest)
 			return
 		}
+		if !requireDeviceOrAdmin(w, r, store, creds, body.DeviceID, body.Name) {
+			return
+		}
 		ext := strings.TrimSpace(body.ExternalIP)
 		if ext == "" {
 			ext = clientIP(r)
@@ -390,6 +438,9 @@ func runServer(store *Store, listen string) error {
 	})
 	mux.HandleFunc("/v1/profile/", func(w http.ResponseWriter, r *http.Request) {
 		name := profileNameFromPath(r.URL.Path)
+		if !requireDeviceOrAdmin(w, r, store, creds, "", name) {
+			return
+		}
 		u, err := store.FindUser(name)
 		if err != nil {
 			http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
@@ -400,6 +451,9 @@ func runServer(store *Store, listen string) error {
 	mux.HandleFunc("/v1/hide-ip-prefixes", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !requireAdminOrCascade(w, r, creds) {
 			return
 		}
 		writeJSON(w, map[string]any{
@@ -423,6 +477,9 @@ func runServer(store *Store, listen string) error {
 		}
 		if body.DeviceID == "" && body.Name == "" {
 			http.Error(w, `{"error":"deviceId or name required"}`, http.StatusBadRequest)
+			return
+		}
+		if !requireDeviceOrAdmin(w, r, store, creds, body.DeviceID, body.Name) {
 			return
 		}
 		u, err := store.SetHideIP(body.DeviceID, body.Name, body.HideIP)
@@ -468,6 +525,9 @@ func runServer(store *Store, listen string) error {
 				}
 			}
 		}
+		if !requireDeviceOrAdmin(w, r, store, creds, deviceID, name) {
+			return
+		}
 		userFound := false
 		userHideIP := false
 		if deviceID != "" || name != "" {
@@ -497,6 +557,9 @@ func runServer(store *Store, listen string) error {
 		}
 		deviceID := r.URL.Query().Get("deviceId")
 		name := r.URL.Query().Get("name")
+		if !requireDeviceOrAdmin(w, r, store, creds, deviceID, name) {
+			return
+		}
 		viaWarp := false
 		if deviceID != "" || name != "" {
 			if u, err := store.FindUserByDeviceOrName(deviceID, name); err == nil {
@@ -514,12 +577,15 @@ func runServer(store *Store, listen string) error {
 		writeJSON(w, getNetcheck(viaWarp, refresh))
 	})
 
-	ln, err := net.Listen("tcp", listen)
-	if err != nil {
-		return err
-	}
-	log.Printf("provision listening on %s (data=%s deploy=%s)", listen, store.path, resolveDeployVersion())
-	return http.Serve(ln, mux)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if creds != nil && creds.Limiter != nil && !creds.Limiter.Allow(remoteIP(r)) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte("{\"error\":\"rate limited\"}\n"))
+			return
+		}
+		mux.ServeHTTP(w, r)
+	})
 }
 
 func loadOrInitStore(dataDir, publicHost string) (*Store, error) {
@@ -616,6 +682,14 @@ func (s *Store) ensureUserKeys() error {
 			u.MaxDevices = 1
 			changed = true
 		}
+		if u.DeviceToken == "" {
+			tok, err := randomHex(32)
+			if err != nil {
+				return err
+			}
+			u.DeviceToken = tok
+			changed = true
+		}
 	}
 	if changed {
 		log.Printf("filled missing AWG user keys / device defaults")
@@ -676,6 +750,10 @@ func (s *Store) CreateUser(name string, days, maxDevices int) (User, error) {
 		expires = time.Now().UTC().Add(time.Duration(days) * 24 * time.Hour).Unix()
 	}
 	deviceID := "dev-" + dev
+	devTok, err := randomHex(32)
+	if err != nil {
+		return User{}, err
+	}
 	u := User{
 		Name:             name,
 		HostID:           id,
@@ -687,6 +765,7 @@ func (s *Store) CreateUser(name string, days, maxDevices int) (User, error) {
 		DirectPrivateKey: priv,
 		DirectPublicKey:  pub,
 		ServerPublicKey:  s.Config.ServerPublicKey,
+		DeviceToken:      devTok,
 	}
 	s.Users = append(s.Users, u)
 	if err := s.saveLocked(); err != nil {
@@ -1338,6 +1417,7 @@ func (s *Store) BuildProfile(u User) Profile {
 	p.MaxDevices = maxInt(u.MaxDevices, 1)
 	p.TrafficLimitBytes = u.TrafficLimitBytes
 	p.ProvisionPort = publicProvisionPort()
+	p.DeviceToken = u.DeviceToken
 	if t, ok := loadBypassTrafficLocked(filepath.Dir(s.path))[u.Name]; ok {
 		used := t.DownBytes + t.UpBytes
 		if used > 0 {

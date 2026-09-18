@@ -427,7 +427,13 @@ hideip_desired_prefixes() {
   if [ "${WARP_MODE}" = "exit-hideip" ]; then
     local url raw
     url="${ARDTT_WARP_HIDEIP_URL:-http://10.10.0.1:9100/v1/hide-ip-prefixes}"
-    raw="$(curl -fsS --max-time 3 "${url}" 2>/dev/null)" || return 2
+    raw="$(
+      if [ -n "${ARDTT_CASCADE_SECRET:-}" ]; then
+        curl -fsS --max-time 3 -H "Authorization: Bearer ${ARDTT_CASCADE_SECRET}" "${url}" 2>/dev/null
+      else
+        curl -fsS --max-time 3 "${url}" 2>/dev/null
+      fi
+    )" || return 2
     echo "${raw}" | jq -e '.ok == true' >/dev/null 2>&1 || return 2
     echo "${raw}" | jq -r '.prefixes[]? // empty'
     return 0

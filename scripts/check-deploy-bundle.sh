@@ -38,6 +38,7 @@ if [ -f "$INSTALLER" ]; then
     bash -n "$lib" || err "bash -n $(basename "$lib")"
   done
   grep -q 'INSTALL_LIB_DIR/engine.sh' "$INSTALLER" || err "install.sh must source engine.sh"
+  grep -q 'INSTALL_LIB_DIR/secrets.sh' "$INSTALLER" || err "install.sh must source secrets.sh"
   grep -q 'ARDTT_PROGRESS|' "$INSTALLER" || err "installer missing ARDTT_PROGRESS protocol"
   grep -q 'ARDTT_ERROR|' "$INSTALLER" || err "installer missing ARDTT_ERROR protocol"
   grep -q 'ARDTT_DONE|' "$INSTALLER" || err "installer missing ARDTT_DONE protocol"
@@ -404,6 +405,9 @@ if [ -f "$ROOT/scripts/test-install-isolation.sh" ]; then
 fi
 if [ -f "$ROOT/scripts/test-install-unpack.sh" ]; then
   bash "$ROOT/scripts/test-install-unpack.sh" || err "install unpack"
+fi
+if [ -f "$ROOT/scripts/test-install-provision-secrets.sh" ]; then
+  bash "$ROOT/scripts/test-install-provision-secrets.sh" || err "provision secrets / localhost bind"
 fi
 if [ -f "$ROOT/scripts/test-install-rollback.sh" ]; then
   bash "$ROOT/scripts/test-install-rollback.sh" || err "install rollback restore"
