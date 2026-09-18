@@ -43,6 +43,10 @@ ardtt_state_set_required() {
     return 0
   fi
   if ! bin="$(ardtt_ctl_bin)"; then
+    if [ "${ARDTT_HOSTFILES_OVERLAY_APPLIED:-0}" = "1" ]; then
+      echo "ARDTT_WARN|overlay без ardttctl — durable state как у опубликованного стека, install продолжается" >&2
+      return 0
+    fi
     echo "ARDTT_ERROR|code=STATE_WRITE_FAILED|нет ardttctl для записи durable state" >&2
     return 1
   fi

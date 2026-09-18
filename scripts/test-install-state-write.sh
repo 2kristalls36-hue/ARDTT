@@ -40,6 +40,49 @@ set -e
 echo "$out" | grep -q 'STATE_WRITE_FAILED' || err "required write must mention STATE_WRITE_FAILED (got $out)"
 ok "required state write fails closed"
 
+# Overlay APK does not ship arch-specific ardttctl (~2 MiB). 1.0.54 install.sh
+# still runs unique releases / bind / tokens; durable state stays best-effort
+# like published 1.0.53. A present but failing binary must still fail closed.
+OVERLAY_TMP="$(mktemp -d)"
+SCRIPT_DIR="$OVERLAY_TMP"
+PKG_DIR=""
+SELF_DIR=""
+# re-source in a subshell so the failing stub from above is not visible
+out="$(
+  INSTALL_DIR="$OVERLAY_TMP/opt"
+  mkdir -p "$INSTALL_DIR"
+  SCRIPT_DIR="$OVERLAY_TMP"
+  PKG_DIR=""
+  SELF_DIR=""
+  ARDTT_DRY_RUN=0
+  ARDTT_HOSTFILES_OVERLAY_APPLIED=1
+  # shellcheck disable=SC1091
+  . "$ROOT/server/install-lib/protocol.sh"
+  ardtt_state_set_required --phase verify --desired 1.0.54 2>&1
+  echo RC:$?
+)"
+echo "$out" | grep -q 'ARDTT_WARN|overlay без ardttctl' || err "overlay without ardttctl must warn: $out"
+echo "$out" | grep -q 'RC:0' || err "overlay without ardttctl must continue: $out"
+echo "$out" | grep -q 'STATE_WRITE_FAILED' && err "overlay without ardttctl must not STATE_WRITE_FAILED: $out"
+ok "overlay without ardttctl continues"
+
+out_no="$(
+  INSTALL_DIR="$OVERLAY_TMP/opt"
+  SCRIPT_DIR="$OVERLAY_TMP"
+  PKG_DIR=""
+  SELF_DIR=""
+  ARDTT_DRY_RUN=0
+  unset ARDTT_HOSTFILES_OVERLAY_APPLIED
+  # shellcheck disable=SC1091
+  . "$ROOT/server/install-lib/protocol.sh"
+  ardtt_state_set_required --phase verify --desired 1.0.54 2>&1
+  echo RC:$?
+)"
+echo "$out_no" | grep -q 'STATE_WRITE_FAILED' || err "without overlay, missing ardttctl still fails: $out_no"
+echo "$out_no" | grep -q 'RC:0' && err "without overlay, missing ardttctl must not succeed: $out_no"
+ok "missing ardttctl without overlay still fail-closed"
+rm -rf "$OVERLAY_TMP"
+
 # --force must not idle out of recovery without a verified pointer set.
 bin=""
 if [ -n "${ARDTTCTL_BIN:-}" ] && [ -x "${ARDTTCTL_BIN}" ]; then

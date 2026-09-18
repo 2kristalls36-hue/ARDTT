@@ -320,6 +320,8 @@ grep -q 'install.sh fetch-and-install.sh ready.sh ardttctl install-lib scripts' 
   || err "repack-server-host-files tar list must include fetch-and-install.sh and ardttctl"
 grep -q 'build-ardttctl.sh' "$PACK_SERVER" || err "pack-server-package must build ardttctl"
 grep -q 'INSTALL_LIB_DIR/protocol.sh' "$INSTALLER" || err "install.sh must source protocol.sh"
+grep -q 'overlay без ardttctl' "$ROOT/server/install-lib/protocol.sh" \
+  || err "overlay without ardttctl must continue (binary is arch-specific, not in APK)"
 grep -q 'INSTALL_LIB_DIR/switch.sh' "$INSTALLER" || err "install.sh must source switch.sh"
 grep -q 'activate_release_tree' "$INSTALLER" || err "install.sh must activate current as a symlink"
 grep -q 'commit-version-after-readiness' "$INSTALLER" || err "data/DEPLOY_VERSION must be committed after readiness"
