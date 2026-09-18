@@ -5,18 +5,14 @@ import android.content.Intent
 import android.net.VpnService
 import android.os.Bundle
 import android.widget.Toast
-import com.ardtt.app.core.ConnPathMode
 import com.ardtt.app.core.ConnState
 import com.ardtt.app.core.holdsUserSession
 import com.ardtt.app.core.ConnectionManager
 import com.ardtt.app.core.vpnPermissionDeniedHint
-import com.ardtt.app.profile.ProfileRepository
-import com.ardtt.app.settings.AppSettingsRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
@@ -57,32 +53,26 @@ class WidgetToggleActivity : Activity() {
     }
 
     private suspend fun toggle() {
-        val app = applicationContext
-        val settings = AppSettingsRepository(app)
-        val catalog = ProfileRepository(app).snapshot()
-        val profile = catalog.active
-        if (profile == null) {
-            Toast.makeText(app, "Нет активного профиля", Toast.LENGTH_LONG).show()
-            openApp()
-            finish()
-            return
+        val result = runQuickLaunchToggle(applicationContext) {
+            runCatching { VpnService.prepare(this) }.getOrNull()
         }
-        val conn = ConnectionManager.get(app)
-        conn.updateProfile(profile)
-        conn.setPathMode(ConnPathMode.fromSetting(settings.pathModeName.first()))
-        if (widgetTunnelIsRunning(conn.ui.value.state)) {
-            conn.disconnect()
-            finish()
-            return
+        when (result.outcome) {
+            QuickLaunchOutcome.MissingProfile -> {
+                Toast.makeText(applicationContext, "Нет активного профиля", Toast.LENGTH_LONG).show()
+                openApp()
+                finish()
+            }
+            QuickLaunchOutcome.NeedVpnConsent -> {
+                val consent = result.vpnConsentIntent
+                if (consent != null) {
+                    startActivityForResult(consent, REQ)
+                } else {
+                    finish()
+                }
+            }
+            QuickLaunchOutcome.Disconnect,
+            QuickLaunchOutcome.ConnectInPlace -> finish()
         }
-        val prep = runCatching { VpnService.prepare(this) }.getOrNull()
-        if (prep != null) {
-            startActivityForResult(prep, REQ)
-            return
-        }
-        conn.connectWhenReady()
-        TunnelWidgetProvider.pushFromConnection(app)
-        finish()
     }
 
     @Deprecated("Deprecated in Java")
