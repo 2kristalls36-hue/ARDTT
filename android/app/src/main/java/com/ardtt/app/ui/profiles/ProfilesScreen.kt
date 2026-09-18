@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material.icons.Icons
@@ -542,7 +543,7 @@ private fun ProfileCard(
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.TinyPlus),
+                    horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
                 ) {
                     Text(
                         item.profile.name,
@@ -553,6 +554,10 @@ private fun ProfileCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    ArdttStatusChip(
+                        text = formatClientExpires(facts.expiresAt),
+                        accent = expiresColor,
+                    )
                     Box {
                         ArdttButton(
                             onClick = { menu = true },
@@ -562,7 +567,7 @@ private fun ProfileCard(
                             contentColor = if (selectionLocked) {
                                 colors.onSurface.copy(alpha = ArdttAlpha.Disabled)
                             } else {
-                                colors.onSurfaceVariant
+                                colors.primary
                             },
                         )
                         ArdttOverflowMenu(
@@ -600,11 +605,34 @@ private fun ProfileCard(
                         }
                     }
                 }
-                ArdttIpHostRow(
-                    hosts = addressHosts,
-                    modifier = Modifier.fillMaxWidth(),
-                    muted = muted,
-                )
+                val presence = profileCardPresenceLabel(active)
+                if (addressHosts.isNotEmpty() || presence != null) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
+                    ) {
+                        if (addressHosts.isNotEmpty()) {
+                            ArdttIpHostRow(
+                                hosts = addressHosts,
+                                modifier = Modifier.weight(1f),
+                                muted = muted,
+                            )
+                        } else {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+                        if (presence != null) {
+                            Text(
+                                presence,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = connectedStatusColor(),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -613,14 +641,11 @@ private fun ProfileCard(
                     Text(
                         profileTrafficRemainingLabel(facts.trafficLimitBytes, facts.usedBytes),
                         style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
                         color = muted,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
-                    )
-                    ArdttStatusChip(
-                        text = formatClientExpires(facts.expiresAt),
-                        accent = expiresColor,
                     )
                 }
             }
