@@ -633,7 +633,26 @@ run_install() {
   fi
   prog 0.35 "Запуск install.sh (${ARDTT_DEPLOY_VERSION})"
   # install.sh emits its own 0..1 progress; remap is left to the phone if needed.
+  # 1.0.54 install.sh skips flock when this env is 1. Published 1.0.53 does
+  # not: nested flock -n on the same inode → «уже выполняется».
+  if grep -q 'ARDTT_MUTATION_LOCK_HELD' "$STAGING/install.sh" 2>/dev/null; then
+    bash "$STAGING/install.sh"
+    return
+  fi
+  warn "install.sh пакета без ARDTT_MUTATION_LOCK_HELD — вложенный flock не берём"
+  flock() {
+    if [ "${1:-}" = "-n" ]; then
+      return 0
+    fi
+    command flock "$@"
+  }
+  export -f flock
+  set +e
   bash "$STAGING/install.sh"
+  rc=$?
+  set -e
+  unset -f flock
+  return "$rc"
 }
 
 # ---------------------------------------------------------------------------
