@@ -6,14 +6,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
@@ -25,7 +23,6 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -49,6 +46,7 @@ import com.ardtt.app.deploy.DeployJobKind
 import com.ardtt.app.deploy.DeployTarget
 import com.ardtt.app.deploy.ServersRepository
 import com.ardtt.app.ui.components.control.ArdttButton
+import com.ardtt.app.ui.components.control.ArdttButtonSize
 import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.components.control.ArdttOverflowMenu
 import com.ardtt.app.ui.components.control.ArdttOverflowMenuItem
@@ -63,10 +61,9 @@ import com.ardtt.app.ui.components.layout.rememberPullRefresh
 import com.ardtt.app.ui.components.surface.ArdttCompactCard
 import com.ardtt.app.ui.components.surface.ArdttDialog
 import com.ardtt.app.ui.components.surface.ArdttDialogAction
+import com.ardtt.app.ui.components.surface.ArdttLeadingIcon
 import com.ardtt.app.ui.theme.ArdttColors
 import com.ardtt.app.ui.theme.ArdttLayout
-import com.ardtt.app.ui.theme.ArdttShapes
-import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -512,6 +509,11 @@ private fun ServerOverviewCardMenu(
         ArdttButton(
             onClick = { onShow(true) },
             variant = ArdttButtonVariant.Icon,
+            size = if (serverOverviewOverflowUsesCompactIcon()) {
+                ArdttButtonSize.Compact
+            } else {
+                ArdttButtonSize.Regular
+            },
             icon = Icons.Filled.MoreVert,
             contentDescription = "Действия с сервером",
             contentColor = MaterialTheme.colorScheme.primary,
@@ -569,24 +571,18 @@ private fun ServerActionCard(
         modifier = Modifier.clickable(onClick = onClick),
         verticalArrangement = Arrangement.spacedBy(ArdttSpacing.None),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Surface(
-                shape = ArdttShapes.Icon,
-                color = MaterialTheme.colorScheme.secondaryContainer,
-            ) {
-                Icon(
-                    icon,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                    modifier = Modifier
-                        .padding(ArdttSpacing.Small)
-                        .size(ArdttSize.IconCompact),
-                )
-            }
-            Spacer(modifier = Modifier.width(ArdttSpacing.Medium))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Medium),
+        ) {
+            ArdttLeadingIcon(
+                imageVector = icon,
+                contentDescription = null,
+            )
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Hairline),
+                verticalArrangement = Arrangement.spacedBy(ArdttLayout.CompactCardSpacing),
             ) {
                 Text(
                     title,
@@ -601,7 +597,7 @@ private fun ServerActionCard(
                 )
             }
             Icon(
-                Icons.AutoMirrored.Filled.ArrowForward,
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )

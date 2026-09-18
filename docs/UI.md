@@ -55,7 +55,7 @@ ui/
 | `ArdttCheckboxRow` | Checkbox + подпись, одна toggleable-нода | соглашение тестирования, выбор серверов |
 | `ArdttSettingBlock` | заголовок + подзаголовок + произвольный контрол | Настройки, Туннель |
 | `ArdttTextField` / `ArdttPasswordField` / `ArdttDigitsField` | единственный текстовый ввод; пароль с показом; цифры с числовой клавиатурой | Деплой, Клиенты, Профили, Тестирование, код звонка |
-| `ArdttOverflowMenu` / `ArdttOverflowMenuItem` | меню ⋮ | Профили, Серверы |
+| `ArdttOverflowMenu` / `ArdttOverflowMenuItem` | меню ⋮ | Профили, Серверы, Клиенты |
 | `ArdttSectionCard` | базовая карточка | все ленты |
 | `ArdttSettingsCard` | пресет карточки настроек (Large / SmallPlus) | Настройки |
 | `ArdttCompactCard` | плотная карточка списка | Серверы, Клиенты, Профили |
@@ -72,7 +72,7 @@ ui/
 | `ArdttDestinationRow` | строка-переход с шевроном; `expanded` — стрелка вверх/вниз | Настройки, Диагностика, Серверы |
 | `ArdttPullRefresh` / `rememberPullRefresh` | обновление жестом | ленты |
 | `ArdttEmptyState` / `ArdttLoadingState` / `ArdttErrorState` | состояния экрана | Профили, Обход, Клиенты, Журнал, Тестирование |
-| `ArdttStatusChip` / `ArdttStatusPill` / `ArdttStatusDot` / `ArdttIpChip` / `ArdttIpHostRow` | статусы и адреса | списки |
+| `ArdttStatusChip` / `ArdttIdentityBadge` / `ArdttStatusPill` / `ArdttStatusDot` / `ArdttIpChip` / `ArdttIpHostRow` | статусы, срок/ОС и адреса | списки |
 | `ArdttInlineFactRow` / `ArdttStackedFactRow` / `ArdttCopyRow` | факт + значение | статус туннеля, листы |
 | `ArdttLinearProgress`, `ArdttPingDot` | прогресс, пинг | деплой, сеть |
 | `rememberArdttHaptics`, `RisingEdgeSuccessHaptic` | тактильный отклик | кнопки, подключение |
@@ -128,7 +128,7 @@ ui/
 | Обход | user — вкладка; admin — из Настроек | `ArdttScrollChrome` + плавающий поиск | панель Приложения/Правила (`ArdttChoiceChipRow`), ЧС/БС, системные приложения, «Очистить» | подтверждение очистки правил |
 | Журнал | user — вкладка; admin — из Диагностики | `ArdttScrollChrome` | Копировать / Расшарить / Удалить в шапке терминала справа; терминал без поиска и автопрокрутки, время подключения слева | `ArdttConfirmDialog` |
 | Настройки | оба; admin-блоки скрыты у user | `ArdttFeedScaffold` | чипы режима/адреса/темы, свитчи, Wi‑Fi, слайдер admin / «Завершить сессию» | соглашение тестирования, подтверждение выхода из admin, код звонка, подтверждение выхода из VK |
-| Серверы → карточка → Клиенты / Деплой | admin | `ArdttScrollChrome` (+ sticky CTA) | список: «Добавить сервер», экспорт/импорт; обзор: одна карточка (сервер + CPU/RAM/HDD), ⋮ после версии ОС, без лишнего отступа под названием; клиенты / обновить / удалить / деинсталляция; деплой: сохранить / установить / назад | `DeployProgressSheet`, переименование, удаление/переустановка, `ClientSettingsSheet`, лимиты, `ArdttConfirmDialog` отвязки |
+| Серверы → карточка → Клиенты / Деплой | admin | `ArdttScrollChrome` (+ sticky CTA) | список: «Добавить сервер», экспорт/импорт; обзор: одна карточка (сервер + CPU/RAM/HDD), ⋮ снаружи колонки как шеврон; клиенты: ведущая иконка, название и срок, трафик / «● Онлайн», ⋮ компактный снаружи; переходы Клиенты/Параметры как DestinationRow; клиенты / обновить / удалить / деинсталляция; деплой: сохранить / установить / назад | `DeployProgressSheet`, переименование, удаление/переустановка, `ClientSettingsSheet`, лимиты, `ArdttConfirmDialog` отвязки |
 | Диагностика | admin | `ArdttFeedScaffold` на хабе; при открытом инструменте `ArdttScrollChrome` | по умолчанию открыта «Сеть»; без подписи «Сеть и журнал»; открытая вкладка вплотную к шапке, последняя кнопка и терминал — вплотную к плашке вкладок; кнопки журнала в шапке терминала | — |
 | Сеть | admin (из Диагностики) | `ArdttFeedScaffold` / pull-to-refresh | жест «потянуть вниз», «Повторить» на hop-карточке | — |
 | Тестирование | оба, при включённом режиме (из Настроек) | `ArdttScrollChrome` + sticky «Начать/Остановить запись» | панели Хранилище/История, отправить / удалить (с подтверждением) | комментарий к логу, `ArdttConfirmDialog` удаления |
