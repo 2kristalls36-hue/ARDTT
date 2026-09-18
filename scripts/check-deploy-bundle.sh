@@ -352,6 +352,7 @@ grep -q 'verify_index_staging' "$INSTALLER" || err "install.sh must verify parti
 grep -q 'adopt_layers_into_cache' "$INSTALLER" || err "install.sh must keep loaded layers in the cache"
 grep -q 'releases/latest/download' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must fall back to SHA256SUMS-server.txt when the API is down"
 grep -q 'PINNED_MISSING' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must fall back when ARDTT_DEPLOY_VERSION is not on Releases"
+grep -q 'export -f flock' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must no-op nested flock for published 1.0.53 install.sh"
 
 grep -q 'flock' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must lock against concurrent runs"
 grep -q 'fetch_disk_preflight' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must preflight disk before large downloads"
