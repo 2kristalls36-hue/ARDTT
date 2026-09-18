@@ -16,7 +16,7 @@ from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 
-MAX_CONTENT_LENGTH = 120 * 1024 * 1024  # 120 MB
+MAX_CONTENT_LENGTH = 20 * 1024 * 1024  # default 20 MB; override TELEMETRY_MAX_UPLOAD_MB
 app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
 CLIENT_ID_RE = re.compile(r"^[a-zA-Z0-9._-]{1,128}$")
 
@@ -25,8 +25,73 @@ def log_root() -> Path:
     return Path(os.environ.get("TELEMETRY_LOG_ROOT", "/var/logs/app"))
 
 
+def data_dir() -> Path:
+    return Path(os.environ.get("ARDTT_DATA", "/data"))
+
+
 def review_token() -> str:
     return os.environ.get("TELEMETRY_REVIEW_TOKEN", "").strip()
+
+
+def upload_token() -> str:
+    return os.environ.get("TELEMETRY_UPLOAD_TOKEN", "").strip()
+
+
+def bearer() -> str:
+    header = request.headers.get("Authorization", "")
+    if header.lower().startswith("bearer "):
+        return header[7:].strip()
+    return request.headers.get("X-Ardtt-Token", "").strip()
+
+
+def token_ok(supplied: str, expected: str) -> bool:
+    if not supplied or not expected or len(supplied) != len(expected):
+        return False
+    return hmac.compare_digest(supplied, expected)
+
+
+def load_device_tokens() -> list[str]:
+    path = data_dir() / "users.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return []
+    out: list[str] = []
+    for user in payload.get("users") or []:
+        tok = (user or {}).get("deviceToken") or ""
+        if isinstance(tok, str) and tok.strip():
+            out.append(tok.strip())
+    return out
+
+
+def max_upload_bytes() -> int:
+    try:
+        mb = int(os.environ.get("TELEMETRY_MAX_UPLOAD_MB", "20"))
+    except ValueError:
+        mb = 20
+    return max(1, mb) * 1024 * 1024
+
+
+def quota_bytes() -> int:
+    try:
+        mb = int(os.environ.get("TELEMETRY_QUOTA_MB", "50"))
+    except ValueError:
+        mb = 50
+    return max(1, mb) * 1024 * 1024
+
+
+def client_stored_bytes(client_id: str) -> int:
+    folder = log_root() / client_id
+    if not folder.is_dir():
+        return 0
+    total = 0
+    for path in folder.glob("*.json"):
+        if path.is_file() and not path.name.startswith("."):
+            try:
+                total += path.stat().st_size
+            except OSError:
+                continue
+    return total
 
 
 def utc_now() -> str:
@@ -43,12 +108,19 @@ def ticket_marker(log_path: Path) -> Path:
 
 def review_authorized() -> bool:
     token = review_token()
-    if token:
-        header = request.headers.get("Authorization", "")
-        supplied = header.removeprefix("Bearer ").strip()
-        return hmac.compare_digest(supplied, token)
-    # Without an explicit token, review operations stay local to the VPS.
-    return request.remote_addr in {"127.0.0.1", "::1"}
+    if not token:
+        return False
+    return token_ok(bearer(), token)
+
+
+def upload_authorized() -> bool:
+    supplied = bearer()
+    if token_ok(supplied, upload_token()):
+        return True
+    for tok in load_device_tokens():
+        if token_ok(supplied, tok):
+            return True
+    return False
 
 
 def require_review_auth():
@@ -290,6 +362,9 @@ def health():
 
 @app.route("/api/upload-log", methods=["POST"])
 def upload_log():
+    if not upload_authorized():
+        return jsonify({"error": "upload authorization required"}), 401
+    app.config["MAX_CONTENT_LENGTH"] = max_upload_bytes()
     client_id = (request.form.get("client_id") or "").strip()
     if not client_id or not CLIENT_ID_RE.match(client_id):
         return jsonify({"error": "invalid client_id"}), 400
@@ -302,10 +377,20 @@ def upload_log():
     if not filename.endswith(".json"):
         return jsonify({"error": "only .json log files are accepted"}), 400
 
+    incoming = uploaded.read()
+    size = len(incoming)
+    if size > max_upload_bytes():
+        return jsonify({"error": "file too large"}), 413
     dest_dir = log_root() / client_id
-    dest_dir.mkdir(parents=True, exist_ok=True)
     dest_path = dest_dir / filename
-    uploaded.save(dest_path)
+    extra = size
+    if dest_path.is_file():
+        extra = max(0, size - dest_path.stat().st_size)
+    if client_stored_bytes(client_id) + extra > quota_bytes():
+        return jsonify({"error": "client quota exceeded"}), 429
+
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest_path.write_bytes(incoming)
     # A replacement upload is a new review revision, but keeps the ticket number.
     read_marker(dest_path).unlink(missing_ok=True)
     ticket = assign_ticket(client_id, dest_path)

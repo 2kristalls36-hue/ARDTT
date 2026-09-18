@@ -38,20 +38,14 @@ for pat in "${forbidden[@]}"; do
   fi
 done
 
-# Opt-in disk reclaim may prune dangling images / vacuum journal — only in disk-cleanup.sh.
-for pat in 'docker image prune' 'journalctl --vacuum'; do
-  if grep -F "$pat" "$INSTALLER" >/dev/null 2>&1; then
-    err "$pat must not appear in install.sh (only disk-cleanup.sh)"
+# Opt-in disk reclaim must not globally prune Docker or vacuum the host journal.
+for pat in 'docker image prune' 'journalctl --vacuum' 'docker volume prune' 'docker container prune'; do
+  if grep -F "$pat" "$INSTALLER" "$ROOT/server/install-lib/"*.sh >/dev/null 2>&1; then
+    err "forbidden global reclaim: $pat"
+  else
+    ok "absent: $pat"
   fi
-  hits="$(grep -lF "$pat" "$ROOT/server/install-lib/"*.sh 2>/dev/null || true)"
-  for f in $hits; do
-    base="$(basename "$f")"
-    if [ "$base" != "disk-cleanup.sh" ]; then
-      err "$pat forbidden outside disk-cleanup.sh (found in $base)"
-    fi
-  done
 done
-grep -q 'docker image prune' "$ROOT/server/install-lib/disk-cleanup.sh" || err "disk-cleanup should prune dangling images"
 grep -q 'ARDTT_DISK_CLEANUP' "$INSTALLER" || err "install.sh must gate cleanup on ARDTT_DISK_CLEANUP"
 
 if grep -q 'apt-get purge' "$UNINSTALL_KT"; then

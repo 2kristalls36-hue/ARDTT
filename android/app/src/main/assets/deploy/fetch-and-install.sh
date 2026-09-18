@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Runs on the VPS: resolve the ARDTT server release on GitHub, download only
 # what this host lacks, verify SHA-256, stage a package and run install.sh.
-# The phone only SSHs and starts this script — it does not download or SFTP
-# the multi‑MB payload.
+# The phone SSHs and starts this script. Image layers stay on GitHub Releases.
+# Optional APK overlay (~100 KB hostfiles) is SFTP'd next to this script.
 #
 # Partial deploy (release with ardtt-server-<ver>-linux-<arch>.index.json):
-#   host files   — always (install.sh, Compose, install-lib; ~100 KB),
+#   host files   — always from the published index (~100 KB), then optional
+#                  APK overlay when ARDTT_HOSTFILES_OVERLAY=1 and it is newer,
 #   Docker Engine — only when the host has no docker CLI at all,
 #   Compose CLI   — only when neither the host plugin nor /opt/ardtt/bin has one,
 #   image layers  — only diff IDs missing from <install>/cache/layers
@@ -23,6 +24,8 @@
 #   ARDTT_GITHUB_TOKEN     — optional token; lifts the anonymous API rate limit
 #   ARDTT_FETCH_MODE       — auto (default) | partial | full
 #   ARDTT_LAYER_CACHE      — 1 (default): keep gzip layers in <install>/cache/layers; 0: no persistent cache
+#   ARDTT_HOSTFILES_OVERLAY=1 — apply APK hostfiles tarball over published layers
+#   ARDTT_HOSTFILES_OVERLAY_PATH — overlay tar (default <install>/incoming/ardtt-hostfiles-overlay.tar.gz)
 #   ARDTT_ROLE, ports, cascade_* — forwarded to install.sh
 #   ARDTT_DISK_CLEANUP=1 — safe reclaim (logs/apt/headers/ARDTT leftovers) if disk preflight fails
 set -euo pipefail
@@ -30,31 +33,7 @@ set -euo pipefail
 # die "CODE|message" or die --code CODE "message" → ARDTT_ERROR|code=CODE|message
 # (the `code=` form is what the phone maps to a readable summary; install-lib
 # helpers sourced from the package use the --code form).
-die() {
-  local code="" msg
-  if [ "${1:-}" = "--code" ]; then
-    code="$2"
-    shift 2
-    msg="$*"
-  else
-    msg="$*"
-    if [[ "$msg" =~ ^([A-Z][A-Z0-9_]*)\|(.*)$ ]]; then
-      code="${BASH_REMATCH[1]}"
-      msg="${BASH_REMATCH[2]}"
-    fi
-  fi
-  if [ -n "$code" ]; then
-    printf 'ARDTT_ERROR|code=%s|%s\n' "$code" "$msg"
-  else
-    printf 'ARDTT_ERROR|%s\n' "$msg"
-  fi
-  exit 1
-}
-
-prog() {
-  local frac="$1" step="$2"
-  printf 'ARDTT_PROGRESS|%s|%s\n' "$frac" "$step"
-}
+# Defined after SELF_DIR so ardttctl (protocol 2 + legacy) can be found.
 
 info() { printf 'ARDTT_INFO|%s\n' "$*"; }
 warn() { printf 'ARDTT_WARN|%s\n' "$*"; }
@@ -70,6 +49,60 @@ UA="${ARDTT_USER_AGENT:-ARDTT-VPS-fetch/2.0}"
 FETCH_MODE="${ARDTT_FETCH_MODE:-auto}"
 LAYER_CACHE="${ARDTT_LAYER_CACHE:-1}"
 SELF_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd || echo .)"
+
+ardtt_ctl_bin() {
+  local c
+  for c in "${SELF_DIR}/ardttctl" "${INSTALL_DIR}/current/ardttctl"; do
+    if [ -f "$c" ]; then
+      chmod 755 "$c" 2>/dev/null || true
+      if [ -x "$c" ]; then
+        printf '%s' "$c"
+        return 0
+      fi
+    fi
+  done
+  return 1
+}
+
+die() {
+  local code="" msg
+  if [ "${1:-}" = "--code" ]; then
+    code="$2"
+    shift 2
+    msg="$*"
+  else
+    msg="$*"
+    if [[ "$msg" =~ ^([A-Z][A-Z0-9_]*)\|(.*)$ ]]; then
+      code="${BASH_REMATCH[1]}"
+      msg="${BASH_REMATCH[2]}"
+    fi
+  fi
+  local bin=""
+  bin="$(ardtt_ctl_bin 2>/dev/null || true)"
+  if [ -n "$bin" ]; then
+    if [ -n "$code" ]; then
+      "$bin" emit error --code "$code" --message "$msg" && exit 1
+    else
+      "$bin" emit error --message "$msg" && exit 1
+    fi
+  fi
+  if [ -n "$code" ]; then
+    printf 'ARDTT_ERROR|code=%s|%s\n' "$code" "$msg"
+  else
+    printf 'ARDTT_ERROR|%s\n' "$msg"
+  fi
+  exit 1
+}
+
+prog() {
+  local frac="$1" step="$2"
+  local bin=""
+  bin="$(ardtt_ctl_bin 2>/dev/null || true)"
+  if [ -n "$bin" ] && "$bin" emit progress --frac "$frac" --message "$step" --phase fetch; then
+    return 0
+  fi
+  printf 'ARDTT_PROGRESS|%s|%s\n' "$frac" "$step"
+}
 
 command -v python3 >/dev/null 2>&1 || die "PYTHON_MISSING|нужен python3 на VPS"
 command -v sha256sum >/dev/null 2>&1 || die "SHA256SUM_MISSING|нужен sha256sum (coreutils) на VPS"
@@ -230,6 +263,38 @@ verify_sha() {
   fi
 }
 
+# overlay_ver_gt A B — true when dotted A > B (1.0.54 > 1.0.53).
+overlay_ver_gt() {
+  python3 -c 'import sys
+def k(v):
+    out = []
+    for p in (v or "").strip().split("."):
+        out.append(int(p) if p.isdigit() else 0)
+    return tuple(out)
+raise SystemExit(0 if k(sys.argv[1]) > k(sys.argv[2]) else 1)' "$1" "$2"
+}
+
+overlay_peek_version() {
+  python3 - "$1" <<'PY'
+import tarfile, sys
+path = sys.argv[1]
+with tarfile.open(path, "r:gz") as tar:
+    names = tar.getnames()
+    want = None
+    for n in names:
+        rel = n.replace("\\", "/").lstrip("./")
+        if rel == "DEPLOY_VERSION":
+            want = n
+            break
+    if want is None:
+        raise SystemExit("no DEPLOY_VERSION in overlay")
+    f = tar.extractfile(want)
+    if f is None:
+        raise SystemExit("DEPLOY_VERSION unreadable")
+    print(f.read().decode("utf-8", "replace").strip())
+PY
+}
+
 sha_from_sums() {
   local sums="$1" name="$2"
   [ -f "$sums" ] || return 0
@@ -301,9 +366,79 @@ fi
 mkdir -p "$INCOMING" "$STAGING"
 chmod 755 "$INSTALL_DIR" "$INCOMING" 2>/dev/null || true
 
-# One fetch per install dir: a second phone/session must not clobber staging.
-exec 8>"$INSTALL_DIR/fetch.lock"
-flock -n 8 || die "BUSY|другая загрузка/установка ARDTT уже идёт (${INSTALL_DIR}/fetch.lock)"
+OVERLAY_PATH="${ARDTT_HOSTFILES_OVERLAY_PATH:-$INCOMING/ardtt-hostfiles-overlay.tar.gz}"
+OVERLAY_VER=""
+OVERLAY_APPLIED=0
+if [ "${ARDTT_HOSTFILES_OVERLAY:-0}" = "1" ]; then
+  [ -f "$OVERLAY_PATH" ] || die "HOSTFILES_OVERLAY_MISSING|нет overlay hostfiles (${OVERLAY_PATH}). Телефон должен SFTP этот файл из APK до запуска fetch."
+fi
+
+# One mutation lock per install dir. Nested install.sh skips via ARDTT_MUTATION_LOCK_HELD.
+: >>"$INSTALL_DIR/install.lock"
+if [ ! -e "$INSTALL_DIR/fetch.lock" ]; then
+  ln "$INSTALL_DIR/install.lock" "$INSTALL_DIR/fetch.lock" 2>/dev/null || : >>"$INSTALL_DIR/fetch.lock"
+fi
+exec 8>"$INSTALL_DIR/install.lock"
+flock -n 8 || die "DEPLOY_IN_PROGRESS|другая загрузка/установка ARDTT уже идёт (${INSTALL_DIR}/install.lock)"
+ARDTT_MUTATION_LOCK_HELD=1
+export ARDTT_MUTATION_LOCK_HELD
+
+fetch_disk_preflight() {
+  local download_b="${1:-0}" docker_raw="${2:-0}" phase="${3:-fetch}"
+  local install_dir="${INSTALL_DIR:-/opt/ardtt}"
+  mkdir -p "$install_dir"
+  local avail min_bytes payload out rc
+  avail="$(df -PB1 "$install_dir" 2>/dev/null | awk 'NR==2 {print $4}')"
+  if [ -z "$avail" ]; then
+    die "DISK_MEASUREMENT_FAILED|не удалось измерить свободное место на ${install_dir} до загрузки"
+  fi
+  min_bytes=$(( ${MIN_DISK_MB:-1600} * 1024 * 1024 ))
+  payload="$(python3 - <<PY
+import json
+print(json.dumps({
+  "downloadOrIncomingBytes": int("${download_b}" or 0),
+  "dockerImportBytesRaw": int("${docker_raw}" or 0),
+  "missingDockerLayerBytes": int("${docker_raw}" or 0),
+  "candidateReleaseBytes": 8*1024*1024,
+  "extractionOrStagingOverhead": 32*1024*1024,
+  "rollbackReserveBytes": 0,
+  "safelyReclaimableArdttBytes": 0,
+  "minDiskBytes": $min_bytes,
+  "installFsDev": "1",
+  "dockerFsDev": "1",
+  "installAvailableBytes": int("${avail}" or 0),
+  "dockerAvailableBytes": int("${avail}" or 0),
+  "phase": "${phase}",
+  "installPath": "$install_dir",
+  "estimationMethod": "fetch-preflight-before-download",
+}))
+PY
+)"
+  local py="$SELF_DIR/install-lib/disk-budget.py"
+  [ -f "$py" ] || py="${STAGING}/install-lib/disk-budget.py"
+  if [ ! -f "$py" ]; then
+    # Conservative fallback before host files exist: floor + download + raw docker.
+    python3 - "$avail" "$download_b" "$docker_raw" "$min_bytes" <<'PY' || die "INSUFFICIENT_DISK|мало места до загрузки пакета"
+import sys
+avail, download, raw, floor = (int(x or 0) for x in sys.argv[1:5])
+need = max(floor, download + raw + 256*1024*1024)
+if avail <= 0:
+    raise SystemExit(2)
+if avail < need:
+    raise SystemExit(2)
+PY
+    return 0
+  fi
+  set +e
+  out="$(printf '%s' "$payload" | python3 "$py" compute --json -)"
+  rc=$?
+  set -e
+  [ -n "$out" ] || die "DISK_MEASUREMENT_FAILED|не удалось вычислить disk budget до загрузки"
+  echo "ARDTT_INFO|fetch disk budget ${out}"
+  if [ "$rc" -ne 0 ]; then
+    die "INSUFFICIENT_DISK|мало места до загрузки пакета (фаза ${phase})"
+  fi
+}
 
 TMPD="$(mktemp -d)"
 trap 'rm -rf "$TMPD" 2>/dev/null || true' EXIT
@@ -393,10 +528,16 @@ else:
     for c in cands.values():
         c["assets"] = dict(by_name)
 
+pinned_missing = ""
 if want:
     picked = cands.get(want)
     if not picked:
-        raise SystemExit(f"no ardtt-server-{want}-linux-{arch} package in releases")
+        if not cands:
+            raise SystemExit(f"no ardtt-server-{want}-linux-{arch} package in releases")
+        # APK/git may pin a stack that is not published yet (1.0.54 in git,
+        # only 1.0.53 on Releases). Install the newest published package.
+        picked = cands[max(cands, key=vkey)]
+        pinned_missing = want
 else:
     if not cands:
         raise SystemExit(f"no ardtt-server-*-linux-{arch} package in releases")
@@ -441,6 +582,8 @@ out = [
     "SUMS_URL=" + q(sums or ""),
     "DL_BASE=" + q(dl_base),
 ]
+if pinned_missing:
+    out.append("PINNED_MISSING=" + q(pinned_missing))
 print("\n".join(out))
 PY
 
@@ -468,6 +611,22 @@ else
 fi
 # shellcheck disable=SC1090
 . "$ENV_SNIPPET"
+if [ "${ARDTT_HOSTFILES_OVERLAY:-0}" = "1" ]; then
+  OVERLAY_VER="$(overlay_peek_version "$OVERLAY_PATH" 2>"$TMPD/overlay.ver.err")" \
+    || die "HOSTFILES_OVERLAY_INVALID|в overlay нет DEPLOY_VERSION: $(tr '\n' ' ' < "$TMPD/overlay.ver.err")"
+fi
+OVERLAY_NEWER=0
+if [ -n "${OVERLAY_VER:-}" ] && overlay_ver_gt "$OVERLAY_VER" "$PKG_VER"; then
+  OVERLAY_NEWER=1
+fi
+if [ -n "${PINNED_MISSING:-}" ]; then
+  if [ "$OVERLAY_NEWER" = 1 ]; then
+    warn "в GitHub Releases нет стека ${PINNED_MISSING} — слои ${PKG_VER}, установщик ${OVERLAY_VER} из APK overlay"
+  else
+    warn "в GitHub Releases нет стека ${PINNED_MISSING} — ставим опубликованный ${PKG_VER}"
+    export ARDTT_DEPLOY_VERSION="$PKG_VER"
+  fi
+fi
 
 SUMS_FILE=""
 ensure_sums() {
@@ -521,14 +680,126 @@ fi
 
 run_install() {
   export ARDTT_PKG_DIR="$STAGING"
-  export ARDTT_DEPLOY_VERSION="${ARDTT_DEPLOY_VERSION:-$PKG_VER}"
+  if [ "${OVERLAY_APPLIED:-0}" = "1" ]; then
+    export ARDTT_DEPLOY_VERSION="${OVERLAY_VER:-${ARDTT_DEPLOY_VERSION}}"
+    export ARDTT_HOSTFILES_OVERLAY_APPLIED=1
+  else
+    export ARDTT_DEPLOY_VERSION="${PKG_VER:-${ARDTT_DEPLOY_VERSION}}"
+  fi
   export ARDTT_INSTALL_DIR="$INSTALL_DIR"
   if [ "$LAYER_CACHE" != "0" ]; then
     export ARDTT_LAYER_CACHE_DIR="$CACHE_DIR"
   fi
   prog 0.35 "Запуск install.sh (${ARDTT_DEPLOY_VERSION})"
   # install.sh emits its own 0..1 progress; remap is left to the phone if needed.
+  # 1.0.54 install.sh skips flock when this env is 1. Published 1.0.53 does
+  # not: nested flock -n on the same inode → «уже выполняется».
+  if grep -q 'ARDTT_MUTATION_LOCK_HELD' "$STAGING/install.sh" 2>/dev/null; then
+    bash "$STAGING/install.sh"
+    return
+  fi
+  warn "install.sh пакета без ARDTT_MUTATION_LOCK_HELD — вложенный flock не берём"
+  flock() {
+    if [ "${1:-}" = "-n" ]; then
+      return 0
+    fi
+    command flock "$@"
+  }
+  export -f flock
+  set +e
   bash "$STAGING/install.sh"
+  rc=$?
+  set -e
+  unset -f flock
+  return "$rc"
+}
+
+# Copy APK overlay hostfiles onto staging. Published images/, Engine, Compose,
+# ardttctl and manifest image identity stay. deployVersion becomes overlay's.
+apply_hostfiles_overlay() {
+  [ "${ARDTT_HOSTFILES_OVERLAY:-0}" = "1" ] || return 0
+  [ -n "${OVERLAY_VER:-}" ] || return 0
+  if [ "${OVERLAY_NEWER:-0}" != "1" ]; then
+    warn "overlay hostfiles ${OVERLAY_VER} не новее опубликованного ${PKG_VER} — overlay пропускаем"
+    return 0
+  fi
+  [ -d "$STAGING" ] || die "HOSTFILES_OVERLAY_INVALID|нет staging для overlay"
+  [ -f "$STAGING/install.sh" ] || die "HOSTFILES_OVERLAY_INVALID|staging без install.sh до overlay"
+  prog 0.075 "Overlay установщика ${OVERLAY_VER} из APK (слои ${PKG_VER})"
+  python3 - "$OVERLAY_PATH" "$STAGING" "$OVERLAY_VER" "$PKG_VER" <<'PY' \
+    || die "HOSTFILES_OVERLAY_INVALID|не удалось наложить overlay hostfiles"
+import hashlib, json, os, sys, tarfile
+
+overlay, dest, over_ver, pub_ver = sys.argv[1:5]
+dest = os.path.abspath(dest)
+deny_names = {"manifest.json", "ardttctl", "third-party.lock.json", "SHA256SUMS"}
+deny_top = {"images", "vendor", "bin"}
+
+def unsafe(n: str) -> bool:
+    n = n.replace("\\", "/")
+    return (
+        n.startswith("/") or n.startswith("\\") or "/../" in "/" + n
+        or n.endswith("/..") or n.startswith("../")
+    )
+
+copied = []
+with tarfile.open(overlay, "r:gz") as tar:
+    for m in tar:
+        n = m.name.replace("\\", "/")
+        while n.startswith("./"):
+            n = n[2:]
+        if not n or n.endswith("/") or not m.isfile():
+            continue
+        if unsafe(n):
+            raise SystemExit("unsafe overlay path " + n)
+        if m.issym() or m.islnk():
+            raise SystemExit("link not allowed " + n)
+        top = n.split("/", 1)[0]
+        if n in deny_names or top in deny_top:
+            continue
+        src = tar.extractfile(m)
+        if src is None:
+            raise SystemExit("unreadable " + n)
+        data = src.read()
+        outp = os.path.join(dest, n)
+        parent = os.path.dirname(outp)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(outp, "wb") as fh:
+            fh.write(data)
+        if (m.mode or 0) & 0o111:
+            os.chmod(outp, 0o755)
+        copied.append(n)
+
+if not copied:
+    raise SystemExit("overlay contained no allowed host files")
+
+man_path = os.path.join(dest, "manifest.json")
+if os.path.isfile(man_path):
+    with open(man_path, encoding="utf-8") as fh:
+        man = json.load(fh)
+    man["deployVersion"] = over_ver
+    files = man.setdefault("files", {})
+    for rel in copied:
+        p = os.path.join(dest, rel)
+        if os.path.isfile(p) and rel in files:
+            digest = hashlib.sha256()
+            with open(p, "rb") as fh:
+                for chunk in iter(lambda: fh.read(1 << 20), b""):
+                    digest.update(chunk)
+            files[rel] = digest.hexdigest()
+    with open(man_path, "w", encoding="utf-8") as fh:
+        json.dump(man, fh, indent=2)
+        fh.write("\n")
+
+print("overlaid %d files %s onto %s" % (len(copied), over_ver, pub_ver))
+PY
+  chmod 755 "$STAGING/install.sh" "$STAGING/fetch-and-install.sh" "$STAGING/ready.sh" 2>/dev/null || true
+  OVERLAY_APPLIED=1
+  export ARDTT_HOSTFILES_OVERLAY_APPLIED=1
+  export ARDTT_DEPLOY_VERSION="$OVERLAY_VER"
+  info "overlay hostfiles ${OVERLAY_VER} на слои ${PKG_VER} ($(python3 -c 'import os,sys; print(os.path.getsize(sys.argv[1]))' "$OVERLAY_PATH") байт)"
+  warn "hostfiles overlay ${OVERLAY_VER}: SHA установщика с индексом ${PKG_VER} не сверяем, слои — сверяем"
 }
 
 # ---------------------------------------------------------------------------
@@ -541,6 +812,7 @@ if [ "$USE_INDEX" = 0 ]; then
   if [ -f "$PKG_PATH" ] && [ "$(sha256sum "$PKG_PATH" | awk '{print $1}')" = "$PKG_SHA" ]; then
     info "пакет ${FULL_NAME} уже в incoming и совпадает по SHA-256 — загрузка пропущена"
   else
+    fetch_disk_preflight "$FULL_SIZE" "$FULL_SIZE" "fetch-full"
     rm -f "$PKG_PATH"
     prog 0.08 "Загрузка ${FULL_NAME} ($(mb "$FULL_SIZE") МБ) с GitHub Releases (${PKG_TAG:-?})"
     download "$FULL_URL" "$PKG_PATH" "$FULL_SIZE" || die "DOWNLOAD_FAILED|не удалось скачать ${FULL_URL}"
@@ -555,6 +827,7 @@ if [ "$USE_INDEX" = 0 ]; then
   [ -f "$STAGING/install.sh" ] || die "PACKAGE_INVALID|в архиве нет install.sh"
   [ -f "$STAGING/manifest.json" ] || die "PACKAGE_INVALID|в архиве нет manifest.json"
   [ -f "$STAGING/fetch-and-install.sh" ] && chmod 755 "$STAGING/fetch-and-install.sh" || true
+  apply_hostfiles_overlay
 
   export ARDTT_PACKAGE="$PKG_PATH"
   export ARDTT_PACKAGE_SHA256="$PKG_SHA"
@@ -594,6 +867,7 @@ lines = [
     "COMPOSE_ASSET=" + q(comp.get("asset", "")), "COMPOSE_SHA=" + q(comp.get("sha256", "")), "COMPOSE_SIZE=" + q(comp.get("size", 0)),
     "IMAGE_TAG=" + q(img.get("tag", "")), "LAYER_COUNT=" + q(len(img.get("layers") or [])),
     "LAYERS_GZ_TOTAL=" + q(img.get("totalGzSize", 0)),
+    "LAYERS_RAW_TOTAL=" + q(img.get("totalRawSize") or sum(int((x or {}).get("rawSize") or 0) for x in (img.get("layers") or []))),
 ]
 open(sys.argv[2], "w", encoding="utf-8").write("\n".join(lines) + "\n")
 PY
@@ -641,6 +915,7 @@ if bad:
     raise SystemExit("hostfiles mismatch: " + ", ".join(bad[:8]))
 PY
 rm -f "$HOST_PATH"
+apply_hostfiles_overlay
 LC_PY="$STAGING/scripts/layer-cache.py"
 
 # Docker Engine: only when the host has no docker CLI at all (a dead foreign
@@ -672,6 +947,12 @@ if [ -n "$COMPOSE_ASSET" ]; then
     NEED_COMPOSE=1
   fi
 fi
+
+PARTIAL_DL=0
+[ "$NEED_ENGINE" = 1 ] && PARTIAL_DL=$((PARTIAL_DL + ${ENGINE_SIZE:-0}))
+[ "$NEED_COMPOSE" = 1 ] && PARTIAL_DL=$((PARTIAL_DL + ${COMPOSE_SIZE:-0}))
+PARTIAL_DL=$((PARTIAL_DL + ${LAYERS_GZ_TOTAL:-0}))
+fetch_disk_preflight "$PARTIAL_DL" "${LAYERS_RAW_TOTAL:-0}" "fetch-partial"
 
 if [ "$NEED_ENGINE" = 1 ]; then
   prog 0.09 "Docker Engine ${ENGINE_VER:-} из релиза ($(mb "$ENGINE_SIZE") МБ) — на VPS его нет"
@@ -745,6 +1026,7 @@ PY
 CACHED_COUNT="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["cachedCount"])' "$PLAN_FILE")"
 MISSING_GZ="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["missingGzSize"])' "$PLAN_FILE")"
 info "слои образа: ${LAYER_COUNT} всего, ${CACHED_COUNT} в кэше, скачать $(( LAYER_COUNT - CACHED_COUNT )) ($(mb "$MISSING_GZ") МБ из $(mb "$LAYERS_GZ_TOTAL") МБ)"
+fetch_disk_preflight "${MISSING_GZ:-0}" "${LAYERS_RAW_TOTAL:-0}" "fetch-layers"
 
 done_bytes=0
 done_n=0
@@ -776,6 +1058,9 @@ run_install
 # (re-downloadable) and layers no longer referenced by the current image.
 rm -f "$INDEX_PATH" "${INCOMING}/${ENGINE_ASSET:-none.none}" "${INCOMING}/${COMPOSE_ASSET:-none.none}" \
   "${INCOMING}"/ardtt-server-*.tar.gz "${INCOMING}"/*.partial 2>/dev/null || true
+case "${OVERLAY_PATH:-}" in
+  "$INCOMING"/*) rm -f "$OVERLAY_PATH" 2>/dev/null || true ;;
+esac
 if [ "$LAYER_CACHE" != "0" ] && [ -f "$INSTALL_DIR/current/images/layout.json" ]; then
   python3 "$INSTALL_DIR/current/scripts/layer-cache.py" prune "$CACHE_DIR" "$INSTALL_DIR/current/images/layout.json" 2>/dev/null \
     | sed 's/^/ARDTT_INFO|кэш слоёв: /' || true
