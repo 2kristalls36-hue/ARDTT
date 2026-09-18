@@ -100,9 +100,18 @@ class ProfileCardLogicTest {
             profileCardSlotOrder(),
         )
         assertEquals(
-            ProfileCardOverflowAnchor.AfterExpires,
+            ProfileCardOverflowAnchor.TrailingOutside,
             profileCardOverflowAnchor(),
         )
+    }
+
+    @Test
+    fun overflowSitsOutsideLikeServerListChevron() {
+        assertEquals(
+            ProfileCardOverflowAnchor.TrailingOutside,
+            profileCardOverflowAnchor(),
+        )
+        assertTrue(profileCardOverflowUsesCompactIcon())
     }
 
     @Test

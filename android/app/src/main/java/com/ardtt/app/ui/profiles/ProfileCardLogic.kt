@@ -51,6 +51,7 @@ internal enum class ProfileCardSlot {
 
 internal enum class ProfileCardOverflowAnchor {
     AfterExpires,
+    TrailingOutside,
 }
 
 /** Expiry chrome: OS badge (`Surface` + FillSoft), not `ArdttStatusChip` accent fill. */
@@ -78,8 +79,9 @@ internal enum class ProfileCardHostLayout {
 }
 
 /**
- * Same identity order as the server card: title → badge → ⋮,
- * hosts left / presence right, remaining traffic on the fact row.
+ * Same identity order as the server list card: title → badge,
+ * trailing ⋮ outside the column like the chevron, hosts left / presence right,
+ * remaining traffic on the fact row.
  */
 internal fun profileCardSlotOrder(): List<ProfileCardSlot> = listOf(
     ProfileCardSlot.Title,
@@ -91,7 +93,10 @@ internal fun profileCardSlotOrder(): List<ProfileCardSlot> = listOf(
 )
 
 internal fun profileCardOverflowAnchor(): ProfileCardOverflowAnchor =
-    ProfileCardOverflowAnchor.AfterExpires
+    ProfileCardOverflowAnchor.TrailingOutside
+
+/** Same 24 dp glyph box as the servers-list chevron, not a 48 dp IconButton. */
+internal fun profileCardOverflowUsesCompactIcon(): Boolean = true
 
 internal fun profileCardBadgeKind(): ProfileCardBadgeKind = ProfileCardBadgeKind.OsSurface
 
