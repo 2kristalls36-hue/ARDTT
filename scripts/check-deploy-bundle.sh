@@ -353,6 +353,36 @@ grep -q 'adopt_layers_into_cache' "$INSTALLER" || err "install.sh must keep load
 grep -q 'releases/latest/download' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must fall back to SHA256SUMS-server.txt when the API is down"
 grep -q 'PINNED_MISSING' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must fall back when ARDTT_DEPLOY_VERSION is not on Releases"
 grep -q 'export -f flock' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must no-op nested flock for published 1.0.53 install.sh"
+grep -q 'ARDTT_HOSTFILES_OVERLAY' "$ROOT/server/fetch-and-install.sh" \
+  || err "fetch-and-install must apply APK hostfiles overlay"
+grep -q 'apply_hostfiles_overlay' "$ROOT/server/fetch-and-install.sh" \
+  || err "fetch-and-install must call apply_hostfiles_overlay"
+grep -q 'ARDTT_HOSTFILES_OVERLAY_APPLIED' "$ROOT/server/install-lib/package.sh" \
+  || err "verify_index_staging must skip hostfiles SHA when overlay was applied"
+grep -q 'HOSTFILES_OVERLAY_ASSET' "$ROOT/android/app/src/main/java/com/ardtt/app/deploy/DeployEngine.kt" \
+  || err "DeployEngine must SFTP overlay hostfiles from APK assets"
+grep -q 'hostfilesOverlay' "$ROOT/android/app/src/main/java/com/ardtt/app/deploy/DeployInstallEnv.kt" \
+  || err "DeployInstallEnv must pass ARDTT_HOSTFILES_OVERLAY"
+grep -q 'pack-hostfiles-overlay.sh' "$ROOT/scripts/pack-stack.sh" \
+  || err "pack-stack must pack APK overlay hostfiles"
+bash -n "$ROOT/scripts/pack-hostfiles-overlay.sh" || err "bash -n pack-hostfiles-overlay"
+bash "$ROOT/scripts/pack-hostfiles-overlay.sh" || err "pack-hostfiles-overlay"
+OVERLAY_ASSET="$ROOT/android/app/src/main/assets/deploy/ardtt-hostfiles-overlay.tar.gz"
+[ -f "$OVERLAY_ASSET" ] || err "missing $OVERLAY_ASSET"
+python3 - "$OVERLAY_ASSET" <<'PY' || err "overlay tarball contract"
+import tarfile, sys
+path = sys.argv[1]
+with tarfile.open(path, "r:gz") as tar:
+    names = [n.replace("\\", "/").lstrip("./") for n in tar.getnames() if n and not str(n).endswith("/")]
+for n in names:
+    if n == "ardttctl" or n.startswith(("images/", "vendor/", "bin/")) or n == "manifest.json":
+        raise SystemExit("forbidden " + n)
+for required in ("install.sh", "fetch-and-install.sh", "DEPLOY_VERSION", "install-lib/package.sh"):
+    if required not in names:
+        raise SystemExit("missing " + required)
+PY
+OVERLAY_SIZE="$(stat -c %s "$OVERLAY_ASSET" 2>/dev/null || stat -f %z "$OVERLAY_ASSET")"
+[ "$OVERLAY_SIZE" -lt 524288 ] || err "overlay tarball too large ($OVERLAY_SIZE)"
 
 grep -q 'flock' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must lock against concurrent runs"
 grep -q 'fetch_disk_preflight' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must preflight disk before large downloads"
@@ -366,7 +396,7 @@ grep -q 'DeployVersionCatalog' "$ROOT/android/app/src/main/java/com/ardtt/app/Ar
 grep -q 'latestServerVersion' "$STACK_SOURCE_KT" || err "DeployStackSource must parse latest server version"
 
 if [ -f "$ROOT/android/app/src/main/assets/deploy/install.sh" ]; then
-  err "assets/deploy/install.sh must not be bundled"
+  err "assets/deploy/install.sh must not be bundled (use ardtt-hostfiles-overlay.tar.gz)"
 fi
 if ls "$ROOT"/android/app/src/main/assets/deploy/stack.tar.gz* >/dev/null 2>&1; then
   err "assets/deploy must not contain stack.tar.gz"
@@ -505,6 +535,9 @@ if [ -f "$ROOT/scripts/test-compose-env-isolation.sh" ]; then
 fi
 if [ -f "$ROOT/scripts/test-fetch-partial.sh" ]; then
   bash "$ROOT/scripts/test-fetch-partial.sh" || err "partial fetch end-to-end"
+fi
+if [ -f "$ROOT/scripts/test-hostfiles-overlay.sh" ]; then
+  bash "$ROOT/scripts/test-hostfiles-overlay.sh" || err "hostfiles overlay"
 fi
 if [ -f "$ROOT/scripts/test-overlay-dir-modes.sh" ]; then
   bash -n "$ROOT/scripts/test-overlay-dir-modes.sh" || err "bash -n test-overlay-dir-modes"

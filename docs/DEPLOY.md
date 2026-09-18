@@ -136,7 +136,7 @@ scripts/safe-extract-package.py
 | Компонент | Когда качается | Размер |
 |-----------|----------------|--------|
 | Индекс `*.index.json` | всегда | JSON с перечнем компонентов |
-| `*-hostfiles.tar.gz` | всегда | ≈100 КБ |
+| `*-hostfiles.tar.gz` | всегда (SHA с индексом); затем, если APK overlay новее опубликованного стека, hostfiles из APK | ≈100 КБ |
 | Пакет `iptables` (репозиторий дистрибутива) | только если Docker ставится из пакета и iptables нет на хосте; `ARDTT_INSTALL_IPTABLES=0` запрещает | пакетный менеджер хоста (apt/dnf/yum/apk/zypper) |
 | Слои образа `*-layer-NN-<16hex>.tar.gz` | только те diff ID, которых нет в `/opt/ardtt/cache/layers` | 78,3 МБ gzip на весь образ 1.0.51 (23 слоя; два базовых, Debian и apt, ≈57 МБ) |
 | `ardtt-docker-engine-*.tgz` | только если на хосте вообще нет `docker` | 85,7 МБ amd64 / 77,3 МБ arm64 |
@@ -149,6 +149,8 @@ scripts/safe-extract-package.py
 
 **Цепочка доверия.** Корень — внешняя SHA-256 **индекса**: `digest` актива GitHub, иначе `SHA256SUMS-server.txt` того же релиза, иначе сосед `*.index.json.sha256`. Дальше всё сверяется по индексу: host-файлы по SHA-256 (лишний файл в `hostfiles` тоже отказ), каждый слой — по gzip-SHA-256 **и** по diff ID, Engine и Compose — по закреплённым суммам. `install.sh` повторяет проверку индекса и всего staging **до** того, как трогает живой стек. Суммы внутри архива по-прежнему источником доверия не считаются.
 
+**Overlay hostfiles из APK.** Пока git-стек новее опубликованного пакета на Releases (сейчас 1.0.54 vs 1.0.53), телефон SFTP-ит `assets/deploy/ardtt-hostfiles-overlay.tar.gz` (~80 КБ: `install.sh`, Compose, `install-lib`, без образа и без `ardttctl`) и ставит `ARDTT_HOSTFILES_OVERLAY=1`. `fetch-and-install.sh` сначала сверяет **опубликованные** hostfiles с индексом, затем накладывает overlay, если его `DEPLOY_VERSION` **строго больше** `PKG_VER`. Слои/Engine/Compose остаются с GitHub и дальше сверяются по SHA-256; SHA overlay-установщика с индексом опубликованного стека не сравнивается (`ARDTT_HOSTFILES_OVERLAY_APPLIED=1`). `ARDTT_DONE|deploy_version=` берётся из overlay. Если overlay не новее, или APK его не прислал — поведение как раньше: unpublished pin ставит последний опубликованный стек. Старые APK без overlay по-прежнему Releases-only. Когда 1.0.54 появится на Releases, overlay сам перестанет накладываться. Без файла при `ARDTT_HOSTFILES_OVERLAY=1` — `HOSTFILES_OVERLAY_MISSING` (fail-closed).
+
 **Переменные.**
 
 | Переменная | Значение |
@@ -158,6 +160,8 @@ scripts/safe-extract-package.py
 | `ARDTT_INSTALL_IPTABLES` | `1` (по умолчанию) — при отсутствии iptables и необходимости ставить Docker из пакета взять пакет iptables из репозитория дистрибутива · `0` — запретить (ошибка `IPTABLES_MISSING` до загрузки) |
 | `ARDTT_GITHUB_TOKEN` | необязательный токен, снимает анонимный лимит GitHub API |
 | `ARDTT_DEPLOY_VERSION` | закрепить версию стека; пусто — самая новая опубликованная |
+| `ARDTT_HOSTFILES_OVERLAY` | `1` — наложить hostfiles из APK, если они новее опубликованного стека |
+| `ARDTT_HOSTFILES_OVERLAY_PATH` | tar overlay (по умолчанию `/opt/ardtt/incoming/ardtt-hostfiles-overlay.tar.gz`) |
 
 **Выбор релиза.** `releases?per_page=40` через GitHub API, берётся **наибольшая** версия стека по semver среди релизов, которые не черновики (раньше — первый подходящий актив в списке). Если API недоступен или упёрся в лимит (403/429), скрипт печатает `ARDTT_WARN|GitHub API недоступен …` и читает `SHA256SUMS-server.txt` **последнего** релиза через `https://github.com/<repo>/releases/latest/download/…` (без API) — дальше установка идёт от него.
 
@@ -194,8 +198,8 @@ scripts/safe-extract-package.py
 ### Что делает `DeployEngine`
 
 1. SSH: `uname -m` / preflight **на каждом** хопе. Каскад: сначала SSH на вход, затем `direct-tcpip` с входа на SSH выхода (телефон VPS 2 не набирает).
-2. На VPS: если есть `/opt/ardtt/current/fetch-and-install.sh` — запускает его; иначе SFTP **только** маленький bootstrap `fetch-and-install.sh` из assets APK. До 1.0.52 копии на VPS не было вообще: `pack-server-package.sh` не включал `fetch-and-install.sh` в список файлов tar, поэтому `/opt/ardtt/current/fetch-and-install.sh` не появлялся и телефон каждый раз заливал bootstrap из APK. Теперь скрипт есть и в архиве, и в `hostfiles`, и после первой установки 1.0.52 работает копия с VPS. Путь обновления отвязан от версии APK: старые bootstrap'ы (≤0.5.263) продолжают работать — они качают монолитный архив, который по-прежнему публикуется, — а каждое следующее обновление идёт частичным деплоем из копии на VPS.
-3. `fetch-and-install.sh` на VPS: HTTPS к GitHub Releases → SHA-256 → safe extract → `install.sh`. Пакет на телефон не качается. Со стека 1.0.52 — [частичный деплой](#частичный-деплой) по индексу.
+2. На VPS: если в APK есть overlay hostfiles — всегда SFTP `fetch-and-install.sh` **и** `ardtt-hostfiles-overlay.tar.gz` из assets (копия `/opt/ardtt/current/fetch-and-install.sh` с опубликованного 1.0.53 overlay не умеет). Иначе если есть `/opt/ardtt/current/fetch-and-install.sh` — запускает его; иначе SFTP только bootstrap `fetch-and-install.sh`. До 1.0.52 копии на VPS не было вообще: `pack-server-package.sh` не включал `fetch-and-install.sh` в список файлов tar. Старые APK без overlay по-прежнему Releases-only (unpublished pin → последний опубликованный стек).
+3. `fetch-and-install.sh` на VPS: HTTPS к GitHub Releases → SHA-256 слоёв → optional overlay hostfiles из APK → `install.sh`. Образ на телефон не качается. Со стека 1.0.52 — [частичный деплой](#частичный-деплой) по индексу.
 4. Протокол: `ARDTT_PROGRESS`, `ARDTT_WARN`, `ARDTT_ERROR`, `ARDTT_DONE`, `ARDTT_CASCADE_PUBLIC_KEY`. Фактические `provision_port` / `telemetry_port` пишутся в карточку.
 5. При каждом запуске APK `DeployVersionCatalog` опрашивает Releases и обновляет «ожидаемую» версию стека (сравнение с `/health`). Карточка сервера читает этот каталог как StateFlow, а не запоминает fallback на первом кадре.
 
@@ -400,7 +404,7 @@ ADR: [0005](adr/0005-provision-auth-and-tls.md).
 
 1. `android/app/src/main/assets/deploy/DEPLOY_VERSION`
 2. `DeployBundle.FALLBACK_VERSION`
-3. CI (`.github/workflows/server-package.yml`) собирает `ardtt-server-<версия>-linux-*.tar.gz` и рядом покомпонентные ассеты частичного деплоя: `*.index.json` (+ `.sha256`), `*-hostfiles.tar.gz`, `*-layer-NN-*.tar.gz`, `ardtt-docker-engine-*`, `ardtt-docker-compose-*`, обновлённый `SHA256SUMS-server.txt`. Индекс проверяется `scripts/verify-server-index.sh`, а `scripts/attach-server-packages-to-release.sh` отказывается публиковать индекс, у которого компоненты отсутствуют или не совпали по SHA-256. Публикация в GitHub Release — **только с тега** `v*` после `contract` и `package`, без `--clobber` уже лежащих ассетов. Push в `main` и открытый PR **не** прикрепляют пакеты к релизу. PR загружает host-file артефакт Actions (без образа). Полная пересборка образа идёт на `main`/тег; ассеты тега не смешивают новый установщик со старым образом под тем же именем. Пока релиза нет — только Artifacts (30 дней). Старый `ardtt-stack-*.tar.gz` в релиз не кладётся.
+3. CI (`.github/workflows/server-package.yml`) собирает `ardtt-server-<версия>-linux-*.tar.gz` и рядом покомпонентные ассеты частичного деплоя: `*.index.json` (+ `.sha256`), `*-hostfiles.tar.gz`, `*-layer-NN-*.tar.gz`, `ardtt-docker-engine-*`, `ardtt-docker-compose-*`, обновлённый `SHA256SUMS-server.txt`. Индекс проверяется `scripts/verify-server-index.sh`, а `scripts/attach-server-packages-to-release.sh` отказывается публиковать индекс, у которого компоненты отсутствуют или не совпали по SHA-256. Публикация в GitHub Release — **только с тега** `v*` после `contract` и `package`, без `--clobber` уже лежащих ассетов. Push в `main` и открытый PR **не** прикрепляют пакеты к релизу. PR загружает host-file артефакт Actions (без образа). Пока пакета новой версии нет на Releases, APK несёт `ardtt-hostfiles-overlay.tar.gz` (`scripts/pack-hostfiles-overlay.sh`, не коммитится) и накладывает установщик на опубликованные слои. Полная пересборка образа идёт на `main`/тег; ассеты тега не смешивают новый установщик со старым образом под тем же именем. Пока релиза нет — только Artifacts (30 дней). Старый `ardtt-stack-*.tar.gz` в релиз не кладётся.
 
 Бамп: образ, Compose, entrypoint'ы, `install.sh`. Только UI телефона — нет.
 

@@ -9,6 +9,8 @@ object DeployInstallEnv {
     const val FETCH_SCRIPT_REMOTE = "/opt/ardtt/bin/fetch-and-install.sh"
     const val FETCH_SCRIPT_CURRENT = "/opt/ardtt/current/fetch-and-install.sh"
     const val FETCH_ASSET = "deploy/fetch-and-install.sh"
+    const val HOSTFILES_OVERLAY_ASSET = "deploy/ardtt-hostfiles-overlay.tar.gz"
+    const val HOSTFILES_OVERLAY_REMOTE = "$PACKAGE_DIR/ardtt-hostfiles-overlay.tar.gz"
 
     fun packageRemotePath(deployVersion: String, arch: String): String =
         "$PACKAGE_DIR/${DeployStackSource.serverAssetName(deployVersion, arch)}"
@@ -37,6 +39,7 @@ object DeployInstallEnv {
         /** Host vCPU count (from `nproc`); clamps ARDTT_CPUS for 1-core VPS. */
         hostCpus: Int = 0,
         scriptPath: String = FETCH_SCRIPT_REMOTE,
+        hostfilesOverlay: Boolean = false,
     ): String = buildString {
         append("set -euo pipefail; ")
         append("SCRIPT="); append(SshClient.shellQuote(scriptPath)); append("; ")
@@ -66,6 +69,12 @@ object DeployInstallEnv {
         }
         if (hostCpus in 1 until 2) {
             append("ARDTT_MEM_LIMIT=512m ")
+        }
+        if (hostfilesOverlay) {
+            append("ARDTT_HOSTFILES_OVERLAY=1 ")
+            append("ARDTT_HOSTFILES_OVERLAY_PATH=")
+            append(SshClient.shellQuote(HOSTFILES_OVERLAY_REMOTE))
+            append(' ')
         }
         if (cascadeEnabled) {
             append("ARDTT_CASCADE_LISTEN_PORT="); append(cascadeListenPort); append(' ')

@@ -7,9 +7,11 @@ import android.content.Context
  * Series starts at **1.0.1** and is bumped only when the VPS install bundle changes.
  * Written to the VPS on deploy and compared via provision `GET /health`.
  *
- * GitHub Releases remain the download source. The APK-bundled [FALLBACK_VERSION]
- * (git `server/DEPLOY_VERSION`) is still compared: if it is newer than the latest
- * published Release asset, the UI offers an update so a pending git stack is visible.
+ * GitHub Releases remain the download source for image layers, Engine and
+ * Compose. Installer hostfiles can ship in the APK overlay so a git bump
+ * does not wait for a Release package. [FALLBACK_VERSION] (git
+ * `server/DEPLOY_VERSION`) is compared with the catalog: if it is newer,
+ * the UI offers an update and deploy overlays hostfiles onto published layers.
  */
 object DeployBundle {
     const val ASSET_VERSION_FILE = "deploy/DEPLOY_VERSION"

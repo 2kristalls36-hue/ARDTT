@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Runs on the VPS: resolve the ARDTT server release on GitHub, download only
 # what this host lacks, verify SHA-256, stage a package and run install.sh.
-# The phone only SSHs and starts this script — it does not download or SFTP
-# the multi‑MB payload.
+# The phone SSHs and starts this script. Image layers stay on GitHub Releases.
+# Optional APK overlay (~100 KB hostfiles) is SFTP'd next to this script.
 #
 # Partial deploy (release with ardtt-server-<ver>-linux-<arch>.index.json):
-#   host files   — always (install.sh, Compose, install-lib; ~100 KB),
+#   host files   — always from the published index (~100 KB), then optional
+#                  APK overlay when ARDTT_HOSTFILES_OVERLAY=1 and it is newer,
 #   Docker Engine — only when the host has no docker CLI at all,
 #   Compose CLI   — only when neither the host plugin nor /opt/ardtt/bin has one,
 #   image layers  — only diff IDs missing from <install>/cache/layers
@@ -23,6 +24,8 @@
 #   ARDTT_GITHUB_TOKEN     — optional token; lifts the anonymous API rate limit
 #   ARDTT_FETCH_MODE       — auto (default) | partial | full
 #   ARDTT_LAYER_CACHE      — 1 (default): keep gzip layers in <install>/cache/layers; 0: no persistent cache
+#   ARDTT_HOSTFILES_OVERLAY=1 — apply APK hostfiles tarball over published layers
+#   ARDTT_HOSTFILES_OVERLAY_PATH — overlay tar (default <install>/incoming/ardtt-hostfiles-overlay.tar.gz)
 #   ARDTT_ROLE, ports, cascade_* — forwarded to install.sh
 #   ARDTT_DISK_CLEANUP=1 — safe reclaim (logs/apt/headers/ARDTT leftovers) if disk preflight fails
 set -euo pipefail
@@ -260,6 +263,38 @@ verify_sha() {
   fi
 }
 
+# overlay_ver_gt A B — true when dotted A > B (1.0.54 > 1.0.53).
+overlay_ver_gt() {
+  python3 -c 'import sys
+def k(v):
+    out = []
+    for p in (v or "").strip().split("."):
+        out.append(int(p) if p.isdigit() else 0)
+    return tuple(out)
+raise SystemExit(0 if k(sys.argv[1]) > k(sys.argv[2]) else 1)' "$1" "$2"
+}
+
+overlay_peek_version() {
+  python3 - "$1" <<'PY'
+import tarfile, sys
+path = sys.argv[1]
+with tarfile.open(path, "r:gz") as tar:
+    names = tar.getnames()
+    want = None
+    for n in names:
+        rel = n.replace("\\", "/").lstrip("./")
+        if rel == "DEPLOY_VERSION":
+            want = n
+            break
+    if want is None:
+        raise SystemExit("no DEPLOY_VERSION in overlay")
+    f = tar.extractfile(want)
+    if f is None:
+        raise SystemExit("DEPLOY_VERSION unreadable")
+    print(f.read().decode("utf-8", "replace").strip())
+PY
+}
+
 sha_from_sums() {
   local sums="$1" name="$2"
   [ -f "$sums" ] || return 0
@@ -330,6 +365,13 @@ fi
 
 mkdir -p "$INCOMING" "$STAGING"
 chmod 755 "$INSTALL_DIR" "$INCOMING" 2>/dev/null || true
+
+OVERLAY_PATH="${ARDTT_HOSTFILES_OVERLAY_PATH:-$INCOMING/ardtt-hostfiles-overlay.tar.gz}"
+OVERLAY_VER=""
+OVERLAY_APPLIED=0
+if [ "${ARDTT_HOSTFILES_OVERLAY:-0}" = "1" ]; then
+  [ -f "$OVERLAY_PATH" ] || die "HOSTFILES_OVERLAY_MISSING|нет overlay hostfiles (${OVERLAY_PATH}). Телефон должен SFTP этот файл из APK до запуска fetch."
+fi
 
 # One mutation lock per install dir. Nested install.sh skips via ARDTT_MUTATION_LOCK_HELD.
 : >>"$INSTALL_DIR/install.lock"
@@ -569,9 +611,21 @@ else
 fi
 # shellcheck disable=SC1090
 . "$ENV_SNIPPET"
+if [ "${ARDTT_HOSTFILES_OVERLAY:-0}" = "1" ]; then
+  OVERLAY_VER="$(overlay_peek_version "$OVERLAY_PATH" 2>"$TMPD/overlay.ver.err")" \
+    || die "HOSTFILES_OVERLAY_INVALID|в overlay нет DEPLOY_VERSION: $(tr '\n' ' ' < "$TMPD/overlay.ver.err")"
+fi
+OVERLAY_NEWER=0
+if [ -n "${OVERLAY_VER:-}" ] && overlay_ver_gt "$OVERLAY_VER" "$PKG_VER"; then
+  OVERLAY_NEWER=1
+fi
 if [ -n "${PINNED_MISSING:-}" ]; then
-  warn "в GitHub Releases нет стека ${PINNED_MISSING} — ставим опубликованный ${PKG_VER}"
-  export ARDTT_DEPLOY_VERSION="$PKG_VER"
+  if [ "$OVERLAY_NEWER" = 1 ]; then
+    warn "в GitHub Releases нет стека ${PINNED_MISSING} — слои ${PKG_VER}, установщик ${OVERLAY_VER} из APK overlay"
+  else
+    warn "в GitHub Releases нет стека ${PINNED_MISSING} — ставим опубликованный ${PKG_VER}"
+    export ARDTT_DEPLOY_VERSION="$PKG_VER"
+  fi
 fi
 
 SUMS_FILE=""
@@ -626,7 +680,12 @@ fi
 
 run_install() {
   export ARDTT_PKG_DIR="$STAGING"
-  export ARDTT_DEPLOY_VERSION="${PKG_VER:-${ARDTT_DEPLOY_VERSION}}"
+  if [ "${OVERLAY_APPLIED:-0}" = "1" ]; then
+    export ARDTT_DEPLOY_VERSION="${OVERLAY_VER:-${ARDTT_DEPLOY_VERSION}}"
+    export ARDTT_HOSTFILES_OVERLAY_APPLIED=1
+  else
+    export ARDTT_DEPLOY_VERSION="${PKG_VER:-${ARDTT_DEPLOY_VERSION}}"
+  fi
   export ARDTT_INSTALL_DIR="$INSTALL_DIR"
   if [ "$LAYER_CACHE" != "0" ]; then
     export ARDTT_LAYER_CACHE_DIR="$CACHE_DIR"
@@ -655,6 +714,94 @@ run_install() {
   return "$rc"
 }
 
+# Copy APK overlay hostfiles onto staging. Published images/, Engine, Compose,
+# ardttctl and manifest image identity stay. deployVersion becomes overlay's.
+apply_hostfiles_overlay() {
+  [ "${ARDTT_HOSTFILES_OVERLAY:-0}" = "1" ] || return 0
+  [ -n "${OVERLAY_VER:-}" ] || return 0
+  if [ "${OVERLAY_NEWER:-0}" != "1" ]; then
+    warn "overlay hostfiles ${OVERLAY_VER} не новее опубликованного ${PKG_VER} — overlay пропускаем"
+    return 0
+  fi
+  [ -d "$STAGING" ] || die "HOSTFILES_OVERLAY_INVALID|нет staging для overlay"
+  [ -f "$STAGING/install.sh" ] || die "HOSTFILES_OVERLAY_INVALID|staging без install.sh до overlay"
+  prog 0.075 "Overlay установщика ${OVERLAY_VER} из APK (слои ${PKG_VER})"
+  python3 - "$OVERLAY_PATH" "$STAGING" "$OVERLAY_VER" "$PKG_VER" <<'PY' \
+    || die "HOSTFILES_OVERLAY_INVALID|не удалось наложить overlay hostfiles"
+import hashlib, json, os, sys, tarfile
+
+overlay, dest, over_ver, pub_ver = sys.argv[1:5]
+dest = os.path.abspath(dest)
+deny_names = {"manifest.json", "ardttctl", "third-party.lock.json", "SHA256SUMS"}
+deny_top = {"images", "vendor", "bin"}
+
+def unsafe(n: str) -> bool:
+    n = n.replace("\\", "/")
+    return (
+        n.startswith("/") or n.startswith("\\") or "/../" in "/" + n
+        or n.endswith("/..") or n.startswith("../")
+    )
+
+copied = []
+with tarfile.open(overlay, "r:gz") as tar:
+    for m in tar:
+        n = m.name.replace("\\", "/")
+        while n.startswith("./"):
+            n = n[2:]
+        if not n or n.endswith("/") or not m.isfile():
+            continue
+        if unsafe(n):
+            raise SystemExit("unsafe overlay path " + n)
+        if m.issym() or m.islnk():
+            raise SystemExit("link not allowed " + n)
+        top = n.split("/", 1)[0]
+        if n in deny_names or top in deny_top:
+            continue
+        src = tar.extractfile(m)
+        if src is None:
+            raise SystemExit("unreadable " + n)
+        data = src.read()
+        outp = os.path.join(dest, n)
+        parent = os.path.dirname(outp)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(outp, "wb") as fh:
+            fh.write(data)
+        if (m.mode or 0) & 0o111:
+            os.chmod(outp, 0o755)
+        copied.append(n)
+
+if not copied:
+    raise SystemExit("overlay contained no allowed host files")
+
+man_path = os.path.join(dest, "manifest.json")
+if os.path.isfile(man_path):
+    with open(man_path, encoding="utf-8") as fh:
+        man = json.load(fh)
+    man["deployVersion"] = over_ver
+    files = man.setdefault("files", {})
+    for rel in copied:
+        p = os.path.join(dest, rel)
+        if os.path.isfile(p) and rel in files:
+            digest = hashlib.sha256()
+            with open(p, "rb") as fh:
+                for chunk in iter(lambda: fh.read(1 << 20), b""):
+                    digest.update(chunk)
+            files[rel] = digest.hexdigest()
+    with open(man_path, "w", encoding="utf-8") as fh:
+        json.dump(man, fh, indent=2)
+        fh.write("\n")
+
+print("overlaid %d files %s onto %s" % (len(copied), over_ver, pub_ver))
+PY
+  chmod 755 "$STAGING/install.sh" "$STAGING/fetch-and-install.sh" "$STAGING/ready.sh" 2>/dev/null || true
+  OVERLAY_APPLIED=1
+  export ARDTT_HOSTFILES_OVERLAY_APPLIED=1
+  export ARDTT_DEPLOY_VERSION="$OVERLAY_VER"
+  info "overlay hostfiles ${OVERLAY_VER} на слои ${PKG_VER} ($(python3 -c 'import os,sys; print(os.path.getsize(sys.argv[1]))' "$OVERLAY_PATH") байт)"
+  warn "hostfiles overlay ${OVERLAY_VER}: SHA установщика с индексом ${PKG_VER} не сверяем, слои — сверяем"
+}
+
 # ---------------------------------------------------------------------------
 # 2a. Full archive (release without index, or ARDTT_FETCH_MODE=full).
 # ---------------------------------------------------------------------------
@@ -680,6 +827,7 @@ if [ "$USE_INDEX" = 0 ]; then
   [ -f "$STAGING/install.sh" ] || die "PACKAGE_INVALID|в архиве нет install.sh"
   [ -f "$STAGING/manifest.json" ] || die "PACKAGE_INVALID|в архиве нет manifest.json"
   [ -f "$STAGING/fetch-and-install.sh" ] && chmod 755 "$STAGING/fetch-and-install.sh" || true
+  apply_hostfiles_overlay
 
   export ARDTT_PACKAGE="$PKG_PATH"
   export ARDTT_PACKAGE_SHA256="$PKG_SHA"
@@ -767,6 +915,7 @@ if bad:
     raise SystemExit("hostfiles mismatch: " + ", ".join(bad[:8]))
 PY
 rm -f "$HOST_PATH"
+apply_hostfiles_overlay
 LC_PY="$STAGING/scripts/layer-cache.py"
 
 # Docker Engine: only when the host has no docker CLI at all (a dead foreign
@@ -909,6 +1058,9 @@ run_install
 # (re-downloadable) and layers no longer referenced by the current image.
 rm -f "$INDEX_PATH" "${INCOMING}/${ENGINE_ASSET:-none.none}" "${INCOMING}/${COMPOSE_ASSET:-none.none}" \
   "${INCOMING}"/ardtt-server-*.tar.gz "${INCOMING}"/*.partial 2>/dev/null || true
+case "${OVERLAY_PATH:-}" in
+  "$INCOMING"/*) rm -f "$OVERLAY_PATH" 2>/dev/null || true ;;
+esac
 if [ "$LAYER_CACHE" != "0" ] && [ -f "$INSTALL_DIR/current/images/layout.json" ]; then
   python3 "$INSTALL_DIR/current/scripts/layer-cache.py" prune "$CACHE_DIR" "$INSTALL_DIR/current/images/layout.json" 2>/dev/null \
     | sed 's/^/ARDTT_INFO|кэш слоёв: /' || true

@@ -52,3 +52,4 @@ __pycache__/
 android/app/src/main/assets/deploy/stack.tar.gz
 android/app/src/main/assets/deploy/stack.tar.gz.bin
 android/app/src/main/assets/deploy/stack.tar
+android/app/src/main/assets/deploy/ardtt-hostfiles-overlay.tar.gz
