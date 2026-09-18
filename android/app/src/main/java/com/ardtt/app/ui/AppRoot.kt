@@ -360,6 +360,15 @@ fun AppRoot(
 
     LaunchedEffect(admin, testingMode, isRecording, currentRoute) {
         val dest = AppDestination.entries.find { it.route == currentRoute }
+        val replacement = ArdttNavPlan.replaceUnavailableUserRoute(currentRoute, admin)
+        if (replacement != null) {
+            navController.navigate(replacement) {
+                popUpTo(AppDestination.Tunnel.route) { saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
+            return@LaunchedEffect
+        }
         val blocked = when {
             dest == AppDestination.Testing ->
                 !TestingSessionGuard.testingTabVisible(testingMode, isRecording)
@@ -463,7 +472,11 @@ fun AppRoot(
                                 settings = settings,
                                 profiles = profiles,
                                 serversRepo = serversRepo,
-                                onBack = { navigateTab(AppDestination.Diagnostics.route) },
+                                onBack = if (admin) {
+                                    { navigateTab(AppDestination.Diagnostics.route) }
+                                } else {
+                                    null
+                                },
                             )
                         }
                         composable(AppDestination.Logs.route) {
