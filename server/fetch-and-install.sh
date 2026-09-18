@@ -30,31 +30,7 @@ set -euo pipefail
 # die "CODE|message" or die --code CODE "message" → ARDTT_ERROR|code=CODE|message
 # (the `code=` form is what the phone maps to a readable summary; install-lib
 # helpers sourced from the package use the --code form).
-die() {
-  local code="" msg
-  if [ "${1:-}" = "--code" ]; then
-    code="$2"
-    shift 2
-    msg="$*"
-  else
-    msg="$*"
-    if [[ "$msg" =~ ^([A-Z][A-Z0-9_]*)\|(.*)$ ]]; then
-      code="${BASH_REMATCH[1]}"
-      msg="${BASH_REMATCH[2]}"
-    fi
-  fi
-  if [ -n "$code" ]; then
-    printf 'ARDTT_ERROR|code=%s|%s\n' "$code" "$msg"
-  else
-    printf 'ARDTT_ERROR|%s\n' "$msg"
-  fi
-  exit 1
-}
-
-prog() {
-  local frac="$1" step="$2"
-  printf 'ARDTT_PROGRESS|%s|%s\n' "$frac" "$step"
-}
+# Defined after SELF_DIR so ardttctl (protocol 2 + legacy) can be found.
 
 info() { printf 'ARDTT_INFO|%s\n' "$*"; }
 warn() { printf 'ARDTT_WARN|%s\n' "$*"; }
@@ -70,6 +46,60 @@ UA="${ARDTT_USER_AGENT:-ARDTT-VPS-fetch/2.0}"
 FETCH_MODE="${ARDTT_FETCH_MODE:-auto}"
 LAYER_CACHE="${ARDTT_LAYER_CACHE:-1}"
 SELF_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd || echo .)"
+
+ardtt_ctl_bin() {
+  local c
+  for c in "${SELF_DIR}/ardttctl" "${INSTALL_DIR}/current/ardttctl"; do
+    if [ -f "$c" ]; then
+      chmod 755 "$c" 2>/dev/null || true
+      if [ -x "$c" ]; then
+        printf '%s' "$c"
+        return 0
+      fi
+    fi
+  done
+  return 1
+}
+
+die() {
+  local code="" msg
+  if [ "${1:-}" = "--code" ]; then
+    code="$2"
+    shift 2
+    msg="$*"
+  else
+    msg="$*"
+    if [[ "$msg" =~ ^([A-Z][A-Z0-9_]*)\|(.*)$ ]]; then
+      code="${BASH_REMATCH[1]}"
+      msg="${BASH_REMATCH[2]}"
+    fi
+  fi
+  local bin=""
+  bin="$(ardtt_ctl_bin 2>/dev/null || true)"
+  if [ -n "$bin" ]; then
+    if [ -n "$code" ]; then
+      "$bin" emit error --code "$code" --message "$msg" && exit 1
+    else
+      "$bin" emit error --message "$msg" && exit 1
+    fi
+  fi
+  if [ -n "$code" ]; then
+    printf 'ARDTT_ERROR|code=%s|%s\n' "$code" "$msg"
+  else
+    printf 'ARDTT_ERROR|%s\n' "$msg"
+  fi
+  exit 1
+}
+
+prog() {
+  local frac="$1" step="$2"
+  local bin=""
+  bin="$(ardtt_ctl_bin 2>/dev/null || true)"
+  if [ -n "$bin" ] && "$bin" emit progress --frac "$frac" --message "$step" --phase fetch; then
+    return 0
+  fi
+  printf 'ARDTT_PROGRESS|%s|%s\n' "$frac" "$step"
+}
 
 command -v python3 >/dev/null 2>&1 || die "PYTHON_MISSING|нужен python3 на VPS"
 command -v sha256sum >/dev/null 2>&1 || die "SHA256SUM_MISSING|нужен sha256sum (coreutils) на VPS"
@@ -301,9 +331,72 @@ fi
 mkdir -p "$INCOMING" "$STAGING"
 chmod 755 "$INSTALL_DIR" "$INCOMING" 2>/dev/null || true
 
-# One fetch per install dir: a second phone/session must not clobber staging.
-exec 8>"$INSTALL_DIR/fetch.lock"
-flock -n 8 || die "BUSY|другая загрузка/установка ARDTT уже идёт (${INSTALL_DIR}/fetch.lock)"
+# One mutation lock per install dir. Nested install.sh skips via ARDTT_MUTATION_LOCK_HELD.
+: >>"$INSTALL_DIR/install.lock"
+if [ ! -e "$INSTALL_DIR/fetch.lock" ]; then
+  ln "$INSTALL_DIR/install.lock" "$INSTALL_DIR/fetch.lock" 2>/dev/null || : >>"$INSTALL_DIR/fetch.lock"
+fi
+exec 8>"$INSTALL_DIR/install.lock"
+flock -n 8 || die "DEPLOY_IN_PROGRESS|другая загрузка/установка ARDTT уже идёт (${INSTALL_DIR}/install.lock)"
+ARDTT_MUTATION_LOCK_HELD=1
+export ARDTT_MUTATION_LOCK_HELD
+
+fetch_disk_preflight() {
+  local download_b="${1:-0}" docker_raw="${2:-0}" phase="${3:-fetch}"
+  local install_dir="${INSTALL_DIR:-/opt/ardtt}"
+  mkdir -p "$install_dir"
+  local avail min_bytes payload out rc
+  avail="$(df -PB1 "$install_dir" 2>/dev/null | awk 'NR==2 {print $4}')"
+  if [ -z "$avail" ]; then
+    die "DISK_MEASUREMENT_FAILED|не удалось измерить свободное место на ${install_dir} до загрузки"
+  fi
+  min_bytes=$(( ${MIN_DISK_MB:-1600} * 1024 * 1024 ))
+  payload="$(python3 - <<PY
+import json
+print(json.dumps({
+  "downloadOrIncomingBytes": int("${download_b}" or 0),
+  "dockerImportBytesRaw": int("${docker_raw}" or 0),
+  "missingDockerLayerBytes": int("${docker_raw}" or 0),
+  "candidateReleaseBytes": 8*1024*1024,
+  "extractionOrStagingOverhead": 32*1024*1024,
+  "rollbackReserveBytes": 0,
+  "safelyReclaimableArdttBytes": 0,
+  "minDiskBytes": $min_bytes,
+  "installFsDev": "1",
+  "dockerFsDev": "1",
+  "installAvailableBytes": int("${avail}" or 0),
+  "dockerAvailableBytes": int("${avail}" or 0),
+  "phase": "${phase}",
+  "installPath": "$install_dir",
+  "estimationMethod": "fetch-preflight-before-download",
+}))
+PY
+)"
+  local py="$SELF_DIR/install-lib/disk-budget.py"
+  [ -f "$py" ] || py="${STAGING}/install-lib/disk-budget.py"
+  if [ ! -f "$py" ]; then
+    # Conservative fallback before host files exist: floor + download + raw docker.
+    python3 - "$avail" "$download_b" "$docker_raw" "$min_bytes" <<'PY' || die "INSUFFICIENT_DISK|мало места до загрузки пакета"
+import sys
+avail, download, raw, floor = (int(x or 0) for x in sys.argv[1:5])
+need = max(floor, download + raw + 256*1024*1024)
+if avail <= 0:
+    raise SystemExit(2)
+if avail < need:
+    raise SystemExit(2)
+PY
+    return 0
+  fi
+  set +e
+  out="$(printf '%s' "$payload" | python3 "$py" compute --json -)"
+  rc=$?
+  set -e
+  [ -n "$out" ] || die "DISK_MEASUREMENT_FAILED|не удалось вычислить disk budget до загрузки"
+  echo "ARDTT_INFO|fetch disk budget ${out}"
+  if [ "$rc" -ne 0 ]; then
+    die "INSUFFICIENT_DISK|мало места до загрузки пакета (фаза ${phase})"
+  fi
+}
 
 TMPD="$(mktemp -d)"
 trap 'rm -rf "$TMPD" 2>/dev/null || true' EXIT
@@ -541,6 +634,7 @@ if [ "$USE_INDEX" = 0 ]; then
   if [ -f "$PKG_PATH" ] && [ "$(sha256sum "$PKG_PATH" | awk '{print $1}')" = "$PKG_SHA" ]; then
     info "пакет ${FULL_NAME} уже в incoming и совпадает по SHA-256 — загрузка пропущена"
   else
+    fetch_disk_preflight "$FULL_SIZE" "$FULL_SIZE" "fetch-full"
     rm -f "$PKG_PATH"
     prog 0.08 "Загрузка ${FULL_NAME} ($(mb "$FULL_SIZE") МБ) с GitHub Releases (${PKG_TAG:-?})"
     download "$FULL_URL" "$PKG_PATH" "$FULL_SIZE" || die "DOWNLOAD_FAILED|не удалось скачать ${FULL_URL}"
@@ -594,6 +688,7 @@ lines = [
     "COMPOSE_ASSET=" + q(comp.get("asset", "")), "COMPOSE_SHA=" + q(comp.get("sha256", "")), "COMPOSE_SIZE=" + q(comp.get("size", 0)),
     "IMAGE_TAG=" + q(img.get("tag", "")), "LAYER_COUNT=" + q(len(img.get("layers") or [])),
     "LAYERS_GZ_TOTAL=" + q(img.get("totalGzSize", 0)),
+    "LAYERS_RAW_TOTAL=" + q(img.get("totalRawSize") or sum(int((x or {}).get("rawSize") or 0) for x in (img.get("layers") or []))),
 ]
 open(sys.argv[2], "w", encoding="utf-8").write("\n".join(lines) + "\n")
 PY
@@ -673,6 +768,12 @@ if [ -n "$COMPOSE_ASSET" ]; then
   fi
 fi
 
+PARTIAL_DL=0
+[ "$NEED_ENGINE" = 1 ] && PARTIAL_DL=$((PARTIAL_DL + ${ENGINE_SIZE:-0}))
+[ "$NEED_COMPOSE" = 1 ] && PARTIAL_DL=$((PARTIAL_DL + ${COMPOSE_SIZE:-0}))
+PARTIAL_DL=$((PARTIAL_DL + ${LAYERS_GZ_TOTAL:-0}))
+fetch_disk_preflight "$PARTIAL_DL" "${LAYERS_RAW_TOTAL:-0}" "fetch-partial"
+
 if [ "$NEED_ENGINE" = 1 ]; then
   prog 0.09 "Docker Engine ${ENGINE_VER:-} из релиза ($(mb "$ENGINE_SIZE") МБ) — на VPS его нет"
   ENGINE_PATH="${INCOMING}/${ENGINE_ASSET}"
@@ -745,6 +846,7 @@ PY
 CACHED_COUNT="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["cachedCount"])' "$PLAN_FILE")"
 MISSING_GZ="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["missingGzSize"])' "$PLAN_FILE")"
 info "слои образа: ${LAYER_COUNT} всего, ${CACHED_COUNT} в кэше, скачать $(( LAYER_COUNT - CACHED_COUNT )) ($(mb "$MISSING_GZ") МБ из $(mb "$LAYERS_GZ_TOTAL") МБ)"
+fetch_disk_preflight "${MISSING_GZ:-0}" "${LAYERS_RAW_TOTAL:-0}" "fetch-layers"
 
 done_bytes=0
 done_n=0

@@ -2,9 +2,9 @@
 
 Клиент **0.5.265** (`versionCode` 285). Серверный стек **1.0.54** (`DEPLOY_VERSION`).
 
-GitHub Release `v0.5.265`: APK (`versionCode` 285), `ardtt-update.json`, стек **1.0.53** `linux-{amd64,arm64}` на теге; стек **1.0.54** — этот git (auth/TLS hotfix), пакет публикуется с тега после сборки.
+GitHub Release `v0.5.265`: APK (`versionCode` 285), `ardtt-update.json`, стек **1.0.53** `linux-{amd64,arm64}` на теге; стек **1.0.54** — этот git (auth/TLS + транзакционный install), пакет публикуется с тега после сборки.
 
-## стек 1.0.54 — provision auth / TLS / localhost bind
+## стек 1.0.54 — provision auth / TLS / транзакционный install
 
 - **Bearer на provision.** `/v1/users*`, `/v1/cascade/peer`, `/v1/hide-ip-prefixes` требуют admin-токен (`data/admin.token`, 0600). Клиентские `/v1/profile`, `/v1/presence`, `/v1/hide-ip`, `/v1/egress-ip`, `/v1/netcheck` — `deviceToken` из профиля (или admin). Без токена — 401. `/health` и `/ready` открыты. Сравнение токенов — `ConstantTimeCompare`. Список пользователей без приватных ключей.
 - **Каскад.** `POST /v1/cascade/peer` и опрос hide-ip с выхода: `ARDTT_CASCADE_SECRET` (Bearer или HMAC тела). Loopback `GET /v1/hide-ip-prefixes` без токена; `X-Forwarded-For` не считается loopback.
@@ -12,6 +12,10 @@ GitHub Release `v0.5.265`: APK (`versionCode` 285), `ardtt-update.json`, сте�
 - **TLS.** Self-signed в `data/tls/`, SHA-256 в `/health.provisionCertFp` и `ARDTT_DONE|provision_cert_fp=`. На 9100 HTTP и HTTPS.
 - **Телеметрия.** Upload только с Bearer (`telemetry.token` или device token), лимит 20 МБ, квота на `client_id`. Review не доверяет Docker-NAT «localhost».
 - **Install.** Токены пишутся до compose up. `admin_token` / `cascade_secret` / `telemetry_token` в `ARDTT_DONE` только при первом создании файла. Обновление с 1.0.53 сохраняет `data/`.
+- **Уникальные releases.** Каждый attempt — `releases/<deploymentId>` (`d{unixhex}-{12hex}`). Same-version restage не делает `rm -rf` previous. Snapshot previous пропускается только если `current` уже указывает на `deploymentId` этой попытки, не из‑за совпадения `deployVersion`.
+- **`current` / `previous` — atomic pointers** (`symlink` → `releases/<id>`). Снимок previous **не** копирует дерево. Rollback только переставляет указатель (`rename(2)`). `data/DEPLOY_VERSION` пишется только после readiness. Явный `ARDTT_ACTION=rollback` грузит `instance.json` / `.env` до stop.
+- **Host-контроллер `ardttctl`.** JSONL `protocol=2` рядом с `ARDTT_*`. Повреждённый `state/deploy.json` → `recovery_required`, не idle. Один inode `install.lock` (hardlink `fetch.lock`); uninstall его не unlink.
+- **Диск.** Fail-closed preflight (`INSUFFICIENT_DISK`). `ARDTT_DISK_CLEANUP=1` чистит только incoming/staging ARDTT. GC `releases/` — после health gate.
 - APK **0.5.265** без Bearer на API получит 401 — это цель hotfix. Stdout `ARDTT_*` не менялся. Подробности: [docs/adr/0005-provision-auth-and-tls.md](docs/adr/0005-provision-auth-and-tls.md).
 
 ## 0.5.265

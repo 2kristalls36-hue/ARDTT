@@ -33,6 +33,12 @@ cp -f "$ROOT/scripts/safe-extract-package.py" "$STAGE/scripts/safe-extract-packa
 cp -f "$ROOT/scripts/assemble-docker-save.py" "$STAGE/scripts/assemble-docker-save.py"
 cp -f "$ROOT/scripts/layer-cache.py" "$STAGE/scripts/layer-cache.py"
 chmod 755 "$STAGE/scripts/assemble-docker-save.py" "$STAGE/scripts/layer-cache.py"
+if [ -n "${ARDTT_ARDTTCTL_BIN:-}" ] && [ -x "${ARDTT_ARDTTCTL_BIN}" ]; then
+  cp -f "$ARDTT_ARDTTCTL_BIN" "$STAGE/ardttctl"
+  chmod 755 "$STAGE/ardttctl"
+else
+  bash "$ROOT/scripts/build-ardttctl.sh" "$ARCH" "$STAGE/ardttctl"
+fi
 cp -f "$ROOT/server/docker-compose.yml" "$STAGE/docker-compose.yml"
 cp -f "$ROOT/server/docker-compose.exit.yml" "$STAGE/docker-compose.exit.yml"
 cp -f "$ROOT/server/.env.example" "$STAGE/.env.example"
@@ -104,7 +110,7 @@ EOF
 echo "test package" > "$STAGE/README.md"
 (
   cd "$STAGE"
-  sums=(install.sh fetch-and-install.sh ready.sh docker-compose.yml vendor/docker.tgz manifest.json)
+  sums=(install.sh fetch-and-install.sh ready.sh ardttctl docker-compose.yml vendor/docker.tgz manifest.json)
   [ -f images/ardtt.tar ] && sums+=(images/ardtt.tar)
   [ -f images/layout.json ] && sums+=(images/layout.json)
   sha256sum "${sums[@]}" > SHA256SUMS

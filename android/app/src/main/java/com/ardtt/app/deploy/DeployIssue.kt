@@ -25,9 +25,14 @@ data class DeployIssue(
         const val UNSUPPORTED_RUNTIME = "UNSUPPORTED_RUNTIME"
         const val PREFLIGHT_FAILED = "PREFLIGHT_FAILED"
         const val DISK_FULL = "DISK_FULL"
+        const val INSUFFICIENT_DISK = "INSUFFICIENT_DISK"
+        const val RECOVERY_REQUIRED = "RECOVERY_REQUIRED"
         const val COMPOSE_UP_FAILED = "COMPOSE_UP_FAILED"
         const val INSTALL_FAILED = "INSTALL_FAILED"
         const val BUSY = "BUSY"
+        const val DEPLOY_IN_PROGRESS = "DEPLOY_IN_PROGRESS"
+        const val STATE_WRITE_FAILED = "STATE_WRITE_FAILED"
+        const val DISK_MEASUREMENT_FAILED = "DISK_MEASUREMENT_FAILED"
 
         fun parseArdttError(raw: String): Pair<String?, String> {
             val line = raw.trim()
@@ -57,6 +62,8 @@ data class DeployIssue(
         ): DeployIssue {
             val (code, message) = parseArdttError(raw)
             val resolved = when {
+                code == DEPLOY_IN_PROGRESS -> BUSY
+                code == DISK_MEASUREMENT_FAILED -> INSUFFICIENT_DISK
                 !code.isNullOrBlank() -> code
                 message.contains("Мало места") ||
                     message.contains("no space", ignoreCase = true) -> DISK_FULL
@@ -75,10 +82,12 @@ data class DeployIssue(
         /** True when the operator can opt into safe VPS disk reclaim and retry. */
         fun offersDiskCleanup(issue: DeployIssue?): Boolean {
             if (issue == null) return false
-            if (issue.code == DISK_FULL) return true
+            if (issue.code == DISK_FULL || issue.code == INSUFFICIENT_DISK ||
+                issue.code == DISK_MEASUREMENT_FAILED) return true
             val text = "${issue.summary} ${issue.detail}"
             return text.contains("Мало места") ||
                 text.contains("DISK_FULL") ||
+                text.contains("INSUFFICIENT_DISK") ||
                 text.contains("no space", ignoreCase = true)
         }
 
@@ -124,7 +133,9 @@ data class DeployIssue(
             }
             return when (code) {
                 CANCELLED -> "Отменено"
-                BUSY -> "Деплой уже идёт"
+                BUSY, DEPLOY_IN_PROGRESS -> "Деплой уже идёт"
+                STATE_WRITE_FAILED ->
+                    "$hop: не удалось записать состояние деплоя.$entryNote"
                 DOCKER_MISSING ->
                     "$hop: не удалось поставить Docker Engine из архива.$entryNote"
                 DOCKER_NOT_RUNNING ->
@@ -144,8 +155,10 @@ data class DeployIssue(
                     "Не удалось открыть SSH${hopHostPart(hopRole, hop)}."
                 PREFLIGHT_FAILED ->
                     "$hop не прошёл предварительную проверку."
-                DISK_FULL ->
+                DISK_FULL, INSUFFICIENT_DISK ->
                     "$hop: мало места на диске. Можно очистить кэш/логи и повторить.$entryNote"
+                RECOVERY_REQUIRED ->
+                    "$hop: состояние деплоя повреждено или неоднозначно. Новый деплой заблокирован.$entryNote"
                 COMPOSE_UP_FAILED ->
                     "$hop: не удалось запустить контейнер (docker compose up).$entryNote"
                 else -> message.ifBlank { "$hop: установка не завершилась." }

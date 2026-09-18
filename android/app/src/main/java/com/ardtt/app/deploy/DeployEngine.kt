@@ -733,6 +733,8 @@ class DeployEngine(private val appContext: Context) {
         var failed: String? = null
         var cascadePub = ""
         var doneFields = emptyMap<String, String>()
+        var sawDone = false
+        var sawError = false
         val code = ssh.execStreaming(runCommand, timeoutMs = 45 * 60_000L) { line ->
             append(line)
             DeployInstallEnv.publicKeyFromLine(line)?.let { cascadePub = it }
@@ -745,10 +747,38 @@ class DeployEngine(private val appContext: Context) {
                         .coerceIn(0f, 1f)
                     if (step.isNotBlank()) emitOn(hostLabel, mapped, step)
                 }
-                line.startsWith("ARDTT_ERROR|") -> failed = line.removePrefix("ARDTT_ERROR|")
+                line.startsWith("ARDTT_ERROR|") -> {
+                    if (!sawError) {
+                        failed = line.removePrefix("ARDTT_ERROR|")
+                        sawError = true
+                    }
+                }
                 line.startsWith("ARDTT_DONE|") -> {
-                    doneFields = DeployInstallEnv.doneFields(line)
-                    emitOn(hostLabel, progressEnd, "установка на VPS завершилась")
+                    if (!sawDone) {
+                        doneFields = DeployInstallEnv.doneFields(line)
+                        sawDone = true
+                        emitOn(hostLabel, progressEnd, "установка на VPS завершилась")
+                    }
+                }
+                else -> {
+                    DeployInstallEnv.protocol2Progress(line)?.let { (frac, step) ->
+                        val mapped = (progressStart + span * (0.12f + 0.88f * frac.coerceIn(0f, 1f)))
+                            .coerceIn(0f, 1f)
+                        if (step.isNotBlank()) emitOn(hostLabel, mapped, step)
+                    }
+                    if (!sawError) {
+                        DeployInstallEnv.protocol2Error(line)?.let {
+                            failed = it
+                            sawError = true
+                        }
+                    }
+                    if (!sawDone) {
+                        DeployInstallEnv.protocol2DoneFields(line)?.let {
+                            doneFields = it
+                            sawDone = true
+                            emitOn(hostLabel, progressEnd, "установка на VPS завершилась")
+                        }
+                    }
                 }
             }
         }
@@ -764,6 +794,18 @@ class DeployEngine(private val appContext: Context) {
                     hopRole = hopRole,
                     hopHost = hostLabel,
                     entryInstallStarted = hopRole == "entry",
+                ),
+            )
+        }
+        if (code == 0 && DeployInstallEnv.missingDonePayload(code, doneFields, failed)) {
+            throw DeployIssueException(
+                DeployIssue.of(
+                    code = DeployIssue.INSTALL_FAILED,
+                    message = "установщик завершился без ARDTT_DONE",
+                    hopRole = hopRole,
+                    hopHost = hostLabel,
+                    entryInstallStarted = hopRole == "entry",
+                    detail = "exit=0 without ARDTT_DONE",
                 ),
             )
         }

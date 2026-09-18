@@ -40,7 +40,7 @@
 | | |
 |---|---|
 | Клиент | **0.5.265** · minSdk 28 · APK `arm64-v8a` / `armeabi-v7a` / `x86_64` / universal · [Releases](https://github.com/2kristalls36-hue/ARDTT/releases/latest) |
-| Стек | **1.0.54** · `/opt/ardtt` · один контейнер, isolated netns, labels `com.ardtt.owner` · переменные `ARDTT_*` |
+| Стек | **1.0.54** · `/opt/ardtt` · один контейнер, isolated netns, labels `com.ardtt.owner` · переменные `ARDTT_*` + JSONL protocol=2 |
 | Откуда стек | GitHub Releases: `ardtt-server-1.0.54-linux-<amd64\|arm64>.tar.gz` (docker save + Engine), рядом `…index.json` и ассеты по слоям — **частичный деплой: VPS качает только недостающее**. Не APK, не исходники |
 | Compose | production без `build:`; provision/direct/bypass/dns/warp/cascade/telemetry; host-порты на 51820/56003/9100/9200 внутри |
 | Профиль | ссылка `ardtt://config` |
@@ -88,7 +88,7 @@ ARDTT/
 | **Приложение** | GitHub Releases → HTTPS с VPS (`fetch-and-install.sh`, частичный деплой по индексу); телефон только SSH | удобно с телефона |
 | **Архив** | тот же актив + `install.sh` из него | shell; Engine ставится из архива, если его ещё нет |
 
-Старые APK с `ardtt-stack-*.tar.gz` и fallback на `main` пакет 1.0.53 не ставят. Подробности: [docs/DEPLOY.md](docs/DEPLOY.md).
+Старые APK с `ardtt-stack-*.tar.gz` и fallback на `main` пакет 1.0.54 не ставят. Подробности: [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ## Быстрый старт
 
@@ -102,10 +102,10 @@ ARDTT/
 
 ```bash
 # https://github.com/2kristalls36-hue/ARDTT/releases/latest
-# актив ardtt-server-1.0.53-linux-amd64.tar.gz (или arm64)
+# актив ardtt-server-1.0.54-linux-amd64.tar.gz (или arm64)
 # сверьте SHA-256 с digest / SHA256SUMS релиза, затем:
 export ARDTT_PUBLIC_HOST=IP_этого_VPS
-export ARDTT_PACKAGE=/opt/ardtt/incoming/ardtt-server-1.0.53-linux-amd64.tar.gz
+export ARDTT_PACKAGE=/opt/ardtt/incoming/ardtt-server-1.0.54-linux-amd64.tar.gz
 export ARDTT_PACKAGE_SHA256=...
 # см. docs/DEPLOY.md
 ```
