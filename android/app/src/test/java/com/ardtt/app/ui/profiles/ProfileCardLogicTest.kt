@@ -86,6 +86,31 @@ class ProfileCardLogicTest {
     }
 
     @Test
+    fun cardSlotOrderMatchesServerIdentity() {
+        assertEquals(
+            listOf(
+                ProfileCardSlot.Title,
+                ProfileCardSlot.ExpiresBadge,
+                ProfileCardSlot.Overflow,
+                ProfileCardSlot.Hosts,
+                ProfileCardSlot.Presence,
+                ProfileCardSlot.Traffic,
+            ),
+            profileCardSlotOrder(),
+        )
+        assertEquals(
+            ProfileCardOverflowAnchor.AfterExpires,
+            profileCardOverflowAnchor(),
+        )
+    }
+
+    @Test
+    fun presenceSitsOnTheHostRowLikeServerOnline() {
+        assertEquals("● Активен", profileCardPresenceLabel(active = true))
+        assertNull(profileCardPresenceLabel(active = false))
+    }
+
+    @Test
     fun profileCountSubtitleUsesCallerPlural() {
         assertEquals(
             "1 профиль · активен: Дом",

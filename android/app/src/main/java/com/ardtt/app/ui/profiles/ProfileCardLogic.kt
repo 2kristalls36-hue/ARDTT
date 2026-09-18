@@ -41,6 +41,39 @@ internal fun profileLiveFactsFromUsers(
 }
 
 /** Public hops for the address row: cascade `entry → exit`, else one host, ports stripped. */
+internal enum class ProfileCardSlot {
+    Title,
+    ExpiresBadge,
+    Overflow,
+    Hosts,
+    Presence,
+    Traffic,
+}
+
+internal enum class ProfileCardOverflowAnchor {
+    AfterExpires,
+}
+
+/**
+ * Same identity order as the server card: title → badge → ⋮,
+ * hosts left / presence right, remaining traffic on the fact row.
+ */
+internal fun profileCardSlotOrder(): List<ProfileCardSlot> = listOf(
+    ProfileCardSlot.Title,
+    ProfileCardSlot.ExpiresBadge,
+    ProfileCardSlot.Overflow,
+    ProfileCardSlot.Hosts,
+    ProfileCardSlot.Presence,
+    ProfileCardSlot.Traffic,
+)
+
+internal fun profileCardOverflowAnchor(): ProfileCardOverflowAnchor =
+    ProfileCardOverflowAnchor.AfterExpires
+
+internal fun profileCardPresenceLabel(active: Boolean): String? =
+    if (active) "● Активен" else null
+
+/** Public hops for the address row: cascade `entry → exit`, else one host, ports stripped. */
 internal fun profileCardAddressHosts(
     profile: VpnProfile,
     servers: List<DeployTarget>,
