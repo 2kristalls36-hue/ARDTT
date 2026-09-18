@@ -1,8 +1,18 @@
 # ARDTT v0.5.265
 
-Клиент **0.5.265** (`versionCode` 285). Серверный стек **1.0.53** (`DEPLOY_VERSION`).
+Клиент **0.5.265** (`versionCode` 285). Серверный стек **1.0.54** (`DEPLOY_VERSION`).
 
-GitHub Release `v0.5.265`: APK (`versionCode` 285), `ardtt-update.json`, стек **1.0.53** `linux-{amd64,arm64}` (архив, индекс, слои), Docker Engine, Compose CLI — тот же стек, что на `v0.5.264`.
+GitHub Release `v0.5.265`: APK (`versionCode` 285), `ardtt-update.json`, стек **1.0.53** `linux-{amd64,arm64}` на теге; стек **1.0.54** — этот git (auth/TLS hotfix), пакет публикуется с тега после сборки.
+
+## стек 1.0.54 — provision auth / TLS / localhost bind
+
+- **Bearer на provision.** `/v1/users*`, `/v1/cascade/peer`, `/v1/hide-ip-prefixes` требуют admin-токен (`data/admin.token`, 0600). Клиентские `/v1/profile`, `/v1/presence`, `/v1/hide-ip`, `/v1/egress-ip`, `/v1/netcheck` — `deviceToken` из профиля (или admin). Без токена — 401. `/health` и `/ready` открыты. Сравнение токенов — `ConstantTimeCompare`. Список пользователей без приватных ключей.
+- **Каскад.** `POST /v1/cascade/peer` и опрос hide-ip с выхода: `ARDTT_CASCADE_SECRET` (Bearer или HMAC тела). Loopback `GET /v1/hide-ip-prefixes` без токена; `X-Forwarded-For` не считается loopback.
+- **Публикация.** Host bind `127.0.0.1:9100` / `:9200` по умолчанию. Наружу — `ARDTT_PROVISION_PUBLIC=1`. Внутри контейнера listen по-прежнему `0.0.0.0:9100`.
+- **TLS.** Self-signed в `data/tls/`, SHA-256 в `/health.provisionCertFp` и `ARDTT_DONE|provision_cert_fp=`. На 9100 HTTP и HTTPS.
+- **Телеметрия.** Upload только с Bearer (`telemetry.token` или device token), лимит 20 МБ, квота на `client_id`. Review не доверяет Docker-NAT «localhost».
+- **Install.** Токены пишутся до compose up. `admin_token` / `cascade_secret` / `telemetry_token` в `ARDTT_DONE` только при первом создании файла. Обновление с 1.0.53 сохраняет `data/`.
+- APK **0.5.265** без Bearer на API получит 401 — это цель hotfix. Stdout `ARDTT_*` не менялся. Подробности: [docs/adr/0005-provision-auth-and-tls.md](docs/adr/0005-provision-auth-and-tls.md).
 
 ## 0.5.265
 

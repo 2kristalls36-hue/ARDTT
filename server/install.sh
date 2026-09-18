@@ -49,6 +49,8 @@ fi
 . "$INSTALL_LIB_DIR/migrate.sh"
 # shellcheck disable=SC1091
 . "$INSTALL_LIB_DIR/uninstall.sh"
+# shellcheck disable=SC1091
+. "$INSTALL_LIB_DIR/secrets.sh"
 
 SAFE_EXTRACT_PY="${SAFE_EXTRACT_PY:-}"
 if [ -f "$SCRIPT_DIR/../scripts/safe-extract-package.py" ]; then
@@ -310,6 +312,8 @@ write_env_file() {
   mem_limit="$(resolve_ardtt_mem_limit)"
   cpus_limit="$(resolve_ardtt_cpus)"
   echo "ARDTT_INFO|ресурсы compose: mem_limit=${mem_limit} cpus=${cpus_limit} (хост nproc=$(host_cpu_count))"
+  local PROVISION_BIND
+  PROVISION_BIND="$(host_publish_bind)"
   cat > "$dest" <<EOF
 ARDTT_PUBLIC_HOST=$PUBLIC_HOST
 ARDTT_IMAGE=$ARDTT_IMAGE
@@ -327,6 +331,9 @@ ARDTT_TELEMETRY_PORT=$TELEMETRY_PORT
 ARDTT_DIRECT_LISTEN_PORT=$DIRECT_LISTEN_PORT
 ARDTT_BYPASS_LISTEN_PORT=$BYPASS_LISTEN_PORT
 ARDTT_PROVISION_LISTEN=0.0.0.0:9100
+ARDTT_PROVISION_BIND=$PROVISION_BIND
+ARDTT_TELEMETRY_BIND=$PROVISION_BIND
+ARDTT_PROVISION_PUBLIC=${ARDTT_PROVISION_PUBLIC:-0}
 TELEMETRY_LISTEN=0.0.0.0:9200
 ARDTT_TELEMETRY_LISTEN=0.0.0.0:9200
 ARDTT_SKIP_TELEMETRY=0
@@ -383,6 +390,13 @@ ensure_cascade_keys() {
 push_entry_pubkey_to_exit() {
   [ "$ROLE" = "entry" ] || return 0
   [ "$CASCADE_ENABLED" = "1" ] || return 0
+  if [ -z "${CASCADE_SECRET:-}" ] && [ -s "${INSTALL_DIR}/data/cascade.secret" ]; then
+    CASCADE_SECRET="$(read_secret_file "${INSTALL_DIR}/data/cascade.secret" || true)"
+  fi
+  if [ -z "${CASCADE_SECRET:-}" ] && [ -z "${ARDTT_CASCADE_SECRET:-}" ]; then
+    echo "ARDTT_WARN|нет ARDTT_CASCADE_SECRET — ключ входа на выход не отправлен (секрет с выхода из ARDTT_DONE)"
+    return 0
+  fi
   local pub host port url i
   pub="$(tr -d '[:space:]' <"${INSTALL_DIR}/data/cascade.pub" 2>/dev/null || true)"
   [ -n "$pub" ] || {
@@ -410,14 +424,22 @@ push_entry_pubkey_to_exit() {
 # POST JSON with curl, or python3 urllib on minimal images without curl.
 http_post_json() {
   local url="$1" body="$2"
+  local token="${ARDTT_CASCADE_SECRET:-${CASCADE_SECRET:-${ARDTT_ADMIN_TOKEN:-${ADMIN_TOKEN:-}}}}"
   if command -v curl >/dev/null 2>&1; then
-    curl -fsS -m 12 -X POST -H 'Content-Type: application/json' -d "$body" "$url" >/dev/null 2>&1
+    if [ -n "$token" ]; then
+      curl -fsS -m 12 -X POST -H 'Content-Type: application/json' -H "Authorization: Bearer ${token}" -d "$body" "$url" >/dev/null 2>&1
+    else
+      curl -fsS -m 12 -X POST -H 'Content-Type: application/json' -d "$body" "$url" >/dev/null 2>&1
+    fi
     return $?
   fi
-  python3 - "$url" "$body" <<'PY' >/dev/null 2>&1
+  python3 - "$url" "$body" "$token" <<'PY' >/dev/null 2>&1
 import sys, urllib.request
-req = urllib.request.Request(sys.argv[1], data=sys.argv[2].encode("utf-8"),
-                             headers={"Content-Type": "application/json"}, method="POST")
+url, body, token = sys.argv[1], sys.argv[2], sys.argv[3]
+headers = {"Content-Type": "application/json"}
+if token:
+    headers["Authorization"] = "Bearer " + token
+req = urllib.request.Request(url, data=body.encode("utf-8"), headers=headers, method="POST")
 with urllib.request.urlopen(req, timeout=12) as r:
     sys.exit(0 if 200 <= r.status < 300 else 1)
 PY
@@ -589,8 +611,9 @@ do_install() {
     printf '%s\n' "$DEPLOY_VERSION" > "$INSTALL_DIR/data/DEPLOY_VERSION"
     printf '%s\n' "$DEPLOY_VERSION" > "$INSTALL_DIR/DEPLOY_VERSION"
     write_instance
+    ensure_install_secrets "$INSTALL_DIR/data"
     prog 1.00 "dry-run: пакет проверен, стек не переключали"
-    echo "ARDTT_DONE|dry_run=1|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$DEPLOY_VERSION|network_mode=isolated|direct_port=$DIRECT_PORT|bypass_port=$BYPASS_PORT|cascade_listen_port=$CASCADE_LISTEN_PORT|provision_port=$PROVISION_PORT|telemetry_port=$TELEMETRY_PORT|auto_ports=$AUTO_PORTS|instance=$INSTANCE_ID"
+    echo "ARDTT_DONE|dry_run=1|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$DEPLOY_VERSION|network_mode=isolated|direct_port=$DIRECT_PORT|bypass_port=$BYPASS_PORT|cascade_listen_port=$CASCADE_LISTEN_PORT|provision_port=$PROVISION_PORT|telemetry_port=$TELEMETRY_PORT|auto_ports=$AUTO_PORTS|instance=$INSTANCE_ID$(done_secret_fields)"
     return 0
   fi
 
@@ -637,6 +660,7 @@ do_install() {
   fi
   migrate_confirmed_logs
   printf '%s\n' "$DEPLOY_VERSION" > "$INSTALL_DIR/data/DEPLOY_VERSION"
+  ensure_install_secrets "$INSTALL_DIR/data"
 
   local release="$INSTALL_DIR/releases/${DEPLOY_VERSION}"
   rm -rf "$release"
@@ -662,6 +686,9 @@ do_install() {
   fi
   write_env_file "$release/.env"
   write_env_file "$INSTALL_DIR/.env"
+  if [ "$(host_publish_bind)" = "0.0.0.0" ]; then
+    echo "ARDTT_WARN|ARDTT_PROVISION_PUBLIC=1 — provision/telemetry на 0.0.0.0. Без Bearer API закрыт, но порт виден из интернета. Предпочтительно SSH-туннель на 127.0.0.1."
+  fi
   write_pending_instance
 
   if [ "$CASCADE_ENABLED" = "1" ] || [ "$ROLE" = "exit" ]; then
@@ -720,6 +747,8 @@ do_install() {
     die "Новая версия не прошла readiness. Код ≠ 0, ARDTT_DONE нет. ${detail}"
   fi
 
+  PROVISION_CERT_FP="$(read_provision_cert_fp "$PROVISION_PORT")"
+
   printf '%s\n' "$DEPLOY_VERSION" > "$INSTALL_DIR/DEPLOY_VERSION"
   write_instance
   clear_pending_instance
@@ -730,7 +759,7 @@ do_install() {
   rm -rf "$PKG_DIR"
   # Keep previous until next successful install. Do not delete previous here.
   prog 1.00 "Готово"
-  echo "ARDTT_DONE|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$DEPLOY_VERSION|telemetry_port=$TELEMETRY_PORT|provision_port=$PROVISION_PORT|role=$ROLE|cascade=$CASCADE_ENABLED|network_mode=isolated|direct_port=$DIRECT_PORT|bypass_port=$BYPASS_PORT|cascade_listen_port=$CASCADE_LISTEN_PORT|auto_ports=$AUTO_PORTS|instance=$INSTANCE_ID|container=$ARDTT_CONTAINER_NAME"
+  echo "ARDTT_DONE|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$DEPLOY_VERSION|telemetry_port=$TELEMETRY_PORT|provision_port=$PROVISION_PORT|role=$ROLE|cascade=$CASCADE_ENABLED|network_mode=isolated|direct_port=$DIRECT_PORT|bypass_port=$BYPASS_PORT|cascade_listen_port=$CASCADE_LISTEN_PORT|auto_ports=$AUTO_PORTS|instance=$INSTANCE_ID|container=$ARDTT_CONTAINER_NAME$(done_secret_fields)"
   echo "Создать пользователя: docker exec ${ARDTT_CONTAINER_NAME} provision -cmd create-user -name USER -data /data"
 }
 

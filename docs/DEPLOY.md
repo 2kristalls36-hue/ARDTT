@@ -350,12 +350,28 @@ Production `docker-compose.yml` **без** `build:`. Образ собирает
 
 ### Provision API
 
-Порт снаружи — `ARDTT_PROVISION_PORT` (в профиле поле `provisionPort`). Внутри контейнера слушает 9100.
+Порт снаружи — `ARDTT_PROVISION_PORT` (в профиле поле `provisionPort`). Внутри контейнера слушает `0.0.0.0:9100` (overlay каскада и docker-proxy). На хосте Compose публикует **`127.0.0.1:9100`** по умолчанию. Интернет видит порт только при `ARDTT_PROVISION_PUBLIC=1` (тогда bind `0.0.0.0`). Админ-операции — SSH-туннель `ssh -L 9100:127.0.0.1:9100`.
 
-`GET /health` отдаёт `deployVersion`, `role`, `cascade`, `directPort`, `bypassPort`, `provisionPort`, `telemetryPort`, а также объект `host` (CPU/RAM/диск для карточки сервера в APK).  
+Стек **1.0.54**: Bearer-токен обязателен на API, кроме `/health` и `/ready`.
+
+| Кто | Заголовок | Эндпоинты |
+|-----|-----------|-----------|
+| Админ | `Authorization: Bearer` из `data/admin.token` | `/v1/users*`, `/v1/cascade/peer`, `/v1/hide-ip-prefixes` |
+| Устройство | `deviceToken` из JSON профиля | `/v1/profile/{name}`, `/v1/presence`, `/v1/hide-ip`, `/v1/egress-ip`, `/v1/netcheck` |
+| Каскад | тот же Bearer из `data/cascade.secret` или HMAC-SHA256 тела в `X-Ardtt-Cascade-HMAC` | `/v1/cascade/peer`, `GET /v1/hide-ip-prefixes` |
+
+`GET /v1/users` больше не отдаёт приватные ключи (и не отдаёт `deviceToken`). Профиль с ключами — только с токеном этого пользователя или admin.
+
+Токен админа создаётся при установке (`crypto/rand`, 32 байта hex, файл `0600`). В `ARDTT_DONE` поле `admin_token=` печатается **один раз**, пока файла ещё не было. Обновление 1.0.53 → 1.0.54 файл создаёт, если его нет; пользователям без `deviceToken` provision выдаёт его при старте.
+
+Self-signed TLS лежит в `data/tls/`. На `:9100` принимаются HTTP и HTTPS (детект ClientHello). Отпечаток SHA-256 — `GET /health` поле `provisionCertFp` и `ARDTT_DONE|provision_cert_fp=`. Проверка: `curl -k https://127.0.0.1:9100/v1/users` без токена → `401`.
+
+Каскад entry→exit: на выходе секрет в `ARDTT_DONE|cascade_secret=` при первом создании. На входе тот же секрет: `ARDTT_CASCADE_SECRET` или файл `/opt/ardtt/data/cascade.secret`. Старый APK поле не передаёт — ключ входа на выход нужно дописать вручную.
+
+ADR: [0005](adr/0005-provision-auth-and-tls.md).
+
+`GET /health` по-прежнему отдаёт `deployVersion`, `role`, `cascade`, порты и `host` (плюс `provisionCertFp`).  
 `GET /ready` — тот же `ready.sh`.
-
-Авторизации нет: это ваш VPS.
 
 ---
 
@@ -366,8 +382,8 @@ Production `docker-compose.yml` **без** `build:`. Образ собирает
 | SSH | TCP | деплой из приложения | да, для админ-деплоя |
 | 51820 | UDP | Direct / cascade listen | да; автовыбор может сменить host-порт |
 | 56003 | UDP | Bypass RAW | да (не на exit) |
-| 9100 | TCP | provision | да |
-| 9200 | TCP | telemetry | если нужны логи с телефонов |
+| 9100 | TCP | provision | **нет** (127.0.0.1); да при `ARDTT_PROVISION_PUBLIC=1` |
+| 9200 | TCP | telemetry | **нет** (127.0.0.1); да при `ARDTT_PROVISION_PUBLIC=1` |
 
 `ARDTT_AUTO_PORTS=1`: занятый **чужой** порт → следующий свободный; свои опубликованные при обновлении не считаются конфликтом. Занятый порт чужой службой не убивается. Произвольный listener на 9200 не считается «настроенным nginx».
 

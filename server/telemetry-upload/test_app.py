@@ -31,11 +31,16 @@ class TelemetryUploadTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="ardtt-telemetry-")
         os.environ["TELEMETRY_LOG_ROOT"] = self.tmp.name
-        os.environ.pop("TELEMETRY_REVIEW_TOKEN", None)
+        os.environ["TELEMETRY_UPLOAD_TOKEN"] = "upload-secret"
+        os.environ["TELEMETRY_REVIEW_TOKEN"] = "review-secret"
+        os.environ["TELEMETRY_MAX_UPLOAD_MB"] = "20"
+        os.environ["TELEMETRY_QUOTA_MB"] = "50"
         self.client = app.test_client()
 
     def tearDown(self):
         self.tmp.cleanup()
+        os.environ.pop("TELEMETRY_UPLOAD_TOKEN", None)
+        os.environ.pop("TELEMETRY_REVIEW_TOKEN", None)
 
     def upload(self, client_id: str, filename: str, comment: str = "не поднимается обход"):
         name, body = _log_file(filename, comment)
@@ -43,7 +48,11 @@ class TelemetryUploadTest(unittest.TestCase):
             "/api/upload-log",
             data={"client_id": client_id, "file": (body, name)},
             content_type="multipart/form-data",
+            headers={"Authorization": "Bearer upload-secret"},
         )
+
+    def review_headers(self):
+        return {"Authorization": "Bearer review-secret"}
 
     def test_upload_assigns_sequential_tickets(self):
         first = self.upload("client_aaa", "a.json").get_json()
@@ -61,6 +70,7 @@ class TelemetryUploadTest(unittest.TestCase):
         mark = self.client.post(
             f"/api/logs/{client_id}/{filename}/read",
             json={"processed_by": "author", "note": "разобрано"},
+            headers=self.review_headers(),
         )
         self.assertEqual(mark.status_code, 200)
         again = self.upload(client_id, filename, comment="повтор").get_json()
@@ -73,19 +83,29 @@ class TelemetryUploadTest(unittest.TestCase):
 
     def test_client_inbox_does_not_require_review_auth(self):
         self.upload("client_aaa", "a.json", comment="после Wi‑Fi")
-        os.environ["TELEMETRY_REVIEW_TOKEN"] = "secret"
         inbox = self.client.get("/api/logs/client_aaa/status")
         self.assertEqual(inbox.status_code, 200)
         payload = inbox.get_json()
         self.assertEqual(payload["logs"][0]["comment"], "после Wi‑Fi")
         denied = self.client.get("/api/logs")
         self.assertEqual(denied.status_code, 401)
+        loopback_denied = self.client.get("/api/logs", environ_base={"REMOTE_ADDR": "127.0.0.1"})
+        self.assertEqual(loopback_denied.status_code, 401)
         allowed = self.client.get(
             "/api/logs",
-            headers={"Authorization": "Bearer secret"},
+            headers=self.review_headers(),
         )
         self.assertEqual(allowed.status_code, 200)
         self.assertEqual(allowed.get_json()["logs"][0]["ticket"], 1)
+
+    def test_upload_requires_bearer(self):
+        name, body = _log_file("x.json", "нет токена")
+        denied = self.client.post(
+            "/api/upload-log",
+            data={"client_id": "client_aaa", "file": (body, name)},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(denied.status_code, 401)
 
     def test_one_file_status_and_unknown_client(self):
         self.upload("client_aaa", "a.json")
@@ -103,6 +123,7 @@ class TelemetryUploadTest(unittest.TestCase):
         marked = self.client.post(
             "/api/logs/client_aaa/a.json/read",
             json={"processed_by": "cursor-agent"},
+            headers=self.review_headers(),
         )
         self.assertEqual(marked.status_code, 200)
         inbox = self.client.get("/api/logs/client_aaa/status").get_json()
@@ -112,11 +133,13 @@ class TelemetryUploadTest(unittest.TestCase):
         again = self.client.post(
             "/api/logs/client_aaa/a.json/read",
             json={"processed_by": "cursor-agent"},
+            headers=self.review_headers(),
         )
         self.assertEqual(again.status_code, 200)
         commented = self.client.post(
             "/api/logs/client_aaa/a.json/comment",
             json={"processed_by": "cursor-agent", "reply": "обход падает на смене Wi‑Fi"},
+            headers=self.review_headers(),
         )
         self.assertEqual(commented.status_code, 200)
         self.assertEqual(commented.get_json()["reply"], "обход падает на смене Wi‑Fi")
@@ -127,21 +150,22 @@ class TelemetryUploadTest(unittest.TestCase):
         blank = self.client.post(
             "/api/logs/client_aaa/a.json/comment",
             json={"processed_by": "cursor-agent", "reply": "  "},
+            headers=self.review_headers(),
         )
         self.assertEqual(blank.status_code, 400)
 
     def test_lookup_by_ticket_number(self):
         self.upload("client_aaa", "a.json")
         self.upload("client_bbb", "b.json")
-        found = self.client.get("/api/logs/ticket/2")
+        found = self.client.get("/api/logs/ticket/2", headers=self.review_headers())
         self.assertEqual(found.status_code, 200)
         self.assertEqual(found.get_json()["client_id"], "client_bbb")
-        listed = self.client.get("/api/logs?ticket=1")
+        listed = self.client.get("/api/logs?ticket=1", headers=self.review_headers())
         self.assertEqual(listed.status_code, 200)
         payload = listed.get_json()
         self.assertEqual(payload["count"], 1)
         self.assertEqual(payload["logs"][0]["ticket"], 1)
-        missing = self.client.get("/api/logs/ticket/99")
+        missing = self.client.get("/api/logs/ticket/99", headers=self.review_headers())
         self.assertEqual(missing.status_code, 404)
 
     def test_read_without_note_does_not_wipe_reply(self):
@@ -149,17 +173,43 @@ class TelemetryUploadTest(unittest.TestCase):
         self.client.post(
             "/api/logs/client_aaa/a.json/comment",
             json={"reply": "уже ответили"},
+            headers=self.review_headers(),
         )
-        self.client.post("/api/logs/client_aaa/a.json/read", json={"processed_by": "cursor-agent"})
+        self.client.post(
+            "/api/logs/client_aaa/a.json/read",
+            json={"processed_by": "cursor-agent"},
+            headers=self.review_headers(),
+        )
         inbox = self.client.get("/api/logs/client_aaa/status").get_json()
         self.assertEqual(inbox["logs"][0]["reply"], "уже ответили")
         self.assertTrue(inbox["logs"][0]["read"])
         self.client.post(
             "/api/logs/client_aaa/a.json/read",
             json={"processed_by": "cursor-agent", "note": "   "},
+            headers=self.review_headers(),
         )
         inbox = self.client.get("/api/logs/client_aaa/status").get_json()
         self.assertEqual(inbox["logs"][0]["reply"], "уже ответили")
+
+    def test_quota_per_client(self):
+        os.environ["TELEMETRY_QUOTA_MB"] = "1"
+        huge = "x" * (600 * 1024)
+        name, body = _log_file("big.json", huge)
+        first = self.client.post(
+            "/api/upload-log",
+            data={"client_id": "client_quota", "file": (body, name)},
+            content_type="multipart/form-data",
+            headers={"Authorization": "Bearer upload-secret"},
+        )
+        self.assertEqual(first.status_code, 200)
+        name2, body2 = _log_file("big2.json", huge)
+        second = self.client.post(
+            "/api/upload-log",
+            data={"client_id": "client_quota", "file": (body2, name2)},
+            content_type="multipart/form-data",
+            headers={"Authorization": "Bearer upload-secret"},
+        )
+        self.assertEqual(second.status_code, 429)
 
     def test_concurrent_assign_same_file_keeps_one_ticket(self):
         self.upload("client_aaa", "race.json")

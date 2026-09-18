@@ -19,6 +19,19 @@ export ARDTT_DATA="$DATA"
 export ARDTT_WDTT_CONFIG="${ARDTT_WDTT_CONFIG:-/data/wdtt}"
 mkdir -p "$DATA" "$ARDTT_WDTT_CONFIG" "$DATA/warp" /var/run /var/log
 
+if [ -z "${ARDTT_CASCADE_SECRET:-}" ] && [ -s "$DATA/cascade.secret" ]; then
+  ARDTT_CASCADE_SECRET="$(tr -d '[:space:]' <"$DATA/cascade.secret")"
+  export ARDTT_CASCADE_SECRET
+fi
+if [ -z "${TELEMETRY_UPLOAD_TOKEN:-}" ] && [ -s "$DATA/telemetry.token" ]; then
+  TELEMETRY_UPLOAD_TOKEN="$(tr -d '[:space:]' <"$DATA/telemetry.token")"
+  export TELEMETRY_UPLOAD_TOKEN
+fi
+if [ -z "${TELEMETRY_REVIEW_TOKEN:-}" ] && [ -s "$DATA/admin.token" ]; then
+  TELEMETRY_REVIEW_TOKEN="$(tr -d '[:space:]' <"$DATA/admin.token")"
+  export TELEMETRY_REVIEW_TOKEN
+fi
+
 if [ "$ROLE" = "exit" ]; then
   CASCADE_ENABLED=1
 fi
