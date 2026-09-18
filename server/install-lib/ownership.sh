@@ -56,45 +56,77 @@ load_instance_from_env() {
 
 write_instance() {
   mkdir -p "$INSTALL_DIR"
-  python3 - "$INSTALL_DIR/instance.json" <<PY
-import json,sys,time
-path=sys.argv[1]
-data={
-  "instanceId": "${INSTANCE_ID}",
-  "composeProject": "${COMPOSE_PROJECT}",
-  "containerName": "${ARDTT_CONTAINER_NAME}",
-  "networkName": "${ARDTT_NETWORK_NAME}",
-  "bridgeSubnet": "${ARDTT_BRIDGE_SUBNET}",
-  "imageId": "${LOADED_IMAGE_ID:-${PKG_IMAGE_ID:-}}",
-  "imageTag": "${ARDTT_IMAGE:-}",
-  "deployVersion": "${DEPLOY_VERSION}",
-  "role": "${ROLE}",
+  INSTANCE_ID="${INSTANCE_ID}" COMPOSE_PROJECT="${COMPOSE_PROJECT}" \
+  ARDTT_CONTAINER_NAME="${ARDTT_CONTAINER_NAME}" ARDTT_NETWORK_NAME="${ARDTT_NETWORK_NAME}" \
+  ARDTT_BRIDGE_SUBNET="${ARDTT_BRIDGE_SUBNET}" LOADED_IMAGE_ID="${LOADED_IMAGE_ID:-}" \
+  PKG_IMAGE_ID="${PKG_IMAGE_ID:-}" ARDTT_IMAGE="${ARDTT_IMAGE:-}" \
+  DEPLOY_VERSION="${DEPLOY_VERSION}" ROLE="${ROLE}" \
+  python3 - "$INSTALL_DIR/instance.json" <<'PY'
+import json, os, sys, time
+path = sys.argv[1]
+data = {
+  "instanceId": os.environ.get("INSTANCE_ID", ""),
+  "composeProject": os.environ.get("COMPOSE_PROJECT", ""),
+  "containerName": os.environ.get("ARDTT_CONTAINER_NAME", ""),
+  "networkName": os.environ.get("ARDTT_NETWORK_NAME", ""),
+  "bridgeSubnet": os.environ.get("ARDTT_BRIDGE_SUBNET", ""),
+  "imageId": os.environ.get("LOADED_IMAGE_ID") or os.environ.get("PKG_IMAGE_ID", ""),
+  "imageTag": os.environ.get("ARDTT_IMAGE", ""),
+  "deployVersion": os.environ.get("DEPLOY_VERSION", ""),
+  "role": os.environ.get("ROLE", ""),
   "updatedAt": int(time.time()),
 }
-open(path,"w",encoding="utf-8").write(json.dumps(data,indent=2)+"\n")
+raw = json.dumps(data, indent=2) + "\n"
+tmp = path + ".tmp." + os.urandom(4).hex()
+with open(tmp, "w", encoding="utf-8") as fh:
+    fh.write(raw)
+    fh.flush()
+    os.fsync(fh.fileno())
+os.replace(tmp, path)
+d = os.open(os.path.dirname(path) or ".", os.O_RDONLY)
+try:
+    os.fsync(d)
+finally:
+    os.close(d)
 PY
   chmod 600 "$INSTALL_DIR/instance.json" 2>/dev/null || true
 }
 
 write_pending_instance() {
   mkdir -p "$INSTALL_DIR"
-  python3 - "$(pending_instance_file)" <<PY
-import json,sys,time
-path=sys.argv[1]
-data={
-  "instanceId": "${INSTANCE_ID}",
-  "composeProject": "${COMPOSE_PROJECT}",
-  "containerName": "${ARDTT_CONTAINER_NAME}",
-  "networkName": "${ARDTT_NETWORK_NAME}",
-  "bridgeSubnet": "${ARDTT_BRIDGE_SUBNET}",
-  "imageId": "${LOADED_IMAGE_ID:-${PKG_IMAGE_ID:-}}",
-  "imageTag": "${ARDTT_IMAGE:-}",
-  "deployVersion": "${DEPLOY_VERSION}",
-  "role": "${ROLE}",
+  INSTANCE_ID="${INSTANCE_ID}" COMPOSE_PROJECT="${COMPOSE_PROJECT}" \
+  ARDTT_CONTAINER_NAME="${ARDTT_CONTAINER_NAME}" ARDTT_NETWORK_NAME="${ARDTT_NETWORK_NAME}" \
+  ARDTT_BRIDGE_SUBNET="${ARDTT_BRIDGE_SUBNET}" LOADED_IMAGE_ID="${LOADED_IMAGE_ID:-}" \
+  PKG_IMAGE_ID="${PKG_IMAGE_ID:-}" ARDTT_IMAGE="${ARDTT_IMAGE:-}" \
+  DEPLOY_VERSION="${DEPLOY_VERSION}" ROLE="${ROLE}" \
+  python3 - "$(pending_instance_file)" <<'PY'
+import json, os, sys, time
+path = sys.argv[1]
+data = {
+  "instanceId": os.environ.get("INSTANCE_ID", ""),
+  "composeProject": os.environ.get("COMPOSE_PROJECT", ""),
+  "containerName": os.environ.get("ARDTT_CONTAINER_NAME", ""),
+  "networkName": os.environ.get("ARDTT_NETWORK_NAME", ""),
+  "bridgeSubnet": os.environ.get("ARDTT_BRIDGE_SUBNET", ""),
+  "imageId": os.environ.get("LOADED_IMAGE_ID") or os.environ.get("PKG_IMAGE_ID", ""),
+  "imageTag": os.environ.get("ARDTT_IMAGE", ""),
+  "deployVersion": os.environ.get("DEPLOY_VERSION", ""),
+  "role": os.environ.get("ROLE", ""),
   "pending": True,
   "updatedAt": int(time.time()),
 }
-open(path,"w",encoding="utf-8").write(json.dumps(data,indent=2)+"\n")
+raw = json.dumps(data, indent=2) + "\n"
+tmp = path + ".tmp." + os.urandom(4).hex()
+with open(tmp, "w", encoding="utf-8") as fh:
+    fh.write(raw)
+    fh.flush()
+    os.fsync(fh.fileno())
+os.replace(tmp, path)
+d = os.open(os.path.dirname(os.path.abspath(path)) or ".", os.O_RDONLY)
+try:
+    os.fsync(d)
+finally:
+    os.close(d)
 PY
   chmod 600 "$(pending_instance_file)" 2>/dev/null || true
 }
@@ -103,13 +135,37 @@ clear_pending_instance() {
   rm -f "$(pending_instance_file)"
 }
 
+rollback_meta_dir() { printf '%s' "${INSTALL_DIR}/state/rollback"; }
+
+# Host-level rollback metadata. Never write into an immutable release tree.
 snapshot_confirmed_metadata() {
-  local dest="$1"
+  local dest="${1:-$(rollback_meta_dir)}"
+  local releases abs
+  releases="$(readlink -f "${INSTALL_DIR}/releases" 2>/dev/null || echo "${INSTALL_DIR}/releases")"
+  abs="$(readlink -f "$dest" 2>/dev/null || echo "$dest")"
+  case "$abs" in
+    "$releases"|"$releases"/*)
+      dest="$(rollback_meta_dir)"
+      ;;
+  esac
   mkdir -p "$dest"
+  chmod 700 "$(dirname "$dest")" 2>/dev/null || true
+  chmod 700 "$dest" 2>/dev/null || true
   if [ -f "$(instance_file)" ]; then
     cp -a "$(instance_file)" "$dest/instance.json"
   fi
-  if [ -f "$INSTALL_DIR/.env" ]; then
+  local src_env=""
+  if [ -L "${INSTALL_DIR}/current" ] || [ -d "${INSTALL_DIR}/current" ]; then
+    src_env="$(readlink -f "${INSTALL_DIR}/current" 2>/dev/null || true)"
+    if [ -n "$src_env" ] && [ -f "$src_env/.env" ]; then
+      src_env="$src_env/.env"
+    else
+      src_env=""
+    fi
+  fi
+  if [ -n "$src_env" ]; then
+    cp -a "$src_env" "$dest/root.env"
+  elif [ -f "$INSTALL_DIR/.env" ]; then
     cp -a "$INSTALL_DIR/.env" "$dest/root.env"
   fi
   if [ -f "$INSTALL_DIR/DEPLOY_VERSION" ]; then
@@ -123,6 +179,19 @@ new_instance_id() {
   else
     python3 -c 'import secrets; print(secrets.token_hex(8))'
   fi
+}
+
+# Rollback/uninstall can run without do_install having set identity.
+load_required_instance_identity() {
+  if [ -n "${INSTANCE_ID:-}" ] && [ -n "${COMPOSE_PROJECT:-}" ]; then
+    [ -n "${ARDTT_CONTAINER_NAME:-}" ] || ARDTT_CONTAINER_NAME=ardtt
+    return 0
+  fi
+  if load_instance || load_pending_instance || load_instance_from_env; then
+    [ -n "${ARDTT_CONTAINER_NAME:-}" ] || ARDTT_CONTAINER_NAME=ardtt
+    return 0
+  fi
+  return 1
 }
 
 ensure_instance() {
@@ -188,10 +257,12 @@ container_looks_like_legacy_ardtt() {
 
 list_owned_containers() {
   command -v docker >/dev/null 2>&1 || return 0
+  [ -n "${INSTANCE_ID:-}" ] || return 0
   docker ps -a --filter "label=${OWNER_LABEL}=ardtt" --filter "label=${INSTANCE_LABEL}=${INSTANCE_ID}" --format '{{.ID}}' 2>/dev/null || true
 }
 
 list_owned_networks() {
+  [ -n "${INSTANCE_ID:-}" ] || return 0
   docker network ls --filter "label=${OWNER_LABEL}=ardtt" --filter "label=${INSTANCE_LABEL}=${INSTANCE_ID}" --format '{{.ID}}' 2>/dev/null || true
 }
 

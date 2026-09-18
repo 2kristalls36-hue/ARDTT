@@ -1,12 +1,26 @@
 # ARDTT v0.5.265
 
-Клиент **0.5.265** (`versionCode` 285, затем 286 на том же теге). Серверный стек **1.0.53** (`DEPLOY_VERSION`).
+Клиент **0.5.265** (`versionCode` 285, затем 286 на том же теге). Серверный стек **1.0.54** (`DEPLOY_VERSION`).
 
-GitHub Release `v0.5.265`: APK (`versionCode` 286), `ardtt-update.json`, стек **1.0.53** `linux-{amd64,arm64}` (архив, индекс, слои), Docker Engine, Compose CLI — тот же стек, что на `v0.5.264`.
+GitHub Release `v0.5.265`: APK (`versionCode` 286), `ardtt-update.json`, стек **1.0.53** `linux-{amd64,arm64}` на теге; стек **1.0.54** — этот git (auth/TLS + транзакционный install + UI), пакет публикуется с тега после сборки.
+
+## стек 1.0.54 — provision auth / TLS / транзакционный install
+
+- **Bearer на provision.** `/v1/users*`, `/v1/cascade/peer`, `/v1/hide-ip-prefixes` требуют admin-токен (`data/admin.token`, 0600). Клиентские `/v1/profile`, `/v1/presence`, `/v1/hide-ip`, `/v1/egress-ip`, `/v1/netcheck` — `deviceToken` из профиля (или admin). Без токена — 401. `/health` и `/ready` открыты. Сравнение токенов — `ConstantTimeCompare`. Список пользователей без приватных ключей.
+- **Каскад.** `POST /v1/cascade/peer` и опрос hide-ip с выхода: `ARDTT_CASCADE_SECRET` (Bearer или HMAC тела). Loopback `GET /v1/hide-ip-prefixes` без токена; `X-Forwarded-For` не считается loopback.
+- **Публикация.** Host bind `127.0.0.1:9100` / `:9200` по умолчанию. Наружу — `ARDTT_PROVISION_PUBLIC=1`. Внутри контейнера listen по-прежнему `0.0.0.0:9100`.
+- **TLS.** Self-signed в `data/tls/`, SHA-256 в `/health.provisionCertFp` и `ARDTT_DONE|provision_cert_fp=`. На 9100 HTTP и HTTPS.
+- **Телеметрия.** Upload только с Bearer (`telemetry.token` или device token), лимит 20 МБ, квота на `client_id`. Review не доверяет Docker-NAT «localhost».
+- **Install.** Токены пишутся до compose up. `admin_token` / `cascade_secret` / `telemetry_token` в `ARDTT_DONE` только при первом создании файла. Обновление с 1.0.53 сохраняет `data/`. Если APK пинит `ARDTT_DEPLOY_VERSION=1.0.54`, а в Releases пакета ещё нет — fetch без overlay ставит последний опубликованный стек (сейчас 1.0.53) с `ARDTT_WARN`, а не `PACKAGE_RESOLVE`. С overlay из APK (`ardtt-hostfiles-overlay.tar.gz`, ~80 КБ): слои/Engine/Compose с GitHub 1.0.53, установщик 1.0.54 с телефона, `ARDTT_DONE|deploy_version=1.0.54`. `ardttctl` (~2 МиБ на arch) в overlay нет — durable state как у 1.0.53, unique releases/bind/токены работают. Опубликованные hostfiles по-прежнему сверяются по SHA-256 до overlay; слои — всегда. На чистой ОС нет `/opt/ardtt/current/fetch-and-install.sh`, телефон заливает bootstrap и overlay из APK: нужен APK этой ветки. Fetch держит `install.lock` и запускает `install.sh` пакета: у **1.0.53** нет `ARDTT_MUTATION_LOCK_HELD`, вложенный `flock -n` на том же inode давал «уже выполняется» — bootstrap не берёт второй flock; overlay 1.0.54 этот flock сам пропускает.
+- **Уникальные releases.** Каждый attempt — `releases/<deploymentId>` (`d{unixhex}-{12hex}`). Same-version restage не делает `rm -rf` previous. Snapshot previous пропускается только если `current` уже указывает на `deploymentId` этой попытки, не из‑за совпадения `deployVersion`.
+- **`current` / `previous` — atomic pointers** (`symlink` → `releases/<id>`). Снимок previous **не** копирует дерево. Rollback только переставляет указатель (`rename(2)`). `data/DEPLOY_VERSION` пишется только после readiness. Явный `ARDTT_ACTION=rollback` грузит `instance.json` / `.env` до stop.
+- **Host-контроллер `ardttctl`.** JSONL `protocol=2` рядом с `ARDTT_*`. Повреждённый `state/deploy.json` → `recovery_required`, не idle. Один inode `install.lock` (hardlink `fetch.lock`); uninstall его не unlink.
+- **Диск.** Fail-closed preflight (`INSUFFICIENT_DISK`). `ARDTT_DISK_CLEANUP=1` чистит только incoming/staging ARDTT. GC `releases/` — после health gate.
+- APK **0.5.265** без Bearer на API получит 401 — это цель hotfix. Stdout `ARDTT_*` не менялся. Подробности: [docs/adr/0005-provision-auth-and-tls.md](docs/adr/0005-provision-auth-and-tls.md).
 
 ## 0.5.265
 
-- **versionCode 286.** Тот же `versionName` 0.5.265, чтобы in-app update забрал новый APK, не создавая тег без пакетов стека 1.0.53.
+- **versionCode 286.** Тот же `versionName` 0.5.265, чтобы in-app update забрал новый APK (UI + overlay 1.0.54), не создавая тег без пакетов стека 1.0.53.
 - **Интерфейс.** Карточки сервера, профилей и клиентов в одном плотном chrome (⋮ снаружи, как шеврон). На туннеле «Уровень сигнала» слева. Журнал: время сессии слева в шапке терминала. Запись теста: пульс на «Открыть тестирование», красная рамка поверх окон и строки уведомлений. Диагностика без лишних пробелов у шапки и плашки. Ресурсы VPS в одной карточке с сервером. Дроны улетают ветром в три раза дольше. Плитка QS включает и выключает туннель без сворачивания шторки (холодный старт тоже). VK: одна кнопка «Авторизация» инвертируется в полноширинное «Завершить». В режиме пользователя вкладка «Сеть», а не «Журнал».
 - **Авто на сотовой.** Не уходит в обход по устаревшей оценке БС: нужен score ≥ 80 и свежий Positive. Если Direct «мёртвый» (нет входящего), сначала измеряется интернет под tun; обход — только когда интернет жив, а туннель нет. Смена SIM (DDS) на обходе ждёт VALIDATED, а не рвёт каналы за 400 мс.
 - **Direct, dual-SIM.** Живой туннель не рвётся на VALIDATED-флапе той же сотовой и не делает второй restart после собственного TUN. Сокеты AWG перепривязываются, когда LTE становится VALIDATED. Provision `:9100` не биндится к чужой не-VALIDATED SIM. На экране в режиме БС: «Только N приложений через туннель».

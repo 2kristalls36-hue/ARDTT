@@ -38,6 +38,9 @@ cp -f "$ROOT/scripts/safe-extract-package.py" "$STAGE/scripts/safe-extract-packa
 cp -f "$ROOT/scripts/assemble-docker-save.py" "$STAGE/scripts/assemble-docker-save.py"
 cp -f "$ROOT/scripts/layer-cache.py" "$STAGE/scripts/layer-cache.py"
 chmod 755 "$STAGE/scripts/assemble-docker-save.py" "$STAGE/scripts/layer-cache.py"
+pkg_arch="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("arch","amd64"))' "$STAGE/manifest.json")"
+bash "$ROOT/scripts/build-ardttctl.sh" "$pkg_arch" "$STAGE/ardttctl"
+chmod 755 "$STAGE/ardttctl"
 # DEPLOY_VERSION, third-party.lock.json, images/, bin/ stay with the image.
 
 grep -q 'SETGID' "$STAGE/docker-compose.yml" || {
@@ -64,6 +67,7 @@ files = man.setdefault("files", {})
 files["install.sh"] = sha("install.sh")
 files["fetch-and-install.sh"] = sha("fetch-and-install.sh")
 files["ready.sh"] = sha("ready.sh")
+files["ardttctl"] = sha("ardttctl")
 files["docker-compose.yml"] = sha("docker-compose.yml")
 if (stage / "images/layout.json").is_file():
     files["images/layout.json"] = sha("images/layout.json")
@@ -77,7 +81,7 @@ PY
 
 (
   cd "$STAGE"
-  sums=(install.sh fetch-and-install.sh ready.sh docker-compose.yml docker-compose.exit.yml
+  sums=(install.sh fetch-and-install.sh ready.sh ardttctl docker-compose.yml docker-compose.exit.yml
     bin/docker-compose manifest.json third-party.lock.json)
   [ -f images/layout.json ] && sums+=(images/layout.json)
   [ -f images/ardtt.tar ] && sums+=(images/ardtt.tar)
@@ -91,7 +95,7 @@ extra=()
 [ -d "$STAGE/vendor" ] && extra+=(vendor)
 tar -czf "$tmp" -C "$STAGE" \
   manifest.json SHA256SUMS README.md DEPLOY_VERSION third-party.lock.json \
-  install.sh fetch-and-install.sh ready.sh install-lib scripts \
+  install.sh fetch-and-install.sh ready.sh ardttctl install-lib scripts \
   docker-compose.yml docker-compose.exit.yml .env.example \
   images bin "${extra[@]}"
 mv -f "$tmp" "$PKG"

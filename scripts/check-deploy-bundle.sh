@@ -38,6 +38,7 @@ if [ -f "$INSTALLER" ]; then
     bash -n "$lib" || err "bash -n $(basename "$lib")"
   done
   grep -q 'INSTALL_LIB_DIR/engine.sh' "$INSTALLER" || err "install.sh must source engine.sh"
+  grep -q 'INSTALL_LIB_DIR/secrets.sh' "$INSTALLER" || err "install.sh must source secrets.sh"
   grep -q 'ARDTT_PROGRESS|' "$INSTALLER" || err "installer missing ARDTT_PROGRESS protocol"
   grep -q 'ARDTT_ERROR|' "$INSTALLER" || err "installer missing ARDTT_ERROR protocol"
   grep -q 'ARDTT_DONE|' "$INSTALLER" || err "installer missing ARDTT_DONE protocol"
@@ -313,10 +314,33 @@ grep -q 'git clone' "$ROOT/server/fetch-and-install.sh" && err "fetch-and-instal
 grep -q 'fetch-and-install.sh' "$PACK_SERVER" || err "pack-server-package must include fetch-and-install.sh"
 # The archive must actually carry fetch-and-install.sh (tar list), so the VPS keeps
 # its own copy in /opt/ardtt/current and updates no longer depend on the APK bootstrap.
-grep -q 'install.sh fetch-and-install.sh ready.sh install-lib scripts' "$PACK_SERVER" \
-  || err "pack-server-package tar list must include fetch-and-install.sh"
-grep -q 'install.sh fetch-and-install.sh ready.sh install-lib scripts' "$ROOT/scripts/repack-server-host-files.sh" \
-  || err "repack-server-host-files tar list must include fetch-and-install.sh"
+grep -q 'install.sh fetch-and-install.sh ready.sh ardttctl install-lib scripts' "$PACK_SERVER" \
+  || err "pack-server-package tar list must include fetch-and-install.sh and ardttctl"
+grep -q 'install.sh fetch-and-install.sh ready.sh ardttctl install-lib scripts' "$ROOT/scripts/repack-server-host-files.sh" \
+  || err "repack-server-host-files tar list must include fetch-and-install.sh and ardttctl"
+grep -q 'build-ardttctl.sh' "$PACK_SERVER" || err "pack-server-package must build ardttctl"
+grep -q 'INSTALL_LIB_DIR/protocol.sh' "$INSTALLER" || err "install.sh must source protocol.sh"
+grep -q 'overlay без ardttctl' "$ROOT/server/install-lib/protocol.sh" \
+  || err "overlay without ardttctl must continue (binary is arch-specific, not in APK)"
+grep -q 'INSTALL_LIB_DIR/switch.sh' "$INSTALLER" || err "install.sh must source switch.sh"
+grep -q 'activate_release_tree' "$INSTALLER" || err "install.sh must activate current as a symlink"
+grep -q 'commit-version-after-readiness' "$INSTALLER" || err "data/DEPLOY_VERSION must be committed after readiness"
+if grep -q 'docker volume prune' "$ROOT/server/install-lib/disk-cleanup.sh"; then
+  err "disk-cleanup must not docker volume prune"
+fi
+if grep -q 'docker image prune' "$ROOT/server/install-lib/disk-cleanup.sh"; then
+  err "disk-cleanup must not docker image prune"
+fi
+if grep -q 'ardtt_truncate_docker_json_logs' "$ROOT/server/install-lib/disk-cleanup.sh"; then
+  err "disk-cleanup must not truncate all Docker json logs"
+fi
+grep -q 'atomic-pointer.py' "$ROOT/server/install-lib/switch.sh" || err "switch.sh must use atomic-pointer.py"
+if grep -E 'cp[[:space:]]+-a[[:space:]]+"\$src"' "$ROOT/server/install-lib/switch.sh"; then
+  err "switch.sh must not cp -a the live release tree"
+fi
+python3 -m py_compile "$ROOT/server/install-lib/atomic-pointer.py" || err "atomic-pointer.py"
+python3 -m py_compile "$ROOT/server/install-lib/disk-budget.py" || err "disk-budget.py"
+python3 -m py_compile "$ROOT/server/install-lib/safe-rm.py" || err "safe-rm.py"
 [ -f "$ROOT/android/app/src/main/assets/deploy/fetch-and-install.sh" ] \
   || err "assets must ship fetch-and-install.sh bootstrap"
 cmp -s "$ROOT/server/fetch-and-install.sh" "$ROOT/android/app/src/main/assets/deploy/fetch-and-install.sh" \
@@ -329,7 +353,41 @@ grep -q 'layer-cache.py' "$PACK_SERVER" || err "pack-server-package must ship la
 grep -q 'verify_index_staging' "$INSTALLER" || err "install.sh must verify partial staging against the index"
 grep -q 'adopt_layers_into_cache' "$INSTALLER" || err "install.sh must keep loaded layers in the cache"
 grep -q 'releases/latest/download' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must fall back to SHA256SUMS-server.txt when the API is down"
+grep -q 'PINNED_MISSING' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must fall back when ARDTT_DEPLOY_VERSION is not on Releases"
+grep -q 'export -f flock' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must no-op nested flock for published 1.0.53 install.sh"
+grep -q 'ARDTT_HOSTFILES_OVERLAY' "$ROOT/server/fetch-and-install.sh" \
+  || err "fetch-and-install must apply APK hostfiles overlay"
+grep -q 'apply_hostfiles_overlay' "$ROOT/server/fetch-and-install.sh" \
+  || err "fetch-and-install must call apply_hostfiles_overlay"
+grep -q 'ARDTT_HOSTFILES_OVERLAY_APPLIED' "$ROOT/server/install-lib/package.sh" \
+  || err "verify_index_staging must skip hostfiles SHA when overlay was applied"
+grep -q 'HOSTFILES_OVERLAY_ASSET' "$ROOT/android/app/src/main/java/com/ardtt/app/deploy/DeployEngine.kt" \
+  || err "DeployEngine must SFTP overlay hostfiles from APK assets"
+grep -q 'hostfilesOverlay' "$ROOT/android/app/src/main/java/com/ardtt/app/deploy/DeployInstallEnv.kt" \
+  || err "DeployInstallEnv must pass ARDTT_HOSTFILES_OVERLAY"
+grep -q 'pack-hostfiles-overlay.sh' "$ROOT/scripts/pack-stack.sh" \
+  || err "pack-stack must pack APK overlay hostfiles"
+bash -n "$ROOT/scripts/pack-hostfiles-overlay.sh" || err "bash -n pack-hostfiles-overlay"
+bash "$ROOT/scripts/pack-hostfiles-overlay.sh" || err "pack-hostfiles-overlay"
+OVERLAY_ASSET="$ROOT/android/app/src/main/assets/deploy/ardtt-hostfiles-overlay.tar.gz"
+[ -f "$OVERLAY_ASSET" ] || err "missing $OVERLAY_ASSET"
+python3 - "$OVERLAY_ASSET" <<'PY' || err "overlay tarball contract"
+import tarfile, sys
+path = sys.argv[1]
+with tarfile.open(path, "r:gz") as tar:
+    names = [n.replace("\\", "/").lstrip("./") for n in tar.getnames() if n and not str(n).endswith("/")]
+for n in names:
+    if n == "ardttctl" or n.startswith(("images/", "vendor/", "bin/")) or n == "manifest.json":
+        raise SystemExit("forbidden " + n)
+for required in ("install.sh", "fetch-and-install.sh", "DEPLOY_VERSION", "install-lib/package.sh"):
+    if required not in names:
+        raise SystemExit("missing " + required)
+PY
+OVERLAY_SIZE="$(stat -c %s "$OVERLAY_ASSET" 2>/dev/null || stat -f %z "$OVERLAY_ASSET")"
+[ "$OVERLAY_SIZE" -lt 524288 ] || err "overlay tarball too large ($OVERLAY_SIZE)"
+
 grep -q 'flock' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must lock against concurrent runs"
+grep -q 'fetch_disk_preflight' "$ROOT/server/fetch-and-install.sh" || err "fetch-and-install must preflight disk before large downloads"
 python3 -m py_compile "$ROOT/scripts/layer-cache.py" || err "layer-cache.py"
 python3 -m py_compile "$ROOT/scripts/build-server-index.py" || err "build-server-index.py"
 bash -n "$ROOT/scripts/verify-server-index.sh" || err "bash -n verify-server-index"
@@ -340,7 +398,7 @@ grep -q 'DeployVersionCatalog' "$ROOT/android/app/src/main/java/com/ardtt/app/Ar
 grep -q 'latestServerVersion' "$STACK_SOURCE_KT" || err "DeployStackSource must parse latest server version"
 
 if [ -f "$ROOT/android/app/src/main/assets/deploy/install.sh" ]; then
-  err "assets/deploy/install.sh must not be bundled"
+  err "assets/deploy/install.sh must not be bundled (use ardtt-hostfiles-overlay.tar.gz)"
 fi
 if ls "$ROOT"/android/app/src/main/assets/deploy/stack.tar.gz* >/dev/null 2>&1; then
   err "assets/deploy must not contain stack.tar.gz"
@@ -405,21 +463,46 @@ fi
 if [ -f "$ROOT/scripts/test-install-unpack.sh" ]; then
   bash "$ROOT/scripts/test-install-unpack.sh" || err "install unpack"
 fi
+if [ -f "$ROOT/scripts/test-install-provision-secrets.sh" ]; then
+  bash "$ROOT/scripts/test-install-provision-secrets.sh" || err "provision secrets / localhost bind"
+fi
 if [ -f "$ROOT/scripts/test-install-rollback.sh" ]; then
   bash "$ROOT/scripts/test-install-rollback.sh" || err "install rollback restore"
+fi
+if [ -f "$ROOT/scripts/test-install-switch.sh" ]; then
+  bash "$ROOT/scripts/test-install-switch.sh" || err "install current symlink switch"
+fi
+if [ -f "$ROOT/scripts/test-install-unique-releases.sh" ]; then
+  bash "$ROOT/scripts/test-install-unique-releases.sh" || err "unique immutable releases"
+fi
+if [ -f "$ROOT/scripts/test-install-pointers.sh" ]; then
+  bash "$ROOT/scripts/test-install-pointers.sh" || err "install pointer atomicity"
+fi
+if [ -f "$ROOT/scripts/test-install-gc.sh" ]; then
+  bash "$ROOT/scripts/test-install-gc.sh" || err "install GC/cleanup"
+fi
+if [ -f "$ROOT/scripts/test-disk-budget.sh" ]; then
+  bash "$ROOT/scripts/test-disk-budget.sh" || err "disk budget"
+fi
+if [ -f "$ROOT/scripts/test-install-state-write.sh" ]; then
+  bash "$ROOT/scripts/test-install-state-write.sh" || err "state write required"
+fi
+if [ -f "$ROOT/scripts/test-install-lock.sh" ]; then
+  bash "$ROOT/scripts/test-install-lock.sh" || err "mutation lock"
+fi
+if [ -f "$ROOT/scripts/test-ardttctl.sh" ]; then
+  command -v go >/dev/null 2>&1 || err "go is required for ardttctl tests"
+  bash "$ROOT/scripts/test-ardttctl.sh" || err "ardttctl protocol/state"
 fi
 if [ -f "$ROOT/scripts/test-package-extract.sh" ]; then
   bash "$ROOT/scripts/test-package-extract.sh" || err "package extract safety"
 fi
 
 if [ -f "$ROOT/scripts/test-install-disk-guard.sh" ]; then
-if [ -f "$ROOT/scripts/test-compose-cpu-clamp.sh" ]; then
-  bash "$ROOT/scripts/test-compose-cpu-clamp.sh" || err "compose cpu clamp"
-fi
   bash "$ROOT/scripts/test-install-disk-guard.sh" || err "disk guard"
+fi
 if [ -f "$ROOT/scripts/test-compose-cpu-clamp.sh" ]; then
   bash "$ROOT/scripts/test-compose-cpu-clamp.sh" || err "compose cpu clamp"
-fi
 fi
 if [ -f "$ROOT/scripts/test-install-buildkit-wipe.sh" ]; then
   bash "$ROOT/scripts/test-install-buildkit-wipe.sh" || err "buildkit wipe contract"
@@ -454,6 +537,9 @@ if [ -f "$ROOT/scripts/test-compose-env-isolation.sh" ]; then
 fi
 if [ -f "$ROOT/scripts/test-fetch-partial.sh" ]; then
   bash "$ROOT/scripts/test-fetch-partial.sh" || err "partial fetch end-to-end"
+fi
+if [ -f "$ROOT/scripts/test-hostfiles-overlay.sh" ]; then
+  bash "$ROOT/scripts/test-hostfiles-overlay.sh" || err "hostfiles overlay"
 fi
 if [ -f "$ROOT/scripts/test-overlay-dir-modes.sh" ]; then
   bash -n "$ROOT/scripts/test-overlay-dir-modes.sh" || err "bash -n test-overlay-dir-modes"

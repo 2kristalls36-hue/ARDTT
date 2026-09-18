@@ -101,6 +101,8 @@ client_a1b2c3d4e5f6_1.0.0_4_192.168.1.100_1712345678_1712345987.json
 | `file` | JSONL-файл лога |
 | `client_id` | идентификатор устройства |
 
+Стек **1.0.54**: обязателен `Authorization: Bearer` — `data/telemetry.token` (первый install, `ARDTT_DONE|telemetry_token=`) или `deviceToken` пользователя. Без заголовка — 401. Максимум **20 МБ** (`TELEMETRY_MAX_UPLOAD_MB`), квота на `client_id` (`TELEMETRY_QUOTA_MB`, по умолчанию 50). Review (`GET /api/logs`, mark-read) требует `TELEMETRY_REVIEW_TOKEN` (= admin.token); доверие к `remote_addr` 127.0.0.1 снято (Docker-NAT).
+
 Ответ `200`: `ticket` (уникальный порядковый номер), `filename`, `read: false`.
 Комментарий не является отдельным полем multipart: он уже находится внутри
 `file`, поэтому не потеряется при скачивании или переносе лога.

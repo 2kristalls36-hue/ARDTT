@@ -12,6 +12,7 @@ cp -f "$VERSION_FILE" "$ASSET_DIR/DEPLOY_VERSION"
 # The APK bootstrap must be the same script the package ships (cold install
 # uploads it; every later update runs the VPS copy from /opt/ardtt/current).
 cp -f "$ROOT/server/fetch-and-install.sh" "$ASSET_DIR/fetch-and-install.sh"
+bash "$ROOT/scripts/pack-hostfiles-overlay.sh"
 
 FALLBACK="$(
   sed -n 's/.*FALLBACK_VERSION = "\(.*\)".*/\1/p' \

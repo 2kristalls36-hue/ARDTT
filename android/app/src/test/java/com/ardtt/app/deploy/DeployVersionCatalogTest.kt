@@ -14,4 +14,14 @@ class DeployVersionCatalogTest {
         assertEquals("1.0.53", DeployVersionCatalog.resolvedExpected("  ", "1.0.53"))
         assertEquals("1.0.53", DeployVersionCatalog.resolvedExpected("1.0.53", ""))
     }
+
+    @Test
+    fun installTargetPinsMaxOfPublishedAndBundledOverlay() {
+        // Overlay APK pins the git stack; fetch applies hostfiles onto published layers.
+        assertEquals("1.0.54", DeployVersionCatalog.installTarget("1.0.53", "1.0.54"))
+        assertEquals("1.0.53", DeployVersionCatalog.installTarget("1.0.53", "1.0.52"))
+        assertEquals("1.0.54", DeployVersionCatalog.installTarget("1.0.54", "1.0.53"))
+        assertEquals("1.0.54", DeployVersionCatalog.installTarget(null, "1.0.54"))
+        assertEquals("1.0.54", DeployVersionCatalog.installTarget("  ", "1.0.54"))
+    }
 }

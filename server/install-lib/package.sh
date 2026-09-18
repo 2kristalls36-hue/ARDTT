@@ -70,12 +70,18 @@ def sha_of(path, decompress=False):
     return h.hexdigest()
 
 bad = []
-for rel, want in (d["hostfiles"].get("files") or {}).items():
-    p = os.path.join(stage, rel)
-    if not os.path.isfile(p):
-        bad.append(rel + " (missing)")
-    elif sha_of(p) != str(want).lower():
-        bad.append(rel)
+skip_host = os.environ.get("ARDTT_HOSTFILES_OVERLAY_APPLIED", "") == "1"
+if skip_host:
+    layout = os.path.join(stage, "images", "layout.json")
+    if not os.path.isfile(layout):
+        bad.append("images/layout.json (missing)")
+else:
+    for rel, want in (d["hostfiles"].get("files") or {}).items():
+        p = os.path.join(stage, rel)
+        if not os.path.isfile(p):
+            bad.append(rel + " (missing)")
+        elif sha_of(p) != str(want).lower():
+            bad.append(rel)
 for layer in (d.get("image") or {}).get("layers") or []:
     p = os.path.join(stage, "images", layer["file"])
     if not os.path.isfile(p):
@@ -98,8 +104,12 @@ for key in ("engine", "compose"):
         bad.append(comp["path"])
 if bad:
     raise SystemExit("index mismatch: " + ", ".join(bad[:8]))
-print("ARDTT_INFO|индекс %s: %d файлов установщика и %d слоёв сверены" % (
-    d.get("deployVersion"), len(d["hostfiles"].get("files") or {}), len((d.get("image") or {}).get("layers") or [])))
+if skip_host:
+    print("ARDTT_INFO|индекс %s: overlay hostfiles, %d слоёв сверены" % (
+        d.get("deployVersion"), len((d.get("image") or {}).get("layers") or [])))
+else:
+    print("ARDTT_INFO|индекс %s: %d файлов установщика и %d слоёв сверены" % (
+        d.get("deployVersion"), len(d["hostfiles"].get("files") or {}), len((d.get("image") or {}).get("layers") or [])))
 PY
 }
 
