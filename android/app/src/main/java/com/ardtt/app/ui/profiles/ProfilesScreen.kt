@@ -552,52 +552,6 @@ private fun ProfileCard(
                         text = formatClientExpires(facts.expiresAt),
                         contentColor = expiresColor,
                     )
-                    Box {
-                        ArdttButton(
-                            onClick = { menu = true },
-                            variant = ArdttButtonVariant.Icon,
-                            icon = Icons.Filled.MoreVert,
-                            contentDescription = "Действия",
-                            contentColor = if (selectionLocked) {
-                                colors.onSurface.copy(alpha = ArdttAlpha.Disabled)
-                            } else {
-                                colors.primary
-                            },
-                        )
-                        ArdttOverflowMenu(
-                            expanded = menu,
-                            onDismissRequest = { menu = false },
-                        ) {
-                            ArdttOverflowMenuItem(
-                                text = "Подключить",
-                                enabled = connectEnabled,
-                                leadingIcon = Icons.Filled.VpnKey,
-                                onClick = { menu = false; onOpen() },
-                            )
-                            ArdttOverflowMenuItem(
-                                text = "Копировать JSON",
-                                leadingIcon = Icons.Filled.ContentCopy,
-                                onClick = { menu = false; onCopy() },
-                            )
-                            ArdttOverflowMenuItem(
-                                text = "Ссылка / QR",
-                                leadingIcon = Icons.Filled.QrCode,
-                                onClick = { menu = false; onShare() },
-                            )
-                            ArdttOverflowMenuItem(
-                                text = "Переименовать",
-                                leadingIcon = Icons.Filled.Edit,
-                                onClick = { menu = false; onRename() },
-                            )
-                            ArdttOverflowMenuItem(
-                                text = "Удалить",
-                                enabled = deleteEnabled,
-                                destructive = true,
-                                leadingIcon = Icons.Filled.Delete,
-                                onClick = { menu = false; onDelete() },
-                            )
-                        }
-                    }
                 }
                 val presence = profileCardPresenceLabel(active)
                 if (addressHosts.isNotEmpty() || presence != null) {
@@ -643,6 +597,57 @@ private fun ProfileCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+            Box {
+                ArdttButton(
+                    onClick = { menu = true },
+                    variant = ArdttButtonVariant.Icon,
+                    size = if (profileCardOverflowUsesCompactIcon()) {
+                        ArdttButtonSize.Compact
+                    } else {
+                        ArdttButtonSize.Regular
+                    },
+                    icon = Icons.Filled.MoreVert,
+                    contentDescription = "Действия",
+                    contentColor = if (selectionLocked) {
+                        colors.onSurface.copy(alpha = ArdttAlpha.Disabled)
+                    } else {
+                        colors.primary
+                    },
+                )
+                ArdttOverflowMenu(
+                    expanded = menu,
+                    onDismissRequest = { menu = false },
+                ) {
+                    ArdttOverflowMenuItem(
+                        text = "Подключить",
+                        enabled = connectEnabled,
+                        leadingIcon = Icons.Filled.VpnKey,
+                        onClick = { menu = false; onOpen() },
+                    )
+                    ArdttOverflowMenuItem(
+                        text = "Копировать JSON",
+                        leadingIcon = Icons.Filled.ContentCopy,
+                        onClick = { menu = false; onCopy() },
+                    )
+                    ArdttOverflowMenuItem(
+                        text = "Ссылка / QR",
+                        leadingIcon = Icons.Filled.QrCode,
+                        onClick = { menu = false; onShare() },
+                    )
+                    ArdttOverflowMenuItem(
+                        text = "Переименовать",
+                        leadingIcon = Icons.Filled.Edit,
+                        onClick = { menu = false; onRename() },
+                    )
+                    ArdttOverflowMenuItem(
+                        text = "Удалить",
+                        enabled = deleteEnabled,
+                        destructive = true,
+                        leadingIcon = Icons.Filled.Delete,
+                        onClick = { menu = false; onDelete() },
                     )
                 }
             }
