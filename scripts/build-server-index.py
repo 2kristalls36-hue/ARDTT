@@ -113,7 +113,7 @@ def main() -> int:
     for required in ("manifest.json", "install.sh", "fetch-and-install.sh", "docker-compose.yml",
                      "images/layout.json", "images/config.json", "install-lib/common.sh",
                      "scripts/assemble-docker-save.py", "scripts/layer-cache.py",
-                     "scripts/safe-extract-package.py"):
+                     "scripts/safe-extract-package.py", "ardttctl"):
         if Path(required) not in members:
             raise SystemExit(f"stage is missing {required}")
     hostfiles_name = f"{base}-hostfiles.tar.gz"

@@ -3,6 +3,13 @@
 # outside /opt/ardtt), foreign containers, bridges, and firewall policy stay.
 # Default keeps data/; ARDTT_PURGE_DATA=1 deletes it.
 
+# shellcheck disable=SC1091
+_switch_lib="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/switch.sh"
+if [ -f "$_switch_lib" ]; then
+  # shellcheck disable=SC1090
+  . "$_switch_lib"
+fi
+
 uninstall_this_instance() {
   local purge="${ARDTT_PURGE_DATA:-0}"
   prog 0.10 "Поиск экземпляра ARDTT"
@@ -39,9 +46,11 @@ uninstall_this_instance() {
   prog 0.70 "Каталоги установки"
   rm -f "${INSTALL_DIR}/incoming/"*.partial 2>/dev/null || true
   rm -rf "${INSTALL_DIR}/staging" "${INSTALL_DIR}/releases" "${INSTALL_DIR}/current" \
-    "${INSTALL_DIR}/previous" "${INSTALL_DIR}/stack" "${INSTALL_DIR}/stack.old" \
-    "${INSTALL_DIR}/stack.staging" "${INSTALL_DIR}/bin" "${INSTALL_DIR}/cache" 2>/dev/null || true
-  rm -f "${INSTALL_DIR}/install.lock" "${INSTALL_DIR}/fetch.lock" "${INSTALL_DIR}/DEPLOY_VERSION" 2>/dev/null || true
+    "${INSTALL_DIR}/current-release" "${INSTALL_DIR}/previous" "${INSTALL_DIR}/stack" \
+    "${INSTALL_DIR}/stack.old" "${INSTALL_DIR}/stack.staging" "${INSTALL_DIR}/bin" \
+    "${INSTALL_DIR}/cache" "${INSTALL_DIR}/state" 2>/dev/null || true
+  # Never unlink flock inodes (install.lock / fetch.lock): a new inode would race.
+  rm -f "${INSTALL_DIR}/DEPLOY_VERSION" 2>/dev/null || true
   if [ "$purge" = "1" ]; then
     prog 0.85 "Удаление данных (ARDTT_PURGE_DATA=1)"
     rm -rf "${INSTALL_DIR}/data" "${INSTALL_DIR}/logs" "${INSTALL_DIR}/backups" \
@@ -55,22 +64,31 @@ uninstall_this_instance() {
   echo "ARDTT_UNINSTALLED"
 }
 
-# Copy previous/ onto current/ and start it. Does not emit ARDTT_DONE —
-# a failed update must still return ARDTT_ERROR even after restoring the old stack.
+# Retarget current at the previous release pointer and start it.
+# Does not emit ARDTT_DONE — a failed update must still return ARDTT_ERROR
+# even after restoring the old stack.
+# Returns: 0 restored (and ready if wait_readiness exists), 1 no previous,
+# 2 rollback attempted and failed (compose or readiness).
 # docker-compose.yml is a file: [ -d that-path ] is always false.
 restore_previous_release() {
   local prev="${INSTALL_DIR}/previous"
+  local meta="${INSTALL_DIR}/state/rollback"
   [ -f "$prev/docker-compose.yml" ] || return 1
   echo "ARDTT_WARN|откат на предыдущую версию"
-  if [ -d "${INSTALL_DIR}/current" ]; then
+  if declare -F ardtt_state_set >/dev/null; then
+    ardtt_state_set --phase rollback --previous "$(env_file_val "$prev/.env" ARDTT_DEPLOY_VERSION)"
+  fi
+  if [ -d "${INSTALL_DIR}/current" ] || [ -L "${INSTALL_DIR}/current" ]; then
     (
       cd "${INSTALL_DIR}/current"
       compose_up_cmd down --remove-orphans || true
     ) >/dev/null 2>&1 || true
   fi
-  rm -rf "${INSTALL_DIR}/current"
-  mkdir -p "${INSTALL_DIR}/current"
-  cp -a "$prev"/. "${INSTALL_DIR}/current"/
+  if declare -F restore_current_from_previous_tree >/dev/null; then
+    restore_current_from_previous_tree || return 2
+  else
+    return 2
+  fi
   local prev_ver
   prev_ver="$(env_file_val "$prev/.env" ARDTT_DEPLOY_VERSION)"
   if [ -n "$prev_ver" ]; then
@@ -78,37 +96,67 @@ restore_previous_release() {
     printf '%s\n' "$prev_ver" > "${INSTALL_DIR}/data/DEPLOY_VERSION"
     printf '%s\n' "$prev_ver" > "${INSTALL_DIR}/DEPLOY_VERSION"
   fi
-  if [ -f "$prev/root.env" ]; then
+  if [ -f "$meta/root.env" ]; then
+    cp -a "$meta/root.env" "${INSTALL_DIR}/.env"
+  elif [ -f "$prev/root.env" ]; then
     cp -a "$prev/root.env" "${INSTALL_DIR}/.env"
   elif [ -f "$prev/.env" ]; then
     cp -a "$prev/.env" "${INSTALL_DIR}/.env"
   fi
-  if [ -f "$prev/instance.json" ]; then
+  if [ -f "$meta/instance.json" ]; then
+    cp -a "$meta/instance.json" "${INSTALL_DIR}/instance.json"
+    chmod 600 "${INSTALL_DIR}/instance.json" 2>/dev/null || true
+  elif [ -f "$prev/instance.json" ]; then
     cp -a "$prev/instance.json" "${INSTALL_DIR}/instance.json"
     chmod 600 "${INSTALL_DIR}/instance.json" 2>/dev/null || true
   fi
   rm -f "${INSTALL_DIR}/instance.pending.json"
-  (
+  if ! (
     cd "${INSTALL_DIR}/current"
     compose_up_cmd up -d --no-build --pull never
-  ) || return 1
+  ); then
+    _rollback_failed "compose_up_failed_during_rollback"
+    return 2
+  fi
+  if declare -F wait_readiness >/dev/null; then
+    if ! wait_readiness; then
+      _rollback_failed "readiness_timeout_during_rollback"
+      return 2
+    fi
+  fi
+  if declare -F ardtt_state_set >/dev/null; then
+    ardtt_state_set --phase commit --current "$prev_ver" --desired "$prev_ver"
+  fi
   return 0
+}
+
+_rollback_failed() {
+  local msg="$1"
+  if declare -F ardtt_state_set >/dev/null; then
+    ardtt_state_set --phase rollback_failed --code ROLLBACK_FAILED --error "$msg"
+  fi
+  if declare -F ardtt_emit >/dev/null; then
+    ardtt_emit error --code ROLLBACK_FAILED --message "$msg" || \
+      echo "ARDTT_ERROR|code=ROLLBACK_FAILED|$msg" >&2
+  else
+    echo "ARDTT_ERROR|code=ROLLBACK_FAILED|$msg" >&2
+  fi
 }
 
 rollback_previous() {
   local prev="${INSTALL_DIR}/previous"
   [ -f "$prev/docker-compose.yml" ] || die "Нет предыдущей версии для отката"
+  load_required_instance_identity || die --code STATE "Нет instance.json/.env (INSTANCE_ID/COMPOSE_PROJECT) для отката"
   local img
   img="$(env_file_val "$prev/.env" ARDTT_IMAGE)"
   [ -n "$img" ] || die "В previous/.env нет ARDTT_IMAGE"
   docker image inspect "$img" >/dev/null 2>&1 || die "Предыдущий образ $img отсутствует"
   local live="${INSTALL_DIR}/current"
   stop_owned_stack "$live"
-  if [ -d "$live" ]; then
-    rm -rf "${INSTALL_DIR}/failed"
-    mv "$live" "${INSTALL_DIR}/failed" || true
+  restore_previous_release || die --code ROLLBACK_FAILED "Откат: compose up / readiness не удались"
+  if declare -F emit_done >/dev/null; then
+    emit_done "rollback=1|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$(cat "${INSTALL_DIR}/DEPLOY_VERSION")"
+  else
+    echo "ARDTT_DONE|rollback=1|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$(cat "${INSTALL_DIR}/DEPLOY_VERSION")"
   fi
-  restore_previous_release || die "Откат: compose up не удался"
-  wait_readiness || die "Откат: readiness не прошла"
-  echo "ARDTT_DONE|rollback=1|install_dir=$INSTALL_DIR|public_host=$PUBLIC_HOST|deploy_version=$(cat "${INSTALL_DIR}/DEPLOY_VERSION")"
 }
