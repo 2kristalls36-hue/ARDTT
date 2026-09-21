@@ -14,7 +14,10 @@ class ArdttPullRefreshTest {
 
     @Test
     fun indicatorAndTravelAreFixedAcrossTabs() {
-        assertEquals(52, ArdttPullRefreshDefaults.IndicatorTop.value.toInt())
+        assertEquals(
+            ArdttHeaderDefaults.TitleRowHeight + ArdttHeaderDefaults.TopPaddingAfterStatusBar,
+            ArdttPullRefreshDefaults.IndicatorTop,
+        )
         assertEquals(80, ArdttPullRefreshDefaults.FeedTravel.value.toInt())
     }
 }

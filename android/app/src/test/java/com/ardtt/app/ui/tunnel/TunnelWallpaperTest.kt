@@ -3,12 +3,29 @@ package com.ardtt.app.ui.tunnel
 import com.ardtt.app.core.ConnPathMode
 import com.ardtt.app.core.NetworkClass
 import com.ardtt.app.core.VpnPath
+import com.ardtt.app.ui.theme.ArdttColors
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TunnelWallpaperTest {
+    @Test
+    fun overlayTimesUseTheirSemanticProductTokens() {
+        assertEquals(
+            ArdttColors.WallpaperNightOverlayBase.copy(alpha = 0.20f),
+            tunnelWallpaperOverlayColor(TunnelWallpaperTime.Night),
+        )
+        assertEquals(
+            ArdttColors.WallpaperEveningOverlayBase.copy(alpha = 0.15f),
+            tunnelWallpaperOverlayColor(TunnelWallpaperTime.Evening),
+        )
+        assertEquals(
+            ArdttColors.WallpaperDayOverlayBase.copy(alpha = 0.15f),
+            tunnelWallpaperOverlayColor(TunnelWallpaperTime.Day),
+        )
+    }
+
     @Test
     fun lightThemeUsesDayAndDarkThemeUsesNight() {
         assertEquals(

@@ -19,15 +19,18 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.ardtt.app.ui.theme.ArdttAlpha
+import com.ardtt.app.ui.theme.ArdttLayout
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
 
-/** Vertical padding of a badge; smaller than the spacing scale on purpose. */
-private val BadgeVerticalPadding = 3.dp
+object ArdttStatusChipDefaults {
+    /** Vertical padding of a compact badge. */
+    val BadgeVerticalPadding: Dp = ArdttLayout.BadgeVerticalPadding
 
-/** Vertical padding of a pill: labelLarge line + this = a 34 dp capsule. */
-private val PillVerticalPadding = 7.dp
+    /** Vertical padding of a pill: labelLarge line + this = a 34 dp capsule. */
+    val PillVerticalPadding: Dp = 7.dp
+}
 
 /**
  * Tinted label carrying one piece of status: app version, expiry, OS, deploy
@@ -50,7 +53,7 @@ fun ArdttStatusChip(
             text,
             modifier = Modifier.padding(
                 horizontal = ArdttSpacing.Small,
-                vertical = BadgeVerticalPadding,
+                vertical = ArdttStatusChipDefaults.BadgeVerticalPadding,
             ),
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.SemiBold,
@@ -80,7 +83,7 @@ fun ArdttStatusPill(
             text,
             modifier = Modifier.padding(
                 horizontal = ArdttSpacing.Medium,
-                vertical = PillVerticalPadding,
+                vertical = ArdttStatusChipDefaults.PillVerticalPadding,
             ),
             style = MaterialTheme.typography.labelLarge,
         )
@@ -102,7 +105,7 @@ fun ArdttIpChip(
             ip,
             modifier = Modifier.padding(
                 horizontal = ArdttSpacing.Small,
-                vertical = BadgeVerticalPadding,
+                vertical = ArdttStatusChipDefaults.BadgeVerticalPadding,
             ),
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.SemiBold,

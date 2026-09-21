@@ -27,8 +27,10 @@ import com.ardtt.app.ui.components.surface.ArdttBottomSheet
 import com.ardtt.app.ui.theme.ArdttAlpha
 import com.ardtt.app.ui.theme.ArdttSpacing
 
-/** Leading glyph of an add-profile option; between the icon and icon-large steps. */
-private val OptionIconSize = 26.dp
+private object ProfileAddSheetDefaults {
+    /** Leading glyph size chosen for the roomy add-profile option row. */
+    val OptionIconSize = 26.dp
+}
 
 private data class ProfileAddOption(
     val title: String,
@@ -116,7 +118,7 @@ private fun ProfileAddRow(option: ProfileAddOption) {
         Icon(
             option.icon,
             contentDescription = null,
-            modifier = Modifier.size(OptionIconSize),
+            modifier = Modifier.size(ProfileAddSheetDefaults.OptionIconSize),
             tint = MaterialTheme.colorScheme.onSurface,
         )
         Column(

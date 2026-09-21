@@ -50,6 +50,24 @@ object ArdttColors {
     /** Bypass path accent (RAW Dial via TURN). */
     val PathBypass = Color(0xFF1565C0)
 
+    /** Light illustrated support-card background. */
+    val SupportLightContainer = Color(0xFFFFFBE6)
+
+    /** Light illustrated support-card foreground and action accent. */
+    val SupportLightAccent = Color(0xFFB8860B)
+
+    /** Base tint applied over night tunnel wallpaper artwork. */
+    val WallpaperNightOverlayBase = Color(0xFF0F0E13)
+
+    /** Base tint applied over evening tunnel wallpaper artwork. */
+    val WallpaperEveningOverlayBase = Color(0xFF1A120C)
+
+    /** Base tint applied over day tunnel wallpaper artwork. */
+    val WallpaperDayOverlayBase = Color(0xFFF7F5F0)
+
+    /** Cyan bloom behind animated drones in the illustrated tunnel scene. */
+    val DroneGlow = Color(0xFF66D8FF)
+
     val TerminalBg = Color(0xFF1A1A2E)
     val TerminalBgDark = Color(0xFF0D0D1A)
     val TerminalText = Color(0xFFE0E0E0)

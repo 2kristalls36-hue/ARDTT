@@ -1,5 +1,6 @@
 package com.ardtt.app.ui.tunnel
 
+import com.ardtt.app.ui.theme.ArdttColors
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -66,5 +67,14 @@ class TunnelDroneFlightTest {
         val gone = flightPose(spec, 0.25f, 1000f, 800f, 1f, 1f, 1f, 0f, 0f)
         assertTrue(gone.alpha < 0.05f)
         assertTrue(gone.x < a.x)
+    }
+
+    @Test
+    fun droneGlowUsesProductTokenAndStrengthensOnArrival() {
+        val start = droneGlowColor(flightBlend = 0f)
+        val arrived = droneGlowColor(flightBlend = 1f)
+
+        assertEquals(ArdttColors.DroneGlow.copy(alpha = 0.10f), start)
+        assertEquals(ArdttColors.DroneGlow.copy(alpha = 0.18f), arrived)
     }
 }

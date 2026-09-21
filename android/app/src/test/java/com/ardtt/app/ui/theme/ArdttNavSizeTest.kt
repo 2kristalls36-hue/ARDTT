@@ -3,7 +3,6 @@ package com.ardtt.app.ui.theme
 import com.ardtt.app.ui.components.layout.ArdttHeaderDefaults
 import com.ardtt.app.ui.components.layout.ArdttNavChrome
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ArdttNavSizeTest {
@@ -31,7 +30,8 @@ class ArdttNavSizeTest {
 
     @Test
     fun headerTitleRowMeetsTouchTarget() {
-        assertTrue(ArdttHeaderDefaults.TitleRowHeight >= ArdttSize.TouchTarget)
+        assertEquals(ArdttSize.TouchTarget, ArdttSize.TitleRow)
+        assertEquals(ArdttSize.TitleRow, ArdttHeaderDefaults.TitleRowHeight)
         assertEquals(48, ArdttSize.TouchTarget.value.toInt())
     }
 }

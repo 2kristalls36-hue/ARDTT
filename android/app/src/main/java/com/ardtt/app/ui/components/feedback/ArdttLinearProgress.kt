@@ -4,7 +4,6 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ProgressIndicatorDefaults
 import androidx.compose.runtime.Composable
@@ -15,6 +14,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.unit.dp
 import com.ardtt.app.ui.theme.ArdttMotion
+import com.ardtt.app.ui.theme.ArdttShapes
 
 /**
  * Determinate bar for deploy / upload. Material3's default
@@ -40,7 +40,7 @@ fun ArdttLinearProgress(
         progress = { animated },
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(percent = 50)),
+            .clip(ArdttShapes.Pill),
         color = color,
         trackColor = trackColor,
         strokeCap = StrokeCap.Butt,
