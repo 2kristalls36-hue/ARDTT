@@ -18,15 +18,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
+import com.ardtt.app.ui.theme.ArdttSectionTitleStyle
 
-/** Widest a centered state block gets before its text wraps. */
-private val StateBlockMaxWidth = 360.dp
+object ArdttStateBlockDefaults {
+    /** Widest a centered state block gets before its text wraps. */
+    val MaxWidth: Dp = 360.dp
+}
 
 /**
  * Centered "nothing here / something failed / still loading" block.
@@ -51,7 +53,7 @@ fun ArdttEmptyState(
     ) {
         Column(
             modifier = Modifier
-                .widthIn(max = StateBlockMaxWidth)
+                .widthIn(max = ArdttStateBlockDefaults.MaxWidth)
                 .padding(horizontal = ArdttSpacing.XXLarge),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Medium),
@@ -66,8 +68,7 @@ fun ArdttEmptyState(
             }
             Text(
                 title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
+                style = ArdttSectionTitleStyle,
                 textAlign = TextAlign.Center,
             )
             if (!description.isNullOrBlank()) {

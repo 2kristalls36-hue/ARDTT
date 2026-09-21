@@ -35,8 +35,20 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.ardtt.app.R
+import com.ardtt.app.ui.theme.ArdttColors
 import kotlin.math.roundToInt
 import kotlin.math.sin
+
+private object TunnelDroneGlowDefaults {
+    const val BaseAlpha = 0.10f
+    const val ArrivalAlpha = 0.08f
+}
+
+internal fun droneGlowColor(flightBlend: Float): Color =
+    ArdttColors.DroneGlow.copy(
+        alpha = TunnelDroneGlowDefaults.BaseAlpha +
+            TunnelDroneGlowDefaults.ArrivalAlpha * flightBlend,
+    )
 
 internal data class FlightAssetSpec(
     val resId: Int,
@@ -337,7 +349,7 @@ private fun AnimatedFlightAsset(
                 }
                 .drawBehind {
                     val flightBlend = arrivalProgress.coerceIn(0f, 1f)
-                    val glowColor = Color(0xFF66D8FF).copy(alpha = 0.10f + 0.08f * flightBlend)
+                    val glowColor = droneGlowColor(flightBlend)
                     drawCircle(
                         brush = Brush.radialGradient(
                             colors = listOf(glowColor, Color.Transparent),

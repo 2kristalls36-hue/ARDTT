@@ -24,14 +24,21 @@ import com.ardtt.app.ui.components.control.ArdttButton
 import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.components.surface.ArdttSectionCard
 import com.ardtt.app.ui.components.surface.ArdttSectionCardDefaults
+import com.ardtt.app.ui.theme.ArdttColors
 import com.ardtt.app.ui.theme.ArdttElevation
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
 import com.ardtt.app.ui.theme.isDarkSurface
 
-private val DonateCardLight = Color(0xFFFFFBE6)
-private val DonateAccentLight = Color(0xFFB8860B)
+private object DonateBannerDefaults {
+    const val LightBodyAlpha = 0.80f
+    const val LightBorderAlpha = 0.45f
+    const val LightDismissAlpha = 0.72f
+    const val DarkContainerBlend = 0.40f
+    const val DarkBorderAlpha = 0.28f
+    const val DarkDismissAlpha = 0.80f
+}
 
 internal data class DonateBannerPalette(
     val card: Color,
@@ -52,21 +59,21 @@ internal fun donateBannerPalette(
 ): DonateBannerPalette {
     if (!isDark) {
         return DonateBannerPalette(
-            card = DonateCardLight,
-            accent = DonateAccentLight,
-            body = DonateAccentLight.copy(alpha = 0.80f),
-            border = DonateAccentLight.copy(alpha = 0.45f),
+            card = ArdttColors.SupportLightContainer,
+            accent = ArdttColors.SupportLightAccent,
+            body = ArdttColors.SupportLightAccent.copy(alpha = DonateBannerDefaults.LightBodyAlpha),
+            border = ArdttColors.SupportLightAccent.copy(alpha = DonateBannerDefaults.LightBorderAlpha),
             icon = primary,
-            dismiss = DonateAccentLight.copy(alpha = 0.72f),
+            dismiss = ArdttColors.SupportLightAccent.copy(alpha = DonateBannerDefaults.LightDismissAlpha),
         )
     }
     return DonateBannerPalette(
-        card = lerp(surface, primaryContainer, 0.40f),
+        card = lerp(surface, primaryContainer, DonateBannerDefaults.DarkContainerBlend),
         accent = primary,
         body = onSurfaceVariant,
-        border = primary.copy(alpha = 0.28f),
+        border = primary.copy(alpha = DonateBannerDefaults.DarkBorderAlpha),
         icon = primary,
-        dismiss = onSurfaceVariant.copy(alpha = 0.80f),
+        dismiss = onSurfaceVariant.copy(alpha = DonateBannerDefaults.DarkDismissAlpha),
     )
 }
 

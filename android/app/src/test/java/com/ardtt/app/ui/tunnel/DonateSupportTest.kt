@@ -2,6 +2,7 @@ package com.ardtt.app.ui.tunnel
 
 import androidx.compose.ui.graphics.Color
 import com.ardtt.app.core.ConnState
+import com.ardtt.app.ui.theme.ArdttColors
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -54,8 +55,10 @@ class DonateSupportTest {
             primaryContainer = primaryContainer,
             onSurfaceVariant = onSurfaceVariant,
         )
-        assertEquals(Color(0xFFB8860B), light.accent)
-        assertEquals(Color(0xFFFFFBE6), light.card)
-        assertEquals(Color(0xFFB8860B).copy(alpha = 0.45f).alpha, light.border.alpha, 1e-3f)
+        assertEquals(ArdttColors.SupportLightAccent, light.accent)
+        assertEquals(ArdttColors.SupportLightContainer, light.card)
+        assertEquals(ArdttColors.SupportLightAccent.copy(alpha = 0.80f), light.body)
+        assertEquals(ArdttColors.SupportLightAccent.copy(alpha = 0.45f), light.border)
+        assertEquals(ArdttColors.SupportLightAccent.copy(alpha = 0.72f), light.dismiss)
     }
 }
