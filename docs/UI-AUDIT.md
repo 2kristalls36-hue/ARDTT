@@ -33,6 +33,7 @@ Material вместо `Ardtt*`, по `LaunchedEffect`-опросам и `items()
 | `Icon`-вариант `ArdttButton` игнорировал `contentColor` | ✔ наследует `LocalContentColor`, override применяется |
 | Семь карточек Настроек повторяют `contentPadding = Large` / `spacedBy(SmallPlus)` | ✔ `ArdttSettingsCard` + `ArdttLayout.SettingsCard*` |
 | Литералы: `Color(0xFF35C759)`, `Color.White` ×7, тень 0.45/6f, `198.dp`/`180.dp`/`72.dp` на туннеле; 13/18 sp и 11 sp монотекст в двух файлах; `7.dp`, `0.12f`, `0.14f`, `5.dp`/`3.dp`, `44.dp`/`4.dp`, `0.55f`, `0.65f`, `0.95f`, `0.2.sp`, `6.dp`, `56/48/4.dp` | ✔ `ArdttColors.SessionLit` / `Recording`, `ArdttWallpaperTextShadow`, `ArdttTerminalTextStyle`, `ArdttAlpha.FillSoft`, `ArdttSize.RecordingFrame`, экранные `*Defaults` с именами |
+| Остаточные product colors и технические цвета после PR #235: support/banner, drone glow, wallpaper overlays, QR black/white, scroll alpha-mask; badge inset 3 dp дублировался | ✔ product roles перенесены в `ArdttColors`, технические инварианты — в component-local `Defaults`, общий inset — `ArdttLayout.BadgeVerticalPadding`; контраст текста светлой support-карточки усилен отдельным `SupportForeground` |
 | `DonateSupportBanner` проверял тёмность через `luminance() < 0.22f` мимо `isDarkSurface()` | ✔ |
 | Статические строки разбросаны по экранам вместо `*Copy` | ○ частично: `AdminModeCopy`, `LogsCopy`, `ProfilesCopy`, `ExceptionsCopy`, `UserTunnelCopy`, `AdminUnlockCopy`; полная централизация admin-строк — отдельная задача, не влияющая на UX |
 

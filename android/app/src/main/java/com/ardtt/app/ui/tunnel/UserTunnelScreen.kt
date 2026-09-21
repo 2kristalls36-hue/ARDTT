@@ -239,6 +239,8 @@ internal object UserTunnelDefaults {
 
     fun sideBySide(viewportWidth: Dp, viewportHeight: Dp): Boolean =
         viewportWidth > viewportHeight && viewportHeight < LandscapeMaxHeight
+
+    fun pauseBarShape(scale: Float) = RoundedCornerShape(PauseBarRadius * scale)
 }
 
 @Composable
@@ -633,7 +635,7 @@ private fun TunnelPowerToggle(
         ) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 if (paused) {
-                    val barShape = RoundedCornerShape(UserTunnelDefaults.PauseBarRadius * scale)
+                    val barShape = UserTunnelDefaults.pauseBarShape(scale)
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Medium * scale),
                         verticalAlignment = Alignment.CenterVertically,

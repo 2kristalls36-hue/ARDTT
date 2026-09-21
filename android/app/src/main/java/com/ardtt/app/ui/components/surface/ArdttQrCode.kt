@@ -41,6 +41,17 @@ internal const val QR_MODULE_PX = 12
 /** Target edge length of a rendered QR, in pixels. */
 private const val QR_RENDER_PX = 1024
 
+/**
+ * Technical black-on-white contract for scanner compatibility.
+ *
+ * These colors intentionally do not follow the active theme.
+ */
+internal object ArdttQrCodeDefaults {
+    val SurfaceColor: Color = Color.White
+    val ModuleArgb: Int = AndroidColor.BLACK
+    val BackgroundArgb: Int = AndroidColor.WHITE
+}
+
 data class ArdttQrCodeState(
     val loading: Boolean = false,
     val bitmap: ImageBitmap? = null,
@@ -87,7 +98,7 @@ fun ArdttQrCode(
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = ArdttShapes.Chip,
-        color = Color.White,
+        color = ArdttQrCodeDefaults.SurfaceColor,
         shadowElevation = ArdttElevation.None,
         tonalElevation = ArdttElevation.None,
     ) {
@@ -158,7 +169,11 @@ private fun rasterize(matrix: BitMatrix, scale: Int): IntArray {
     val pixels = IntArray(width * matrix.height * scale)
     for (y in 0 until matrix.height) {
         for (x in 0 until matrix.width) {
-            val color = if (matrix[x, y]) AndroidColor.BLACK else AndroidColor.WHITE
+            val color = if (matrix[x, y]) {
+                ArdttQrCodeDefaults.ModuleArgb
+            } else {
+                ArdttQrCodeDefaults.BackgroundArgb
+            }
             for (dy in 0 until scale) {
                 val row = (y * scale + dy) * width + x * scale
                 for (dx in 0 until scale) {

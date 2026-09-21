@@ -18,6 +18,15 @@ class ArdttContrastTest {
     }
 
     @Test
+    fun supportForegroundStaysReadableOnWarmSurface() {
+        val ratio = ArdttSurface.contrastRatio(
+            ArdttColors.SupportForeground.copy(alpha = ArdttAlpha.Strong),
+            ArdttColors.SupportSurface,
+        )
+        assertTrue("support foreground $ratio", ratio >= 4.5f)
+    }
+
+    @Test
     fun statusForegroundOnLightSurfacesMeetsTextContrast() {
         val fgs = listOf(ArdttColors.ConnectedOnLight, ArdttColors.WarningOnLight)
         val bgs = listOf(
