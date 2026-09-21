@@ -26,8 +26,8 @@ jobs:
         id: version
         shell: bash
         run: |
-          version_name="$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' android/app/build.gradle.kts | head -n 1)"
-          version_code="$(sed -n 's/.*versionCode = \([0-9][0-9]*\).*/\1/p' android/app/build.gradle.kts | head -n 1)"
+          version_name="0.5.267-pr237-preview"
+          version_code="288"
           test -n "$version_name"
           test -n "$version_code"
           echo "version_name=$version_name" >> "$GITHUB_OUTPUT"
@@ -113,7 +113,11 @@ jobs:
           bash scripts/build-bypass-client.sh arm64-v8a
           cd android
           printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > local.properties
-          ./gradlew :app:assembleRelease -PtargetAbis=arm64-v8a --no-daemon
+          ./gradlew :app:assembleRelease \
+            -PtargetAbis=arm64-v8a \
+            -PpreviewVersionCode=288 \
+            -PpreviewVersionName=0.5.267-pr237-preview \
+            --no-daemon
 
       - name: Verify signed APK
         shell: bash
@@ -124,12 +128,18 @@ jobs:
           test -f "$apk"
           "$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner" verify --verbose "$apk"
           tmp="$(mktemp -d)"
-          unzip -qo "$apk" "lib/arm64-v8a/libclient.so" -d "$tmp"
-          python3 scripts/check-elf-16k.py "$tmp/lib/arm64-v8a/libclient.so"
+          unzip -qo "$apk" "lib/arm64-v8a/*.so" -d "$tmp"
+          mapfile -d '' arm64_libs < <(find "$tmp/lib/arm64-v8a" -type f -name '*.so' -print0 | sort -z)
+          if (( ${#arm64_libs[@]} == 0 )); then
+            echo "No arm64-v8a native libraries found in $apk" >&2
+            exit 1
+          fi
+          python3 scripts/check-elf-16k.py "${arm64_libs[@]}"
           mkdir -p dist
           out="dist/ardtt-${{ steps.version.outputs.version_name }}-${{ steps.version.outputs.short_sha }}-arm64-v8a.apk"
           cp "$apk" "$out"
           {
+            echo "Preview version: \`${{ steps.version.outputs.version_name }}\` (versionCode \`${{ steps.version.outputs.version_code }}\`)."
             echo "GitHub wraps this in a ZIP. Unzip it, then install the \`.apk\` (~22 MB)."
             echo "Do not install the \`.zip\` itself — that shows «пакет недействителен»."
           } >> "$GITHUB_STEP_SUMMARY"
