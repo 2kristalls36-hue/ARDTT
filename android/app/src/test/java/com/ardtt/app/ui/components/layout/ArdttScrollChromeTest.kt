@@ -31,7 +31,9 @@ class ArdttScrollChromeTest {
         assertEquals(ArdttScrollChromeFadeMid, stops[1].first)
         assertEquals(0f, stops[1].second.alpha, 0f)
         assertEquals(1f, stops[2].first)
-        assertEquals(Color.Black, stops[2].second)
+        assertEquals(ArdttScrollChromeDefaults.MaskOpaque, stops[2].second)
+        assertEquals(Color.Black, ArdttScrollChromeDefaults.MaskOpaque)
+        assertEquals(Color.Transparent, ArdttScrollChromeDefaults.MaskClear)
     }
 
     @Test

@@ -31,11 +31,29 @@ private data class GlowOrb(
     val outlined: Boolean,
 )
 
-private val GlowOrbs = listOf(
-    GlowOrb(Alignment.TopStart, (-86).dp, (-126).dp, 258.dp, outlined = true),
-    GlowOrb(Alignment.CenterStart, (-44).dp, 28.dp, 146.dp, outlined = true),
-    GlowOrb(Alignment.BottomEnd, 72.dp, 96.dp, 220.dp, outlined = false),
-)
+private object ArdttBackdropDefaults {
+    val GlowOrbs = listOf(
+        GlowOrb(Alignment.TopStart, (-86).dp, (-126).dp, 258.dp, outlined = true),
+        GlowOrb(Alignment.CenterStart, (-44).dp, 28.dp, 146.dp, outlined = true),
+        GlowOrb(Alignment.BottomEnd, 72.dp, 96.dp, 220.dp, outlined = false),
+    )
+
+    const val DarkTopBlend = 0.18f
+    const val DarkBottomBlend = 0.72f
+    const val LightTopBlend = 0.78f
+    const val LightBottomBlend = 0.30f
+
+    const val DarkPrimaryGlowAlpha = 0.04f
+    const val DarkTertiaryGlowAlpha = 0.03f
+    const val DarkBottomGlowAlpha = 0.028f
+
+    const val LightPrimaryBlend = 0.72f
+    const val LightTertiaryBlend = 0.74f
+    const val LightSecondaryBlend = 0.70f
+    const val LightPrimaryGlowAlpha = ArdttAlpha.Outline
+    const val LightTertiaryGlowAlpha = ArdttAlpha.Contour
+    const val LightSecondaryGlowAlpha = 0.14f
+}
 
 /** Soft gradient + glow orbs behind non-tunnel screens. */
 @Composable
@@ -46,15 +64,23 @@ fun ArdttBackdrop(modifier: Modifier = Modifier) {
         Brush.verticalGradient(
             colors = if (dark) {
                 listOf(
-                    lerp(colors.background, colors.surface, 0.18f),
+                    lerp(colors.background, colors.surface, ArdttBackdropDefaults.DarkTopBlend),
                     colors.background,
-                    lerp(colors.surfaceVariant, colors.background, 0.72f),
+                    lerp(
+                        colors.surfaceVariant,
+                        colors.background,
+                        ArdttBackdropDefaults.DarkBottomBlend,
+                    ),
                 )
             } else {
                 listOf(
-                    lerp(colors.background, colors.surface, 0.78f),
+                    lerp(colors.background, colors.surface, ArdttBackdropDefaults.LightTopBlend),
                     colors.background,
-                    lerp(colors.surfaceVariant, colors.background, 0.30f),
+                    lerp(
+                        colors.surfaceVariant,
+                        colors.background,
+                        ArdttBackdropDefaults.LightBottomBlend,
+                    ),
                 )
             },
         )
@@ -62,15 +88,27 @@ fun ArdttBackdrop(modifier: Modifier = Modifier) {
 
     val glowColors = if (dark) {
         listOf(
-            colors.primary.copy(alpha = 0.04f),
-            colors.tertiary.copy(alpha = 0.03f),
-            colors.primary.copy(alpha = 0.028f),
+            colors.primary.copy(alpha = ArdttBackdropDefaults.DarkPrimaryGlowAlpha),
+            colors.tertiary.copy(alpha = ArdttBackdropDefaults.DarkTertiaryGlowAlpha),
+            colors.primary.copy(alpha = ArdttBackdropDefaults.DarkBottomGlowAlpha),
         )
     } else {
         listOf(
-            lerp(colors.primary, colors.primaryContainer, 0.72f).copy(alpha = 0.22f),
-            lerp(colors.tertiary, colors.secondaryContainer, 0.74f).copy(alpha = 0.16f),
-            lerp(colors.secondary, colors.primaryContainer, 0.70f).copy(alpha = 0.14f),
+            lerp(
+                colors.primary,
+                colors.primaryContainer,
+                ArdttBackdropDefaults.LightPrimaryBlend,
+            ).copy(alpha = ArdttBackdropDefaults.LightPrimaryGlowAlpha),
+            lerp(
+                colors.tertiary,
+                colors.secondaryContainer,
+                ArdttBackdropDefaults.LightTertiaryBlend,
+            ).copy(alpha = ArdttBackdropDefaults.LightTertiaryGlowAlpha),
+            lerp(
+                colors.secondary,
+                colors.primaryContainer,
+                ArdttBackdropDefaults.LightSecondaryBlend,
+            ).copy(alpha = ArdttBackdropDefaults.LightSecondaryGlowAlpha),
         )
     }
     val orbOutline = colors.outlineVariant.copy(alpha = ArdttAlpha.Fill)
@@ -80,7 +118,7 @@ fun ArdttBackdrop(modifier: Modifier = Modifier) {
             .fillMaxSize()
             .background(baseBrush),
     ) {
-        GlowOrbs.forEachIndexed { index, orb ->
+        ArdttBackdropDefaults.GlowOrbs.forEachIndexed { index, orb ->
             Box(
                 modifier = Modifier
                     .align(orb.alignment)
