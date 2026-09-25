@@ -18,7 +18,7 @@ val targetAbis = providers.gradleProperty("targetAbis")
     .orElse(listOf("arm64-v8a", "armeabi-v7a", "x86_64"))
 
 val releaseVersionCode = 289
-val releaseVersionName = "0.5.267"
+val releaseVersionName = "0.5.268"
 // CI выводит versionCode из истории git (scripts/compute-version-code.sh),
 // чтобы каждый опубликованный APK ставился поверх предыдущего.
 // releaseVersionCode — нижняя граница локальной сборки, не номер релиза.
