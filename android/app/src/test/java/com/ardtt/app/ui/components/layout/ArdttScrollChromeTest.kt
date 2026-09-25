@@ -3,17 +3,16 @@ package com.ardtt.app.ui.components.layout
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ArdttScrollChromeTest {
     @Test
-    fun gpuBlurStartsAtAndroid12() {
-        assertFalse(ardttScrollChromeUsesGpuBlur(28))
-        assertFalse(ardttScrollChromeUsesGpuBlur(30))
-        assertTrue(ardttScrollChromeUsesGpuBlur(31))
-        assertTrue(ardttScrollChromeUsesGpuBlur(35))
+    fun statusScrimStopsAtTheStatusInset() {
+        assertEquals(0.dp, ardttScrollChromeScrimHeight(0.dp))
+        assertEquals(24.dp, ardttScrollChromeScrimHeight(24.dp))
+        val titleRow = 48.dp
+        assertTrue(ardttScrollChromeScrimHeight(24.dp) < 24.dp + titleRow)
     }
 
     @Test
@@ -34,17 +33,6 @@ class ArdttScrollChromeTest {
         assertEquals(ArdttScrollChromeDefaults.MaskOpaque, stops[2].second)
         assertEquals(Color.Black, ArdttScrollChromeDefaults.MaskOpaque)
         assertEquals(Color.Transparent, ArdttScrollChromeDefaults.MaskClear)
-    }
-
-    @Test
-    fun blurFadeIsInverseOfContentFade() {
-        val content = ardttScrollChromeContentFadeStops()
-        val blur = ardttScrollChromeBlurFadeStops()
-        assertEquals(content.size, blur.size)
-        content.zip(blur).forEach { (c, b) ->
-            assertEquals(c.first, b.first)
-            assertEquals(1f - c.second.alpha, b.second.alpha, 0f)
-        }
     }
 
     @Test

@@ -178,13 +178,11 @@ object ArdttSize {
     val StrokeThick: Dp = 2.5.dp
 }
 
-/** Top chrome: blur strip under the pinned header. */
+/** Top chrome: alpha dissolve under the header, scrim only in the status inset. */
 object ArdttChrome {
-    val BlurRadius: Dp = 18.dp
     val FadeHeight: Dp = 12.dp
     const val ScrimAlphaLight = 0.78f
     const val ScrimAlphaDark = 0.72f
-    const val FadeAlpha = 0.92f
 }
 
 /** Opacity steps. One name per visual role, not per numeric value. */

@@ -1,6 +1,5 @@
 package com.ardtt.app.ui.components.surface
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -9,19 +8,15 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
-import com.ardtt.app.ui.theme.ArdttAlpha
-import com.ardtt.app.ui.theme.ArdttElevation
 import com.ardtt.app.ui.theme.ArdttLayout
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSpacing
-import com.ardtt.app.ui.theme.ArdttSurface
 import com.ardtt.app.ui.theme.sheetContainerColor
 
 /**
@@ -31,9 +26,7 @@ import com.ardtt.app.ui.theme.sheetContainerColor
  *
  * Children get no horizontal padding: rows that must reach the rim (dividers,
  * device lists) opt out, the rest apply [ArdttSheetDefaults.HorizontalPadding].
- *
- * The sheet container is the translucent shell, so the drag handle reads like
- * the tab pill. The content column paints [sheetContainerColor] and stays opaque.
+ * The sheet fill is opaque.
  */
 object ArdttSheetDefaults {
     val HorizontalPadding: Dp = ArdttLayout.SheetPadding
@@ -56,15 +49,11 @@ fun ArdttBottomSheet(
         onDismissRequest = onDismissRequest,
         sheetState = sheetState,
         shape = ArdttShapes.Sheet,
-        containerColor = ArdttFloatingShell.shellColor(),
-        tonalElevation = ArdttElevation.None,
-        dragHandle = { ArdttSheetDragHandle() },
+        containerColor = sheetContainerColor(),
     ) {
         Column(
-            modifier = Modifier
+            modifier = modifier
                 .fillMaxWidth()
-                .background(sheetContainerColor())
-                .then(modifier)
                 .navigationBarsPadding()
                 .then(if (scrollable) Modifier.verticalScroll(rememberScrollState()) else Modifier)
                 .padding(bottom = ArdttSheetDefaults.BottomPadding),
@@ -72,14 +61,4 @@ fun ArdttBottomSheet(
             content = content,
         )
     }
-}
-
-/** Glass cap of a sheet: the handle sits on [ArdttFloatingShell], the body stays opaque. */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-internal fun ArdttSheetDragHandle() {
-    val shell = ArdttFloatingShell.shellColor()
-    BottomSheetDefaults.DragHandle(
-        color = ArdttSurface.mutedContentColorOn(shell).copy(alpha = ArdttAlpha.Subtle),
-    )
 }

@@ -61,9 +61,9 @@ ui/
 | `ArdttSettingsCard` | пресет карточки настроек (Large / SmallPlus) | Настройки |
 | `ArdttCompactCard` | плотная карточка списка | Серверы, Клиенты, Профили |
 | `ArdttSectionTitle`, `ArdttLeadingIcon` | заголовок блока, квадратная иконка | карточки, ряды |
-| `ArdttDialog` | нижний лист с действиями; ручка — стекло, тело непрозрачное | все диалоги |
+| `ArdttDialog` | нижний лист с действиями, заливка непрозрачная | все диалоги |
 | `ArdttConfirmDialog` | подтверждение необратимого / меняющего сессию действия | очистка журнала, удаление профиля/записи/клиента, отвязка устройства, выход из admin, выход из VK |
-| `ArdttBottomSheet` | прокручиваемый лист без кнопок; ручка — стекло, тело непрозрачное | добавление профиля, настройки клиента |
+| `ArdttBottomSheet` | прокручиваемый лист без кнопок, заливка непрозрачная | добавление профиля, настройки клиента |
 | `ArdttLinkShareDialog`, `ArdttQrCode` | ссылка + QR | профиль, сервер |
 | `ArdttTerminalCard` | монотекст лога | прогресс деплоя |
 | `ArdttFeedScaffold` / `ArdttLazyFeedScaffold` / `ArdttScrollChrome` | каркас экрана | все вкладки |
@@ -94,7 +94,7 @@ ui/
 | `ArdttSize` | размеры контролов и глифов: иконки (`IconFeature` — 36 dp), спиннеры как алиасы иконок, `TitleRow` как алиас `TouchTarget`, `Chip`/`ChipCompact`, `Button`/`ButtonCompact`/`ButtonCluster`, `NavTrack`/`NavZone`, `Border`/`Contour`/`Stroke`, `RecordingFrame` |
 | `ArdttAlpha` | роли прозрачности: `Contour`, `Fill`, `FillSoft`, `Outline`, `Divider`, `Shadow`, `Disabled`, `DisabledContainer`, `Muted`, `Subtle`, `Strong` |
 | `ArdttMotion` | длительности `Quick … Pulse` |
-| `ArdttChrome` | blur/fade верхней панели |
+| `ArdttChrome` | растворение ленты под шапкой и подложка статус-бара |
 | `ArdttColors` | семантика вне `ColorScheme`: `Connected`/`Warning` (+ `On*`, `*OnLight`/`*OnDark`), `SessionLit`, `Recording`, `PathDirect`/`PathBypass`, `Support*`, `DroneGlow`, `Wallpaper*Overlay`, `Terminal*` |
 | `ArdttSurface` | `isDark`, `contentColorOn`, `contrastRatio`, заливки карточек и «стекла» |
 | `ArdttWallpaperTextShadow` | единственная тень текста прямо на обоях |
@@ -272,21 +272,19 @@ Deep-link в Настройки (`PendingUiAction.openCallHashSettings` / `openU
 
 ## Верхняя панель (`ArdttScrollChrome`)
 
-Лента рисуется один раз в `GraphicsLayer` и гасится `DstIn`-маской под шапкой
-(текст становится прозрачным, а не «белеет» от цветной подложки). На API 31+
-та же запись повторяется с GPU `BlurEffect`; обратная `DstIn`-маска гасит blur
-к низу полосы, кроссфейд в чёткие пиксели. Заголовок вкладки растворяется при
-прокрутке вниз (alpha + лёгкий подъём на высоту строки) и тем же ходом
-возвращается при прокрутке обратно; status/cutout остаются. Отступ содержимого =
-высота шапки + fade, поэтому первая строка при нулевой прокрутке не лежит под
-переходом. Касания перехватывает только видимая шапка, не полоса fade. На API
-28–30 blur пропускается; контент всё равно уходит в прозрачность. Скрытые под
-панелью строки не кликаются и не дублируются в TalkBack.
+Лента рисуется один раз в `GraphicsLayer` и гасится `DstIn`-маской под шапкой:
+текст и кнопки теряют покрытие и остаются своего цвета, без светлой подложки и
+без blur, который забеливал глифы. Заголовок и кнопки в нём растворяются альфой
+при прокрутке вниз (и лёгкий подъём на высоту строки) и тем же ходом
+возвращаются. Светлая подложка только в полосе статус-бара, не под заголовком.
+Отступ содержимого = высота шапки + fade, поэтому первая строка при нулевой
+прокрутке не лежит под переходом. Касания перехватывает только видимая шапка,
+не полоса fade. Скрытые под панелью строки не кликаются и не дублируются в TalkBack.
 
 Insets: высота статус-бара и выреза — `WindowInsets.statusBars ∪ displayCutout`,
 не фиксированные 24 dp. Слот `header` уже стоит ниже этой полосы; не кладите
-туда второй `ArdttStatusBarInset`. Токены: `ArdttChrome.BlurRadius`,
-`FadeHeight`, `ScrimAlphaLight` / `ScrimAlphaDark`.
+туда второй `ArdttStatusBarInset`. Токены: `ArdttChrome.FadeHeight`,
+`ScrimAlphaLight` / `ScrimAlphaDark` (только статус-бар).
 
 Pull-to-refresh и нижние закреплённые действия (`stickyContent`) сохраняются.
 
