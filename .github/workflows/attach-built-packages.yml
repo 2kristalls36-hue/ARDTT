@@ -54,7 +54,7 @@ jobs:
           INPUT_SERVER: ${{ github.event.inputs.server_run_id || '' }}
         run: |
           set -euo pipefail
-          version_name="$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' android/app/build.gradle.kts | head -n 1)"
+          version_name="$(sed -n 's/.*releaseVersionName = "\([^"]*\)".*/\1/p' android/app/build.gradle.kts | head -n 1)"
           test -n "$version_name"
           if [ -n "$INPUT_TAG" ]; then
             tag="$INPUT_TAG"
