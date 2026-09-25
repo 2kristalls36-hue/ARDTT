@@ -1,11 +1,16 @@
 package com.ardtt.app.ui.components.control
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
@@ -21,6 +26,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -145,40 +151,53 @@ fun ArdttButton(
 
     when (variant) {
         ArdttButtonVariant.Primary, ArdttButtonVariant.Danger -> {
-            val castsShadow = ardttFilledButtonCastsShadow(pair.container.alpha, glassPrimary)
-            // Elevation animates after the first frame. Remounting when the shadow
-            // decision changes starts the layer at the new value, so a translucent
-            // fill (glass, locked profile) never sits on an opaque plate.
-            key(enabled, castsShadow) {
-                Button(
+            if (glassPrimary) {
+                // Material Button draws its fill on a surface layer. On a tab
+                // return that layer shows a solid plate with no label, then the
+                // glass fill and the text. A plain background keeps both together.
+                GlassFillButton(
                     onClick = onClick,
                     enabled = clickable,
                     modifier = sized,
-                    shape = ArdttShapes.Control,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = pair.container,
-                        contentColor = pair.content,
-                        disabledContainerColor = disabledPair.container,
-                        disabledContentColor = disabledPair.content,
-                    ),
-                    border = if (glassPrimary) ArdttFloatingShell.shellBorder() else null,
-                    elevation = if (castsShadow) {
-                        ButtonDefaults.buttonElevation(
-                            defaultElevation = ArdttElevation.Raised,
-                            pressedElevation = ArdttElevation.Low,
-                            disabledElevation = ArdttElevation.None,
-                        )
-                    } else {
-                        ButtonDefaults.buttonElevation(
-                            defaultElevation = ArdttElevation.None,
-                            pressedElevation = ArdttElevation.None,
-                            focusedElevation = ArdttElevation.None,
-                            hoveredElevation = ArdttElevation.None,
-                            disabledElevation = ArdttElevation.None,
-                        )
-                    },
+                    fill = if (clickable) pair.container else disabledPair.container,
+                    label = if (clickable) pair.content else disabledPair.content,
                     contentPadding = ardttButtonContentPadding(variant, showsText),
-                ) { content() }
+                    content = content,
+                )
+            } else {
+                val castsShadow = ardttFilledButtonCastsShadow(pair.container.alpha, glassPrimary)
+                // Elevation animates after the first frame. Remounting when the
+                // shadow decision changes starts the layer at the new value.
+                key(enabled, castsShadow) {
+                    Button(
+                        onClick = onClick,
+                        enabled = clickable,
+                        modifier = sized,
+                        shape = ArdttShapes.Control,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = pair.container,
+                            contentColor = pair.content,
+                            disabledContainerColor = disabledPair.container,
+                            disabledContentColor = disabledPair.content,
+                        ),
+                        elevation = if (castsShadow) {
+                            ButtonDefaults.buttonElevation(
+                                defaultElevation = ArdttElevation.Raised,
+                                pressedElevation = ArdttElevation.Low,
+                                disabledElevation = ArdttElevation.None,
+                            )
+                        } else {
+                            ButtonDefaults.buttonElevation(
+                                defaultElevation = ArdttElevation.None,
+                                pressedElevation = ArdttElevation.None,
+                                focusedElevation = ArdttElevation.None,
+                                hoveredElevation = ArdttElevation.None,
+                                disabledElevation = ArdttElevation.None,
+                            )
+                        },
+                        contentPadding = ardttButtonContentPadding(variant, showsText),
+                    ) { content() }
+                }
             }
         }
         ArdttButtonVariant.Tonal -> {
@@ -272,6 +291,38 @@ internal fun ardttDisabledButtonColors(
     // against that fill, Disabled is for labels over the plain surface.
     val contentAlpha = if (filled) ArdttAlpha.Subtle else ArdttAlpha.Disabled
     return ButtonPair(container, pair.content.copy(alpha = pair.content.alpha * contentAlpha))
+}
+
+/**
+ * Glass sticky fill. Background and label are one layout, so a tab change
+ * cannot paint a solid button before the title.
+ */
+@Composable
+private fun GlassFillButton(
+    onClick: () -> Unit,
+    enabled: Boolean,
+    modifier: Modifier,
+    fill: Color,
+    label: Color,
+    contentPadding: PaddingValues,
+    content: @Composable () -> Unit,
+) {
+    Box(
+        modifier = modifier
+            .clip(ArdttShapes.Control)
+            .background(fill)
+            .border(ArdttFloatingShell.shellBorder(), ArdttShapes.Control)
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        CompositionLocalProvider(LocalContentColor provides label) {
+            Row(
+                modifier = Modifier.padding(contentPadding),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+            ) { content() }
+        }
+    }
 }
 
 /**

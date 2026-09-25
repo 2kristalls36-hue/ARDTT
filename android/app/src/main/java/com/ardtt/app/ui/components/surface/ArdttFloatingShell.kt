@@ -5,7 +5,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.unit.Dp
 import com.ardtt.app.ui.theme.ArdttAlpha
 import com.ardtt.app.ui.theme.ArdttElevation
@@ -45,24 +44,14 @@ object ArdttFloatingShell {
     }
 
     /**
-     * Tinted floating fill for semantic sticky buttons (connect / stop).
-     * Hue moves toward [tint]; alpha stays on the shell so the button does not
-     * start opaque and then fade.
+     * Glass sticky buttons keep the semantic hue (primary, stop, warning).
+     * Mixing that hue into the shell turned red brown. Opacity is the same
+     * in light and dark themes.
      */
-    fun tintedShell(shell: Color, tint: Color, mix: Float = 0.34f): Color {
-        val rgb = lerp(
-            shell.copy(alpha = 1f),
-            tint.copy(alpha = 1f),
-            mix.coerceIn(0f, 1f),
-        )
-        return rgb.copy(alpha = shell.alpha)
-    }
+    const val ButtonAlpha = 0.80f
 
-    /** Tinted floating fill for semantic sticky buttons (connect / stop). */
-    @Composable
-    @ReadOnlyComposable
-    fun tintedShell(tint: Color, mix: Float = 0.34f): Color =
-        tintedShell(shellColor(), tint, mix)
+    /** Semantic fill at [ButtonAlpha]. An incoming alpha is ignored. */
+    fun tintedShell(tint: Color): Color = tint.copy(alpha = ButtonAlpha)
 
     val shadowElevation: Dp
         @Composable @ReadOnlyComposable
