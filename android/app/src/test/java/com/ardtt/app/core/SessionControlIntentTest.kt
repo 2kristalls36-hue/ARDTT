@@ -1,6 +1,7 @@
 package com.ardtt.app.core
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -80,6 +81,50 @@ class SessionControlIntentTest {
                 underlayHandle = 22L,
                 underlayKind = UnderlayKind.Wifi,
                 cellularHandle = null,
+            ),
+        )
+    }
+
+    @Test
+    fun bypassHandlePushFollowsTheLiveNetwork() {
+        assertTrue(
+            shouldPushBypassNetworkHandle(
+                path = VpnPath.Bypass,
+                parkedRawAlive = false,
+                previousHandle = 11L,
+                currentHandle = 22L,
+            ),
+        )
+        assertFalse(
+            shouldPushBypassNetworkHandle(
+                path = VpnPath.Bypass,
+                parkedRawAlive = false,
+                previousHandle = 22L,
+                currentHandle = 22L,
+            ),
+        )
+        assertTrue(
+            shouldPushBypassNetworkHandle(
+                path = VpnPath.Direct,
+                parkedRawAlive = true,
+                previousHandle = null,
+                currentHandle = 22L,
+            ),
+        )
+        assertFalse(
+            shouldPushBypassNetworkHandle(
+                path = VpnPath.Direct,
+                parkedRawAlive = false,
+                previousHandle = 11L,
+                currentHandle = 22L,
+            ),
+        )
+        assertFalse(
+            shouldPushBypassNetworkHandle(
+                path = VpnPath.Bypass,
+                parkedRawAlive = false,
+                previousHandle = 11L,
+                currentHandle = 0L,
             ),
         )
     }

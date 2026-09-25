@@ -1359,7 +1359,7 @@ class ConnectionManager(
                 val liveMode = pathMode
                 val kind = currentAutoUnderlayKind()
                 val bypassAllowed = callHashOrNull() != null
-                val forced = pendingConnectPath
+                val requestedPath = pendingConnectPath
                 pendingConnectPath = null
                 val wifiAutoDirect = autoUsesDirectOnWifi(liveMode, kind)
                 val underlayUsable = readUnderlaySnapshot().availability == UnderlayAvailability.Usable
@@ -1378,6 +1378,11 @@ class ConnectionManager(
                             recoverySnapshot.intent.profileId,
                         ) == true,
                     )
+                // StartDirect from a stale Wi‑Fi score must not override enter+freshStrong.
+                val forced = connectClearsRecoveryDirectForWhitelist(whitelistBypass, requestedPath)
+                if (forced == null && requestedPath == VpnPath.Direct && whitelistBypass) {
+                    AppLog.i(TAG, "Connect: overriding recovery Direct — whitelist enter+freshStrong")
+                }
                 val skipProbe = forced == VpnPath.Bypass ||
                     shouldSkipConnectProbe(liveMode, bypassAllowed, kind) ||
                     (whitelistBypass && forced != VpnPath.Direct)
@@ -3636,8 +3641,18 @@ class ConnectionManager(
         capturedNetworkKey: NetworkKey? = null,
         capturedProfileId: String? = null,
     ) {
-        val shown = displayedAutoProbe(pathMode, currentAutoUnderlayKind(), result)
-        val capturedKey = result.networkKey ?: capturedNetworkKey
+        val autoKind = currentAutoUnderlayKind()
+        val liveUnderlay = readUnderlaySnapshot()
+        // Admit still matches the snapshot key the probe was registered with.
+        // Scoring uses the live radio so a lagged Wi‑Fi snapshot cannot stub БС.
+        val snapshotKeyForAdmit = recoverySnapshot.underlay.key
+        val shown = displayedAutoProbe(pathMode, autoKind, result)
+        val capturedKey = measurementNetworkKeyForWhitelist(
+            capturedKey = result.networkKey ?: capturedNetworkKey,
+            liveKey = liveUnderlay.key,
+            liveKind = liveUnderlay.kind,
+            autoKind = autoKind,
+        )
         val profileId = capturedProfileId ?: recoverySnapshot.intent.profileId
         val now = SystemClock.elapsedRealtime()
         val incoming = ReachabilityEvidence(
@@ -3659,7 +3674,12 @@ class ConnectionManager(
             restrictionReason = shown.restrictionReason,
             seriesId = shown.seriesId,
         )
-        val cellular = recoverySnapshot.underlay.kind == UnderlayKind.Cellular
+        val cellular = measurementIsCellularForWhitelist(
+            measurementKey = capturedKey,
+            liveKind = liveUnderlay.kind,
+            snapshotKind = recoverySnapshot.underlay.kind,
+            autoKind = autoKind,
+        )
         val sample = RestrictionScore.sample(
             cellular,
             incoming.yandex,
@@ -3677,7 +3697,7 @@ class ConnectionManager(
             sample = sample,
             wantsConnected = recoverySnapshot.intent.wantsConnected,
             uiState = _ui.value.state,
-            liveNetworkKey = recoverySnapshot.underlay.key,
+            liveNetworkKey = snapshotKeyForAdmit,
             liveProfileId = recoverySnapshot.intent.profileId,
             userStop = _ui.value.state == ConnState.Disconnecting,
         )
@@ -3722,13 +3742,33 @@ class ConnectionManager(
                     return@admitAndApplyFinal
                 }
                 val folded = foldReachabilityEvidence(
-                    previous = recoverySnapshot.evidence,
+                    previous = if (cellular) {
+                        recoverySnapshot.cellularEvidence
+                            ?: recoverySnapshot.evidence?.takeIf {
+                                WhitelistDetection.appliesTo(it.networkKey)
+                            }
+                    } else {
+                        recoverySnapshot.evidence
+                    },
                     incoming = incoming,
                     cellular = cellular,
                     elapsedMs = now,
                 )
+                val idleUnderlay = if (!recoverySnapshot.intent.wantsConnected) {
+                    liveUnderlay
+                } else {
+                    recoverySnapshot.underlay
+                }
                 recoverySnapshot = recoverySnapshot.copy(
-                    evidence = folded,
+                    underlay = idleUnderlay,
+                    networkEpoch = idleUnderlay.networkEpoch,
+                    evidence = if (cellular && idleUnderlay.kind == UnderlayKind.Cellular) {
+                        folded
+                    } else if (cellular) {
+                        recoverySnapshot.evidence
+                    } else {
+                        folded
+                    },
                     cellularEvidence = if (cellular) folded else recoverySnapshot.cellularEvidence,
                     seenProbeSeriesIds = rememberProbeSeriesId(
                         recoverySnapshot.seenProbeSeriesIds,

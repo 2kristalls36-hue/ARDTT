@@ -104,6 +104,38 @@ class ConnectionReducerTest {
     }
 
     @Test
+    fun cellularStashBeatsStaleWifiScoreOnConnect() {
+        // Ticket 23: idle probe folded while ConnMgr still thought Wi-Fi.
+        val idleStale = idle().copy(
+            underlay = usableCellular(),
+            evidence = ReachabilityEvidence(
+                networkKey = wifiKey,
+                profileId = "p",
+                whitelistScorePercent = 0,
+                restriction = RestrictionHint.None,
+            ),
+            cellularEvidence = ReachabilityEvidence(
+                networkKey = cellKey,
+                profileId = "p",
+                yandex = CheckOutcome.Success,
+                bigtech = CheckOutcome.Timeout,
+                google = CheckOutcome.Timeout,
+                ruService = CheckOutcome.Success,
+                restriction = RestrictionHint.Confirmed,
+                whitelistScorePercent = 80,
+            ).withFreshStrongTtl(atElapsedMs = 1L),
+        )
+        val r = ConnectionReducer.reduce(
+            idleStale,
+            ConnectionEvent.UserConnect(ConnPathMode.Auto, "p", true, false),
+            10L,
+        )
+        assertTrue(r.command is RecoveryCommand.StartBypass)
+        assertEquals(80, r.state.evidence?.whitelistScorePercent)
+        assertEquals(cellKey, r.state.evidence?.networkKey)
+    }
+
+    @Test
     fun probeScoreSurvivesOneOpenSample() {
         val started = ConnectionReducer.reduce(
             idle().copy(underlay = usableCellular()),
