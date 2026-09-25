@@ -87,11 +87,12 @@ fun ArdttButton(
         contentOverride = contentColor,
         floating = glassPrimary,
     )
-    // Sticky containerColor is a tint (stop / warning), not the profile-switcher lock fill.
+    // Glass keeps the shell alpha when disabled. Multiplying it draws a solid
+    // tint first and a see-through fill once the enabled state settles.
     val disabledPair = ardttDisabledButtonColors(
         variant = variant,
         pair = pair,
-        containerOverridden = containerColor != null && !glassPrimary,
+        containerOverridden = glassPrimary || containerColor != null,
     )
     val clickable = enabled && !busy
     val showsText = ardttButtonShowsText(variant, text)
@@ -155,13 +156,14 @@ fun ArdttButton(
                     disabledContentColor = disabledPair.content,
                 ),
                 border = if (glassPrimary) ArdttFloatingShell.shellBorder() else null,
+                // Shadow elevation puts the fill on a graphics layer that paints
+                // opaque for a frame, then shows the shell alpha.
                 elevation = if (glassPrimary) {
-                    val shellShadow = ArdttFloatingShell.shadowElevation
                     ButtonDefaults.buttonElevation(
-                        defaultElevation = shellShadow,
-                        pressedElevation = shellShadow,
-                        focusedElevation = shellShadow,
-                        hoveredElevation = shellShadow,
+                        defaultElevation = ArdttElevation.None,
+                        pressedElevation = ArdttElevation.None,
+                        focusedElevation = ArdttElevation.None,
+                        hoveredElevation = ArdttElevation.None,
                         disabledElevation = ArdttElevation.None,
                     )
                 } else {

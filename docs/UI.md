@@ -49,7 +49,7 @@ ui/
 | Компонент | Роль | Где используется |
 |-----------|------|------------------|
 | `ArdttButton` (`Primary` / `Tonal` / `Outlined` / `Text` / `Danger` / `Icon`) | все кнопки; `busy`, `enabled`, единый disabled | везде |
-| `ArdttPrimaryButton` | полноширинный sticky CTA: заливка `tintedShell`, обводка и тень как у плашки вкладок | Туннель, Профили, Серверы, Клиенты, Тестирование |
+| `ArdttPrimaryButton` | полноширинный sticky CTA: заливка `tintedShell` с альфой плашки вкладок и её обводка, без тени | Туннель, Профили, Серверы, Клиенты, Тестирование |
 | `ArdttChoiceChipRow` / `ArdttChoiceChip` | сегментный выбор одного из N (radio-семантика) | режим/адрес/тема (Настройки, Туннель), панели Тестирование и Обход, ЧС/БС |
 | `PathModeChipRow`, `HideIpChipRow`, `DialPathChipRow`, `ThemeModeChipRow` | готовые ряды чипов над `ArdttChoiceChipRow` | Настройки, Туннель |
 | `ArdttSwitchRow` | заголовок + подзаголовок + Switch, одна toggleable-нода | Настройки, Туннель, Деплой, Обход |

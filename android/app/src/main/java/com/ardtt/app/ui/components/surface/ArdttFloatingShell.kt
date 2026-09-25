@@ -46,10 +46,17 @@ object ArdttFloatingShell {
 
     /**
      * Tinted floating fill for semantic sticky buttons (connect / stop).
-     * [tint] is forced opaque so a caller's alpha cannot punch a hole in the mix.
+     * Hue moves toward [tint]; alpha stays on the shell so the button does not
+     * start opaque and then fade.
      */
-    fun tintedShell(shell: Color, tint: Color, mix: Float = 0.34f): Color =
-        lerp(shell, tint.copy(alpha = 1f), mix.coerceIn(0f, 1f))
+    fun tintedShell(shell: Color, tint: Color, mix: Float = 0.34f): Color {
+        val rgb = lerp(
+            shell.copy(alpha = 1f),
+            tint.copy(alpha = 1f),
+            mix.coerceIn(0f, 1f),
+        )
+        return rgb.copy(alpha = shell.alpha)
+    }
 
     /** Tinted floating fill for semantic sticky buttons (connect / stop). */
     @Composable
