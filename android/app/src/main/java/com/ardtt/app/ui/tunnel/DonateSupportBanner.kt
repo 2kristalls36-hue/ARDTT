@@ -24,14 +24,25 @@ import com.ardtt.app.ui.components.control.ArdttButton
 import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.components.surface.ArdttSectionCard
 import com.ardtt.app.ui.components.surface.ArdttSectionCardDefaults
+import com.ardtt.app.ui.theme.ArdttAlpha
+import com.ardtt.app.ui.theme.ArdttColors
 import com.ardtt.app.ui.theme.ArdttElevation
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
 import com.ardtt.app.ui.theme.isDarkSurface
 
-private val DonateCardLight = Color(0xFFFFFBE6)
-private val DonateAccentLight = Color(0xFFB8860B)
+private object DonateSupportBannerDefaults {
+    val ContentPadding = PaddingValues(
+        horizontal = ArdttSpacing.MediumPlus,
+        vertical = ArdttSpacing.Medium,
+    )
+    const val BodyAlpha = ArdttAlpha.Strong
+    const val DismissAlpha = 0.80f
+    const val LightBorderAlpha = 0.45f
+    const val DarkCardBlend = 0.40f
+    const val DarkBorderAlpha = 0.28f
+}
 
 internal data class DonateBannerPalette(
     val card: Color,
@@ -52,21 +63,27 @@ internal fun donateBannerPalette(
 ): DonateBannerPalette {
     if (!isDark) {
         return DonateBannerPalette(
-            card = DonateCardLight,
-            accent = DonateAccentLight,
-            body = DonateAccentLight.copy(alpha = 0.80f),
-            border = DonateAccentLight.copy(alpha = 0.45f),
+            card = ArdttColors.SupportSurface,
+            accent = ArdttColors.SupportForeground,
+            body = ArdttColors.SupportForeground.copy(
+                alpha = DonateSupportBannerDefaults.BodyAlpha,
+            ),
+            border = ArdttColors.SupportAccent.copy(
+                alpha = DonateSupportBannerDefaults.LightBorderAlpha,
+            ),
             icon = primary,
-            dismiss = DonateAccentLight.copy(alpha = 0.72f),
+            dismiss = ArdttColors.SupportForeground.copy(alpha = ArdttAlpha.Subtle),
         )
     }
     return DonateBannerPalette(
-        card = lerp(surface, primaryContainer, 0.40f),
+        card = lerp(surface, primaryContainer, DonateSupportBannerDefaults.DarkCardBlend),
         accent = primary,
         body = onSurfaceVariant,
-        border = primary.copy(alpha = 0.28f),
+        border = primary.copy(alpha = DonateSupportBannerDefaults.DarkBorderAlpha),
         icon = primary,
-        dismiss = onSurfaceVariant.copy(alpha = 0.80f),
+        dismiss = onSurfaceVariant.copy(
+            alpha = DonateSupportBannerDefaults.DismissAlpha,
+        ),
     )
 }
 
@@ -87,7 +104,7 @@ fun DonateSupportBanner(
     ArdttSectionCard(
         modifier = modifier,
         color = colors.card,
-        contentPadding = PaddingValues(horizontal = ArdttSpacing.MediumPlus, vertical = ArdttSpacing.Medium),
+        contentPadding = DonateSupportBannerDefaults.ContentPadding,
         verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
         shape = ArdttShapes.Control,
         border = BorderStroke(ArdttSectionCardDefaults.ContourWidth, colors.border),

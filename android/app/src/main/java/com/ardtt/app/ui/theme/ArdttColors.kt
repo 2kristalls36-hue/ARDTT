@@ -50,6 +50,23 @@ object ArdttColors {
     /** Bypass path accent (RAW Dial via TURN). */
     val PathBypass = Color(0xFF1565C0)
 
+    /** Warm support-card surface in the light theme. */
+    val SupportSurface = Color(0xFFFFFBE6)
+
+    /** Support-card accent on [SupportSurface]. */
+    val SupportAccent = Color(0xFFB8860B)
+
+    /** Readable support-card foreground on [SupportSurface]. */
+    val SupportForeground = Color(0xFF7A5900)
+
+    /** Cyan atmospheric glow behind illustrated tunnel drones. */
+    val DroneGlow = Color(0xFF66D8FF)
+
+    /** Neutral overlays that keep illustrated wallpaper text readable by time of day. */
+    val WallpaperNightOverlay = Color(0xFF0F0E13)
+    val WallpaperEveningOverlay = Color(0xFF1A120C)
+    val WallpaperDayOverlay = Color(0xFFF7F5F0)
+
     val TerminalBg = Color(0xFF1A1A2E)
     val TerminalBgDark = Color(0xFF0D0D1A)
     val TerminalText = Color(0xFFE0E0E0)

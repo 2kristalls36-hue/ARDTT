@@ -17,6 +17,24 @@ val targetAbis = providers.gradleProperty("targetAbis")
     .map { value -> value.split(',').map(String::trim).filter { it.isNotEmpty() } }
     .orElse(listOf("arm64-v8a", "armeabi-v7a", "x86_64"))
 
+val releaseVersionCode = 287
+val releaseVersionName = "0.5.266"
+val previewVersionCode = providers.gradleProperty("previewVersionCode")
+    .orNull
+    ?.let { value ->
+        value.toIntOrNull()?.takeIf { it > 0 }
+            ?: throw GradleException("previewVersionCode must be an integer greater than 0")
+    }
+    ?: releaseVersionCode
+val previewVersionName = providers.gradleProperty("previewVersionName")
+    .orNull
+    ?.also { value ->
+        if (value.isBlank()) {
+            throw GradleException("previewVersionName must not be blank")
+        }
+    }
+    ?: releaseVersionName
+
 // Public Releases need no PAT. Optional override for private forks only.
 val githubReleaseToken = providers.gradleProperty("githubReleaseToken")
     .orElse(providers.environmentVariable("GITHUB_RELEASE_READ_TOKEN"))
@@ -33,8 +51,8 @@ android {
         applicationId = "com.ardtt.app"
         minSdk = 28
         targetSdk = 35
-        versionCode = 287
-        versionName = "0.5.266"
+        versionCode = previewVersionCode
+        versionName = previewVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField(
             "String",
