@@ -30,8 +30,8 @@ app_id="$(sed -n 's/.*applicationId = "\([^"]*\)".*/\1/p' "$ROOT/android/app/bui
 [[ "$app_id" == "$ARDTT_PACKAGE" ]] || fail "applicationId $app_id != $ARDTT_PACKAGE"
 ok "package $ARDTT_PACKAGE"
 
-vc="$(sed -n 's/.*versionCode = \([0-9][0-9]*\).*/\1/p' "$ROOT/android/app/build.gradle.kts" | head -1)"
-vn="$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' "$ROOT/android/app/build.gradle.kts" | head -1)"
+vc="$(sed -n 's/.*releaseVersionCode = \([0-9][0-9]*\).*/\1/p' "$ROOT/android/app/build.gradle.kts" | head -1)"
+vn="$(sed -n 's/.*releaseVersionName = "\([^"]*\)".*/\1/p' "$ROOT/android/app/build.gradle.kts" | head -1)"
 [[ "$vc" == "$ARDTT_MIN_INSTALL_VERSION_CODE" ]] || fail "versionCode $vc != $ARDTT_MIN_INSTALL_VERSION_CODE"
 [[ "$vn" == "$ARDTT_MIN_INSTALL_VERSION_NAME" ]] || fail "versionName $vn != $ARDTT_MIN_INSTALL_VERSION_NAME"
 ok "install gate $vn / $vc"

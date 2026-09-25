@@ -51,8 +51,8 @@ jobs:
         id: version
         shell: bash
         run: |
-          version_name="$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' android/app/build.gradle.kts | head -n 1)"
-          version_code="$(sed -n 's/.*versionCode = \([0-9][0-9]*\).*/\1/p' android/app/build.gradle.kts | head -n 1)"
+          version_name="$(sed -n 's/.*releaseVersionName = "\([^"]*\)".*/\1/p' android/app/build.gradle.kts | head -n 1)"
+          version_code="$(sed -n 's/.*releaseVersionCode = \([0-9][0-9]*\).*/\1/p' android/app/build.gradle.kts | head -n 1)"
           test -n "$version_name"
           test -n "$version_code"
           echo "version_name=$version_name" >> "$GITHUB_OUTPUT"
