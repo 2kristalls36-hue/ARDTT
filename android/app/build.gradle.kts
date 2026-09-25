@@ -17,8 +17,8 @@ val targetAbis = providers.gradleProperty("targetAbis")
     .map { value -> value.split(',').map(String::trim).filter { it.isNotEmpty() } }
     .orElse(listOf("arm64-v8a", "armeabi-v7a", "x86_64"))
 
-val releaseVersionCode = 287
-val releaseVersionName = "0.5.266"
+val releaseVersionCode = 289
+val releaseVersionName = "0.5.267"
 val previewVersionCode = providers.gradleProperty("previewVersionCode")
     .orNull
     ?.let { value ->
