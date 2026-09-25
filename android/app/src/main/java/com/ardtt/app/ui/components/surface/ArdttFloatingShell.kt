@@ -53,6 +53,13 @@ object ArdttFloatingShell {
     /** Semantic fill at [ButtonAlpha]. An incoming alpha is ignored. */
     fun tintedShell(tint: Color): Color = tint.copy(alpha = ButtonAlpha)
 
+    /**
+     * Opaque fill that reads as [tintedShell] sitting on [behind].
+     * Solid primary and danger buttons use this so they match the glass CTAs.
+     */
+    fun opaqueGlassFill(tint: Color, behind: Color): Color =
+        ArdttSurface.compositeOver(tintedShell(tint), behind.copy(alpha = 1f))
+
     val shadowElevation: Dp
         @Composable @ReadOnlyComposable
         get() = if (isDarkSurface()) ArdttElevation.FloatingDark else ArdttElevation.Floating
