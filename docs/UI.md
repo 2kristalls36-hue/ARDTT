@@ -87,22 +87,24 @@ ui/
 | Объект | Что задаёт |
 |--------|------------|
 | `ArdttSpacing` | шаговая шкала отступов `None … XXXLarge` |
-| `ArdttLayout` | роли шагов: `ScreenPadding`, `FeedSpacing`, `CardPadding`, `CardSpacing`, `SettingsCardPadding`, `SettingsCardSpacing`, `CompactCardPadding`, `ListSpacing`, `ControlSpacing`, `DialogPadding`, `SheetPadding` |
+| `ArdttLayout` | роли шагов: `ScreenPadding`, `FeedSpacing`, `CardPadding`, `CardSpacing`, `SettingsCardPadding`, `SettingsCardSpacing`, `CompactCardPadding`, `ListSpacing`, `ControlSpacing`, `BadgeVerticalPadding`, `DialogPadding`, `SheetPadding` |
 | `ArdttRadius` / `ArdttShapes` | радиусы и формы по типу поверхности (`Badge … Section`, `Field`, `Pill`, `Sheet`) |
 | `ArdttElevation` | `None`, `Low`, `Card`, `Raised`, `Floating`, `FloatingDark` |
 | `ArdttSize` | размеры контролов и глифов: иконки, спиннеры, `Chip`/`ChipCompact`, `Button`/`ButtonCompact`/`ButtonCluster`, `TouchTarget`, `NavTrack`/`NavZone`, `Border`/`Contour`/`Stroke`, `RecordingFrame` |
 | `ArdttAlpha` | роли прозрачности: `Contour`, `Fill`, `FillSoft`, `Outline`, `Divider`, `Shadow`, `Disabled`, `DisabledContainer`, `Muted`, `Subtle`, `Strong` |
 | `ArdttMotion` | длительности `Quick … Pulse` |
 | `ArdttChrome` | blur/fade верхней панели |
-| `ArdttColors` | семантика вне `ColorScheme`: `Connected`/`Warning` (+ `On*`, `*OnLight`/`*OnDark`), `SessionLit`, `Recording`, `PathDirect`/`PathBypass`, `Terminal*` |
+| `ArdttColors` | семантика вне `ColorScheme`: `Connected`/`Warning` (+ `On*`, `*OnLight`/`*OnDark`), `SessionLit`, `Recording`, `PathDirect`/`PathBypass`, `Support*`, `DroneGlow`, `Wallpaper*Overlay`, `Terminal*` |
 | `ArdttSurface` | `isDark`, `contentColorOn`, `contrastRatio`, заливки карточек и «стекла» |
 | `ArdttWallpaperTextShadow` | единственная тень текста прямо на обоях |
 | `ArdttTerminalTextStyle` / `ArdttTerminalLabelStyle` | монотекст лога и метка уровня |
 
-Экранные `*Defaults`-объекты (`UserTunnelDefaults`, `SettingsDefaults`,
-`AdminUnlockDefaults`, `TunnelPollDefaults`, `ServerOsBadgeDefaults`) держат
-разовую геометрию и интервалы рядом с местом использования, с именем — литерал в
-вызове недопустим.
+Экранные и компонентные `*Defaults`-объекты (`UserTunnelDefaults`,
+`SettingsDefaults`, `AdminUnlockDefaults`, `TunnelPollDefaults`,
+`ServerOsBadgeDefaults`, `ArdttQrCodeDefaults`, `ArdttScrollChromeDefaults`)
+держат разовую геометрию, технические цвета и интервалы рядом с местом
+использования. Совпавшие числа не поднимаются в общий токен, если у них разная
+семантика.
 
 ## Нейминг
 
@@ -176,6 +178,13 @@ ui/
 `ArdttRadius`/`ArdttShapes` — радиусы по типу поверхности (`Field` — поля ввода,
 тот же радиус, что у `Chip`), `ArdttSize` — фиксированные размеры элементов
 управления (`Chip` 44, `ChipCompact` 40 в быстрых параметрах туннеля).
+`BadgeVerticalPadding` = 3 dp — компактный inset общего badge-контракта,
+намеренно меньший первого шага шкалы.
+
+Технические инварианты не зависят от темы: QR всегда рендерится чёрным на белом
+через `ArdttQrCodeDefaults`; `ArdttScrollChromeDefaults` хранит цвета alpha-mask.
+Продуктовые цвета карточки поддержки, свечения дронов и wallpaper overlay
+находятся в `ArdttColors`, а их локальные alpha/геометрия — рядом с компонентом.
 
 ## Каркас экрана
 

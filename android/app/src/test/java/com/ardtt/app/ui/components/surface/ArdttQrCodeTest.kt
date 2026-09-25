@@ -1,5 +1,7 @@
 package com.ardtt.app.ui.components.surface
 
+import android.graphics.Color as AndroidColor
+import androidx.compose.ui.graphics.Color
 import com.ardtt.app.profile.ProfileLinkCodec
 import com.ardtt.app.profile.VpnProfileJson
 import org.junit.Assert.assertEquals
@@ -7,6 +9,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ArdttQrCodeTest {
+    @Test
+    fun scannerPaletteIsAlwaysBlackOnWhite() {
+        assertEquals(Color.White, ArdttQrCodeDefaults.SurfaceColor)
+        assertEquals(AndroidColor.BLACK, ArdttQrCodeDefaults.ModuleArgb)
+        assertEquals(AndroidColor.WHITE, ArdttQrCodeDefaults.BackgroundArgb)
+    }
+
     @Test
     fun matrixRoundTripDecodesPayload() {
         val payload = "ardtt://config?v=1&n=test&p=" + "A".repeat(400)

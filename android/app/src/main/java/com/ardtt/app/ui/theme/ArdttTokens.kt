@@ -75,6 +75,9 @@ object ArdttLayout {
     /** Gap between sibling controls on one row. */
     val ControlSpacing: Dp = ArdttSpacing.Small
 
+    /** Compact vertical inset shared by status and identity badges. */
+    val BadgeVerticalPadding: Dp = 3.dp
+
     /** Horizontal padding of dialog content and footer. */
     val DialogPadding: Dp = ArdttSpacing.XXLarge
 

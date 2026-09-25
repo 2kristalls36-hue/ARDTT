@@ -685,8 +685,6 @@ private fun serverOsMarkDrawable(mark: ServerOsMark): Int = when (mark) {
 private object ServerOsBadgeDefaults {
     /** Long distro names + version still leave room for the server title. */
     val MaxWidth = 200.dp
-    /** Same vertical padding as ArdttStatusChip: below the spacing scale on purpose. */
-    val VerticalPadding = 3.dp
 }
 @Composable
 private fun ServerOsBadge(
@@ -708,7 +706,7 @@ private fun ServerOsBadge(
             horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Tiny),
             modifier = Modifier.padding(
                 horizontal = ArdttSpacing.Small,
-                vertical = ServerOsBadgeDefaults.VerticalPadding,
+                vertical = ArdttLayout.BadgeVerticalPadding,
             ),
         ) {
             Image(

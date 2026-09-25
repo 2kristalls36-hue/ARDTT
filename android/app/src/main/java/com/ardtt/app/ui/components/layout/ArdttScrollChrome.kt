@@ -46,9 +46,17 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.dp
 import com.ardtt.app.ui.theme.ArdttChrome
+import com.ardtt.app.ui.theme.ArdttSpacing
 import com.ardtt.app.ui.theme.isDarkSurface
+
+/** Technical constants for the alpha-mask and pinned status-bar scrim. */
+internal object ArdttScrollChromeDefaults {
+    val MaskOpaque: Color = Color.Black
+    val MaskClear: Color = Color.Transparent
+    const val ScrimMidStop = 0.72f
+    const val StatusInsetFloorAlpha = 0.55f
+}
 
 /**
  * Pins a sharp header over scrolling content and fades the strip that
@@ -209,10 +217,14 @@ fun ArdttScrollChrome(
                         .background(
                             Brush.verticalGradient(
                                 0f to scrim,
-                                0.72f to scrim.copy(
+                                ArdttScrollChromeDefaults.ScrimMidStop to scrim.copy(
                                     alpha = scrim.alpha * ArdttChrome.FadeAlpha *
                                         headerVisibility.coerceAtLeast(
-                                            if (status > 0.dp) 0.55f else 0f,
+                                            if (status > ArdttSpacing.None) {
+                                                ArdttScrollChromeDefaults.StatusInsetFloorAlpha
+                                            } else {
+                                                0f
+                                            },
                                         ),
                                 ),
                                 1f to scrim.copy(alpha = 0f),
@@ -235,7 +247,7 @@ fun ArdttScrollChrome(
                                 if (measured.height > 0) {
                                     headerHeight = with(density) {
                                         measured.height.toDp()
-                                    }.coerceAtLeast(0.dp)
+                                    }.coerceAtLeast(ArdttSpacing.None)
                                 }
                             }
                             .then(
@@ -286,16 +298,16 @@ internal const val ArdttScrollChromeHeaderGoneAlpha = 0.04f
 
 /** Alpha mask for sharp feed pixels: transparent under chrome, opaque below fade. */
 internal fun ardttScrollChromeContentFadeStops(): Array<Pair<Float, Color>> = arrayOf(
-    0f to Color.Transparent,
-    ArdttScrollChromeFadeMid to Color.Transparent,
-    1f to Color.Black,
+    0f to ArdttScrollChromeDefaults.MaskClear,
+    ArdttScrollChromeFadeMid to ArdttScrollChromeDefaults.MaskClear,
+    1f to ArdttScrollChromeDefaults.MaskOpaque,
 )
 
 /** Inverse mask for the blur overlay: full under chrome, gone below fade. */
 internal fun ardttScrollChromeBlurFadeStops(): Array<Pair<Float, Color>> = arrayOf(
-    0f to Color.Black,
-    ArdttScrollChromeFadeMid to Color.Black,
-    1f to Color.Transparent,
+    0f to ArdttScrollChromeDefaults.MaskOpaque,
+    ArdttScrollChromeFadeMid to ArdttScrollChromeDefaults.MaskOpaque,
+    1f to ArdttScrollChromeDefaults.MaskClear,
 )
 
 /** Eat hits that would otherwise reach rows drawn under the pinned chrome. */

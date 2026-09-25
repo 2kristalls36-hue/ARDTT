@@ -86,7 +86,7 @@ private object AdminUnlockDefaults {
 
     /** The track caption fades a little faster than the thumb travels. */
     const val CaptionFadeRate = 1.15f
-    const val CaptionMinAlpha = 0.12f
+    const val CaptionMinAlpha = ArdttAlpha.FillSoft
 }
 
 /**

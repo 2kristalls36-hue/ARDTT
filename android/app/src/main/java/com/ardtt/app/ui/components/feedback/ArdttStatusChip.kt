@@ -19,12 +19,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.ardtt.app.ui.theme.ArdttAlpha
+import com.ardtt.app.ui.theme.ArdttLayout
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
-
-/** Vertical padding of a badge; smaller than the spacing scale on purpose. */
-private val BadgeVerticalPadding = 3.dp
 
 /** Vertical padding of a pill: labelLarge line + this = a 34 dp capsule. */
 private val PillVerticalPadding = 7.dp
@@ -50,7 +48,7 @@ fun ArdttStatusChip(
             text,
             modifier = Modifier.padding(
                 horizontal = ArdttSpacing.Small,
-                vertical = BadgeVerticalPadding,
+                vertical = ArdttLayout.BadgeVerticalPadding,
             ),
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.SemiBold,
@@ -61,7 +59,8 @@ fun ArdttStatusChip(
 
 /**
  * Neutral identity badge: same fill and padding as the server OS mark
- * (`primary` + [ArdttAlpha.FillSoft], [ArdttShapes.Badge], 3.dp vertical).
+ * (`primary` + [ArdttAlpha.FillSoft], [ArdttShapes.Badge],
+ * [ArdttLayout.BadgeVerticalPadding]).
  */
 @Composable
 fun ArdttIdentityBadge(
@@ -79,7 +78,7 @@ fun ArdttIdentityBadge(
             text,
             modifier = Modifier.padding(
                 horizontal = ArdttSpacing.Small,
-                vertical = BadgeVerticalPadding,
+                vertical = ArdttLayout.BadgeVerticalPadding,
             ),
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.SemiBold,
@@ -133,7 +132,7 @@ fun ArdttIpChip(
             ip,
             modifier = Modifier.padding(
                 horizontal = ArdttSpacing.Small,
-                vertical = BadgeVerticalPadding,
+                vertical = ArdttLayout.BadgeVerticalPadding,
             ),
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.SemiBold,
