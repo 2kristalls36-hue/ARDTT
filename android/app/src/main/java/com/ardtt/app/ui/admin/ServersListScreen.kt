@@ -6,7 +6,6 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -222,48 +221,47 @@ fun ServersScreen(
         screen = ServersNavScreen.Overview(id)
     }
 
-    Crossfade(targetState = screen, label = "servers_nav") { current ->
-        when (val s = current) {
-            is ServersNavScreen.List -> ServerListScreen(
-                servers = servers,
-                serversRepo = serversRepo,
-                onOpenServer = { id -> screen = ServersNavScreen.Overview(id) },
-                onAddServer = { screen = ServersNavScreen.Deploy(null) },
-            )
-            is ServersNavScreen.Overview -> ServerOverviewHost(
-                servers = servers,
+    when (val s = screen) {
+        is ServersNavScreen.List -> ServerListScreen(
+            servers = servers,
+            serversRepo = serversRepo,
+            onOpenServer = { id -> screen = ServersNavScreen.Overview(id) },
+            onAddServer = { screen = ServersNavScreen.Deploy(null) },
+        )
+        is ServersNavScreen.Overview -> ServerOverviewHost(
+            servers = servers,
+            serversRepo = serversRepo,
+            engine = engine,
+            serverId = s.serverId,
+            onOpenClients = { screen = ServersNavScreen.Clients(s.serverId) },
+            onOpenDeploySettings = { screen = ServersNavScreen.Deploy(s.serverId) },
+            onBack = { screen = ServersNavScreen.List },
+        )
+        is ServersNavScreen.Clients -> ClientsHost(
+            servers = servers,
+            serverId = s.serverId,
+            profiles = profiles,
+            onBack = { screen = ServersNavScreen.Overview(s.serverId) },
+        )
+        is ServersNavScreen.Deploy -> {
+            val initial = s.serverId?.let { id -> servers.find { it.id == id } }
+            DeployScreen(
                 serversRepo = serversRepo,
                 engine = engine,
-                serverId = s.serverId,
-                onOpenClients = { screen = ServersNavScreen.Clients(s.serverId) },
-                onOpenDeploySettings = { screen = ServersNavScreen.Deploy(s.serverId) },
-                onBack = { screen = ServersNavScreen.List },
+                initial = initial,
+                onSaved = { savedId ->
+                    screen = ServersNavScreen.Overview(savedId)
+                },
+                onBack = {
+                    screen = s.serverId
+                        ?.let { ServersNavScreen.Overview(it) }
+                        ?: ServersNavScreen.List
+                },
             )
-            is ServersNavScreen.Clients -> ClientsHost(
-                servers = servers,
-                serverId = s.serverId,
-                profiles = profiles,
-                onBack = { screen = ServersNavScreen.Overview(s.serverId) },
-            )
-            is ServersNavScreen.Deploy -> {
-                val initial = s.serverId?.let { id -> servers.find { it.id == id } }
-                DeployScreen(
-                    serversRepo = serversRepo,
-                    engine = engine,
-                    initial = initial,
-                    onSaved = { savedId ->
-                        screen = ServersNavScreen.Overview(savedId)
-                    },
-                    onBack = {
-                        screen = s.serverId
-                            ?.let { ServersNavScreen.Overview(it) }
-                            ?: ServersNavScreen.List
-                    },
-                )
-            }
         }
     }
 }
+
 @Composable
 private fun ServerListScreen(
     servers: List<DeployTarget>,

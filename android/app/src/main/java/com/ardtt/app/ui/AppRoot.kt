@@ -7,8 +7,6 @@ import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -417,10 +415,10 @@ fun AppRoot(
                         navController = navController,
                         startDestination = AppDestination.Tunnel.route,
                         modifier = Modifier.fillMaxSize(),
-                        enterTransition = { EnterTransition.None },
-                        exitTransition = { ExitTransition.None },
-                        popEnterTransition = { EnterTransition.None },
-                        popExitTransition = { ExitTransition.None },
+                        enterTransition = { ArdttNavSwap.enter() },
+                        exitTransition = { ArdttNavSwap.exit() },
+                        popEnterTransition = { ArdttNavSwap.enter() },
+                        popExitTransition = { ArdttNavSwap.exit() },
                         sizeTransform = { null },
                     ) {
                         composable(AppDestination.Tunnel.route) {
