@@ -360,7 +360,7 @@ fun ExceptionsScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = ArdttSpacing.Large)
+                    .padding(horizontal = ArdttLayout.ScreenPadding)
                     .padding(top = topPad),
             ) {
 
@@ -672,7 +672,7 @@ fun ExceptionsScreen(
             .align(Alignment.BottomCenter)
             .fillMaxWidth()
             .zIndex(2f)
-            .padding(horizontal = ArdttSpacing.Large)
+            .padding(horizontal = ArdttLayout.ScreenPadding)
             .padding(bottom = maxOf(chromePad, imePad + ArdttSpacing.Small))
         if (pane == ExceptionsPane.Apps) {
             BypassSearchBar(

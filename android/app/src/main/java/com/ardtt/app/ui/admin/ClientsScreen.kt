@@ -296,9 +296,8 @@ private fun ClientsScreen(
                     } else {
                         LazyColumn(
                             contentPadding = PaddingValues(
-                                start = ArdttSpacing.Large,
-                                end = ArdttSpacing.Large,
-                                top = ArdttSpacing.Small,
+                                start = ArdttLayout.ScreenPadding,
+                                end = ArdttLayout.ScreenPadding,
                                 bottom = ArdttBottomChrome.scrollContentPadding(),
                             ),
                             verticalArrangement = Arrangement.spacedBy(ArdttLayout.ListSpacing),
