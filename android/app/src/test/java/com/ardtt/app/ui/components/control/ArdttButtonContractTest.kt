@@ -79,6 +79,16 @@ class ArdttButtonContractTest {
     }
 
     @Test
+    fun translucentFillDoesNotCastAShadow() {
+        assertFalse(ardttFilledButtonCastsShadow(ArdttAlpha.Strong, glassPrimary = false))
+        assertFalse(ardttFilledButtonCastsShadow(0.88f, glassPrimary = true))
+        assertFalse(ardttFilledButtonCastsShadow(1f, glassPrimary = true))
+        assertTrue(ardttFilledButtonCastsShadow(1f, glassPrimary = false))
+        assertTrue(ardttFilledButtonCastsShadow(0.99f, glassPrimary = false))
+        assertFalse(ardttFilledButtonCastsShadow(0.989f, glassPrimary = false))
+    }
+
+    @Test
     fun disabledButtonKeepsCallerContainerOverride() {
         val locked = Color(0xFFFAFCFF).copy(alpha = ArdttAlpha.Strong)
         val pair = ButtonPair(container = locked, content = Color(0xFF1C1B1A))

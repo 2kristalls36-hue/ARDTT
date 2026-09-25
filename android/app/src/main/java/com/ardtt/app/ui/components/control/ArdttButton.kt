@@ -21,6 +21,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -144,37 +145,41 @@ fun ArdttButton(
 
     when (variant) {
         ArdttButtonVariant.Primary, ArdttButtonVariant.Danger -> {
-            Button(
-                onClick = onClick,
-                enabled = clickable,
-                modifier = sized,
-                shape = ArdttShapes.Control,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = pair.container,
-                    contentColor = pair.content,
-                    disabledContainerColor = disabledPair.container,
-                    disabledContentColor = disabledPair.content,
-                ),
-                border = if (glassPrimary) ArdttFloatingShell.shellBorder() else null,
-                // Shadow elevation puts the fill on a graphics layer that paints
-                // opaque for a frame, then shows the shell alpha.
-                elevation = if (glassPrimary) {
-                    ButtonDefaults.buttonElevation(
-                        defaultElevation = ArdttElevation.None,
-                        pressedElevation = ArdttElevation.None,
-                        focusedElevation = ArdttElevation.None,
-                        hoveredElevation = ArdttElevation.None,
-                        disabledElevation = ArdttElevation.None,
-                    )
-                } else {
-                    ButtonDefaults.buttonElevation(
-                        defaultElevation = ArdttElevation.Raised,
-                        pressedElevation = ArdttElevation.Low,
-                        disabledElevation = ArdttElevation.None,
-                    )
-                },
-                contentPadding = ardttButtonContentPadding(variant, showsText),
-            ) { content() }
+            val castsShadow = ardttFilledButtonCastsShadow(pair.container.alpha, glassPrimary)
+            // Elevation animates after the first frame. Remounting when the shadow
+            // decision changes starts the layer at the new value, so a translucent
+            // fill (glass, locked profile) never sits on an opaque plate.
+            key(enabled, castsShadow) {
+                Button(
+                    onClick = onClick,
+                    enabled = clickable,
+                    modifier = sized,
+                    shape = ArdttShapes.Control,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = pair.container,
+                        contentColor = pair.content,
+                        disabledContainerColor = disabledPair.container,
+                        disabledContentColor = disabledPair.content,
+                    ),
+                    border = if (glassPrimary) ArdttFloatingShell.shellBorder() else null,
+                    elevation = if (castsShadow) {
+                        ButtonDefaults.buttonElevation(
+                            defaultElevation = ArdttElevation.Raised,
+                            pressedElevation = ArdttElevation.Low,
+                            disabledElevation = ArdttElevation.None,
+                        )
+                    } else {
+                        ButtonDefaults.buttonElevation(
+                            defaultElevation = ArdttElevation.None,
+                            pressedElevation = ArdttElevation.None,
+                            focusedElevation = ArdttElevation.None,
+                            hoveredElevation = ArdttElevation.None,
+                            disabledElevation = ArdttElevation.None,
+                        )
+                    },
+                    contentPadding = ardttButtonContentPadding(variant, showsText),
+                ) { content() }
+            }
         }
         ArdttButtonVariant.Tonal -> {
             FilledTonalButton(
@@ -268,6 +273,13 @@ internal fun ardttDisabledButtonColors(
     val contentAlpha = if (filled) ArdttAlpha.Subtle else ArdttAlpha.Disabled
     return ButtonPair(container, pair.content.copy(alpha = pair.content.alpha * contentAlpha))
 }
+
+/**
+ * Material draws button shadow on a graphics layer that paints the fill opaque
+ * for a frame. Glass and any other translucent fill skip that layer.
+ */
+internal fun ardttFilledButtonCastsShadow(containerAlpha: Float, glassPrimary: Boolean): Boolean =
+    !glassPrimary && containerAlpha >= 0.99f
 
 /** Compact icon chrome stays on the glyph box, not the 48 dp IconButton target. */
 internal fun ardttCompactIconUsesExactMinSize(): Boolean = true
