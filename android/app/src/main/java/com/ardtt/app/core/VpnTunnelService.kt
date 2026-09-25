@@ -2619,7 +2619,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             .setSilent(true)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
 
-        val remote = runCatching { buildShadeRemoteViews(shade) }.getOrElse { t ->
+        val remote = runCatching { buildShadeRemoteViews(shade, open) }.getOrElse { t ->
             AppLog.e(TAG, "shade RemoteViews failed: ${t.message}")
             null
         }
@@ -2650,13 +2650,17 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             )
         }
         if (!trustedWifiWaiting) {
-            builder.addAction(0, getString(R.string.notif_stop), stopPi)
+            builder.addAction(R.drawable.ic_shortcut_stop, getString(R.string.notif_stop), stopPi)
         }
         return builder.build()
     }
 
-    private fun buildShadeRemoteViews(shade: ConnectionManager.ShadeContent): RemoteViews {
+    private fun buildShadeRemoteViews(
+        shade: ConnectionManager.ShadeContent,
+        open: PendingIntent,
+    ): RemoteViews {
         return RemoteViews(packageName, R.layout.notif_vpn_shade).apply {
+            setOnClickPendingIntent(R.id.notif_root, open)
             setTextViewText(R.id.notif_title, shade.title)
             val pathColor = when {
                 shade.title.contains("Обход", ignoreCase = true) ||
