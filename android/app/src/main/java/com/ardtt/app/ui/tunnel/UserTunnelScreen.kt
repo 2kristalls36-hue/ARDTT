@@ -681,20 +681,16 @@ private fun ProfileSwitcherBar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
     ) {
-        val scheme = MaterialTheme.colorScheme
         val sessionLocked = canSwitch && !switchEnabled
-        val lockedContainer = scheme.surface.copy(alpha = ArdttAlpha.Strong)
-        val lockedContent = scheme.onSurface.copy(alpha = ArdttAlpha.Muted)
         val label = activeItem?.profile?.name?.ifBlank { "Профиль" } ?: "Выбрать профиль"
         if (canSwitch) {
             ArdttButton(
                 onClick = onPrev,
                 enabled = switchEnabled,
                 variant = ArdttButtonVariant.Primary,
+                floating = true,
                 icon = Icons.AutoMirrored.Filled.ArrowBack,
                 contentDescription = "Предыдущий профиль",
-                containerColor = if (sessionLocked) lockedContainer else null,
-                contentColor = if (sessionLocked) lockedContent else null,
                 modifier = Modifier.width(ArdttSize.ButtonCluster),
             )
         }
@@ -703,6 +699,7 @@ private fun ProfileSwitcherBar(
             onClick = onOpenProfiles,
             enabled = true,
             variant = ArdttButtonVariant.Primary,
+            floating = true,
             fillMaxWidth = false,
             icon = if (sessionLocked) Icons.Filled.Lock else null,
             contentDescription = if (sessionLocked) {
@@ -710,8 +707,6 @@ private fun ProfileSwitcherBar(
             } else {
                 label
             },
-            containerColor = if (sessionLocked) lockedContainer else null,
-            contentColor = if (sessionLocked) lockedContent else null,
             modifier = Modifier.weight(1f),
         )
         if (canSwitch) {
@@ -719,10 +714,9 @@ private fun ProfileSwitcherBar(
                 onClick = onNext,
                 enabled = switchEnabled,
                 variant = ArdttButtonVariant.Primary,
+                floating = true,
                 icon = Icons.AutoMirrored.Filled.ArrowForward,
                 contentDescription = "Следующий профиль",
-                containerColor = if (sessionLocked) lockedContainer else null,
-                contentColor = if (sessionLocked) lockedContent else null,
                 modifier = Modifier.width(ArdttSize.ButtonCluster),
             )
         }
