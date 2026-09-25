@@ -49,7 +49,7 @@ ui/
 | Компонент | Роль | Где используется |
 |-----------|------|------------------|
 | `ArdttButton` (`Primary` / `Tonal` / `Outlined` / `Text` / `Danger` / `Icon`) | все кнопки; `busy`, `enabled`, единый disabled | везде |
-| `ArdttPrimaryButton` | полноширинный CTA (sticky) | Туннель, Профили, Клиенты, Тестирование |
+| `ArdttPrimaryButton` | полноширинный sticky CTA: заливка `tintedShell`, обводка и тень как у плашки вкладок | Туннель, Профили, Серверы, Клиенты, Тестирование |
 | `ArdttChoiceChipRow` / `ArdttChoiceChip` | сегментный выбор одного из N (radio-семантика) | режим/адрес/тема (Настройки, Туннель), панели Тестирование и Обход, ЧС/БС |
 | `PathModeChipRow`, `HideIpChipRow`, `DialPathChipRow`, `ThemeModeChipRow` | готовые ряды чипов над `ArdttChoiceChipRow` | Настройки, Туннель |
 | `ArdttSwitchRow` | заголовок + подзаголовок + Switch, одна toggleable-нода | Настройки, Туннель, Деплой, Обход |
@@ -61,9 +61,9 @@ ui/
 | `ArdttSettingsCard` | пресет карточки настроек (Large / SmallPlus) | Настройки |
 | `ArdttCompactCard` | плотная карточка списка | Серверы, Клиенты, Профили |
 | `ArdttSectionTitle`, `ArdttLeadingIcon` | заголовок блока, квадратная иконка | карточки, ряды |
-| `ArdttDialog` | нижний лист с действиями | все диалоги |
+| `ArdttDialog` | нижний лист с действиями; ручка — стекло, тело непрозрачное | все диалоги |
 | `ArdttConfirmDialog` | подтверждение необратимого / меняющего сессию действия | очистка журнала, удаление профиля/записи/клиента, отвязка устройства, выход из admin, выход из VK |
-| `ArdttBottomSheet` | прокручиваемый лист без кнопок | добавление профиля, настройки клиента |
+| `ArdttBottomSheet` | прокручиваемый лист без кнопок; ручка — стекло, тело непрозрачное | добавление профиля, настройки клиента |
 | `ArdttLinkShareDialog`, `ArdttQrCode` | ссылка + QR | профиль, сервер |
 | `ArdttTerminalCard` | монотекст лога | прогресс деплоя |
 | `ArdttFeedScaffold` / `ArdttLazyFeedScaffold` / `ArdttScrollChrome` | каркас экрана | все вкладки |

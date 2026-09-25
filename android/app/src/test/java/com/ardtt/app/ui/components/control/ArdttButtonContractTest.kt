@@ -6,6 +6,7 @@ import androidx.compose.ui.unit.dp
 import com.ardtt.app.ui.theme.ArdttAlpha
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
+import com.ardtt.app.ui.theme.ArdttSurface
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -51,6 +52,30 @@ class ArdttButtonContractTest {
         assertEquals(pair.container.blue, disabled.container.blue, 0.001f)
         assertEquals(ArdttAlpha.Subtle, disabled.content.alpha, 0.01f)
         assertTrue(disabled.container.alpha < pair.container.alpha)
+    }
+
+    @Test
+    fun disabledGlassCtaRecedesFromItsOwnAlpha() {
+        val glass = Color(0xFF1565C0).copy(alpha = 0.92f)
+        val pair = ButtonPair(container = glass, content = Color.White)
+        val disabled = ardttDisabledButtonColors(ArdttButtonVariant.Primary, pair, containerOverridden = false)
+        assertEquals(0.92f * ArdttAlpha.DisabledContainer, disabled.container.alpha, 0.01f)
+        assertTrue(disabled.container.alpha < glass.alpha)
+    }
+
+    @Test
+    fun floatingLabelKeepsAReadableOverride() {
+        val dark = Color(0xFF102033)
+        assertTrue(ArdttSurface.contrastRatio(Color.White, dark) >= ArdttSurface.TextContrastMin)
+        assertEquals(Color.White, ardttFloatingContentColor(dark, Color.White))
+    }
+
+    @Test
+    fun floatingLabelDropsAnOverrideThatFailsContrast() {
+        val pale = Color(0xFFFFE0C2)
+        assertTrue(ArdttSurface.contrastRatio(Color.White, pale) < ArdttSurface.TextContrastMin)
+        assertEquals(ArdttSurface.contentColorOn(pale), ardttFloatingContentColor(pale, Color.White))
+        assertEquals(ArdttSurface.contentColorOn(pale), ardttFloatingContentColor(pale, null))
     }
 
     @Test

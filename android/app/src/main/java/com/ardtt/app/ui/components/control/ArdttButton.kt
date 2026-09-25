@@ -33,6 +33,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
+import com.ardtt.app.ui.components.surface.ArdttFloatingShell
 import com.ardtt.app.ui.theme.ArdttAlpha
 import com.ardtt.app.ui.theme.ArdttButtonLabelStyle
 import com.ardtt.app.ui.theme.ArdttElevation
@@ -73,14 +74,24 @@ fun ArdttButton(
     contentDescription: String? = null,
     containerColor: Color? = null,
     contentColor: Color? = null,
+    floating: Boolean = false,
 ) {
     val scheme = MaterialTheme.colorScheme
     val minHeight = ardttButtonMinHeight(variant, size)
-    val pair = buttonColors(variant, scheme.primary, scheme.onPrimary, containerColor, contentColor)
+    val glassPrimary = floating && variant == ArdttButtonVariant.Primary
+    val pair = buttonColors(
+        variant = variant,
+        primary = scheme.primary,
+        onPrimary = scheme.onPrimary,
+        containerOverride = containerColor,
+        contentOverride = contentColor,
+        floating = glassPrimary,
+    )
+    // Sticky containerColor is a tint (stop / warning), not the profile-switcher lock fill.
     val disabledPair = ardttDisabledButtonColors(
         variant = variant,
         pair = pair,
-        containerOverridden = containerColor != null,
+        containerOverridden = containerColor != null && !glassPrimary,
     )
     val clickable = enabled && !busy
     val showsText = ardttButtonShowsText(variant, text)
@@ -143,11 +154,23 @@ fun ArdttButton(
                     disabledContainerColor = disabledPair.container,
                     disabledContentColor = disabledPair.content,
                 ),
-                elevation = ButtonDefaults.buttonElevation(
-                    defaultElevation = ArdttElevation.Raised,
-                    pressedElevation = ArdttElevation.Low,
-                    disabledElevation = ArdttElevation.None,
-                ),
+                border = if (glassPrimary) ArdttFloatingShell.shellBorder() else null,
+                elevation = if (glassPrimary) {
+                    val shellShadow = ArdttFloatingShell.shadowElevation
+                    ButtonDefaults.buttonElevation(
+                        defaultElevation = shellShadow,
+                        pressedElevation = shellShadow,
+                        focusedElevation = shellShadow,
+                        hoveredElevation = shellShadow,
+                        disabledElevation = ArdttElevation.None,
+                    )
+                } else {
+                    ButtonDefaults.buttonElevation(
+                        defaultElevation = ArdttElevation.Raised,
+                        pressedElevation = ArdttElevation.Low,
+                        disabledElevation = ArdttElevation.None,
+                    )
+                },
                 contentPadding = ardttButtonContentPadding(variant, showsText),
             ) { content() }
         }
@@ -282,6 +305,24 @@ internal fun ardttButtonContentPadding(
 
 internal data class ButtonPair(val container: Color, val content: Color)
 
+/**
+ * Label on a glass CTA. `onPrimary` / `onError` assume an opaque fill and can
+ * disappear on a light tinted shell, so a failing override yields to
+ * [ArdttSurface.contentColorOn].
+ */
+internal fun ardttFloatingContentColor(
+    container: Color,
+    contentOverride: Color?,
+): Color {
+    val readable = ArdttSurface.contentColorOn(container)
+    if (contentOverride == null) return readable
+    return if (ArdttSurface.contrastRatio(contentOverride, container) >= ArdttSurface.TextContrastMin) {
+        contentOverride
+    } else {
+        readable
+    }
+}
+
 @Composable
 private fun buttonColors(
     variant: ArdttButtonVariant,
@@ -289,13 +330,19 @@ private fun buttonColors(
     onPrimary: Color,
     containerOverride: Color?,
     contentOverride: Color?,
+    floating: Boolean,
 ): ButtonPair {
     val scheme = MaterialTheme.colorScheme
-    val container = containerOverride ?: when (variant) {
+    val baseContainer = containerOverride ?: when (variant) {
         ArdttButtonVariant.Primary -> primary
         ArdttButtonVariant.Tonal -> scheme.secondaryContainer
         ArdttButtonVariant.Outlined, ArdttButtonVariant.Text, ArdttButtonVariant.Icon -> Color.Transparent
         ArdttButtonVariant.Danger -> scheme.error
+    }
+    val container = if (floating) {
+        ArdttFloatingShell.tintedShell(baseContainer)
+    } else {
+        baseContainer
     }
     val fallbackContent = when (variant) {
         ArdttButtonVariant.Primary -> onPrimary
@@ -307,6 +354,7 @@ private fun buttonColors(
         ArdttButtonVariant.Danger -> scheme.onError
     }
     val content = when {
+        floating -> ardttFloatingContentColor(container, contentOverride)
         contentOverride != null -> contentOverride
         containerOverride != null && container.alpha > 0.04f ->
             ArdttSurface.contentColorOn(container)

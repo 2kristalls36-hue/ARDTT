@@ -1,5 +1,6 @@
 package com.ardtt.app.ui.components.surface
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -8,7 +9,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -92,11 +92,11 @@ fun ArdttDialog(
             if (allowsHideState.value) onDismissState.value()
         },
         sheetState = sheetState,
-        containerColor = dialogContainerColor(),
+        containerColor = ArdttFloatingShell.shellColor(),
         contentColor = MaterialTheme.colorScheme.onSurface,
-        tonalElevation = ArdttElevation.Raised,
+        tonalElevation = ArdttElevation.None,
         dragHandle = if (allowsHide) {
-            { BottomSheetDefaults.DragHandle() }
+            { ArdttSheetDragHandle() }
         } else {
             null
         },
@@ -105,8 +105,10 @@ fun ArdttDialog(
         ),
     ) {
         Column(
-            modifier = modifier
+            modifier = Modifier
                 .fillMaxWidth()
+                .background(dialogContainerColor())
+                .then(modifier)
                 .padding(bottom = ArdttLayout.DialogPadding),
         ) {
             Text(
