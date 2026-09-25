@@ -20,6 +20,8 @@ Jetpack Compose. Продуктовое имя: **ARDTT** (Amnezia & Raw Dial ov
 
 ## Сборка
 
+Для Cloud Agent и свежего Linux `scripts/cloud-agent-install.sh` ставит Android SDK/NDK в `$HOME/android-sdk` и Go 1.25 в `/usr/local/go`.
+
 Debug:
 
 ```bash
@@ -77,6 +79,8 @@ PR всегда собирает Preview APK в артефакты (`.github/wor
 - Пример: `android/keystore.properties.example`
 
 Важно: debug и release подписаны разными ключами — для перехода с debug-сборки нужна переустановка приложения.
+
+`versionCode` в CI считается из истории git (`scripts/compute-version-code.sh`: релиз — число коммитов × 10, preview ветки — база × 10 плюс коммиты PR, не больше 9), поэтому каждый опубликованный APK ставится поверх предыдущего. Вручную бампать нужно только `releaseVersionName`. `releaseVersionCode` в `app/build.gradle.kts` — нижняя граница локальной сборки, не номер, который уезжает в релиз.
 
 ## Модули
 
