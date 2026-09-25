@@ -44,11 +44,18 @@ object ArdttFloatingShell {
         return BorderStroke(ArdttSize.Border, stroke)
     }
 
+    /**
+     * Tinted floating fill for semantic sticky buttons (connect / stop).
+     * [tint] is forced opaque so a caller's alpha cannot punch a hole in the mix.
+     */
+    fun tintedShell(shell: Color, tint: Color, mix: Float = 0.34f): Color =
+        lerp(shell, tint.copy(alpha = 1f), mix.coerceIn(0f, 1f))
+
     /** Tinted floating fill for semantic sticky buttons (connect / stop). */
     @Composable
     @ReadOnlyComposable
     fun tintedShell(tint: Color, mix: Float = 0.34f): Color =
-        lerp(shellColor(), tint.copy(alpha = 1f), mix.coerceIn(0f, 1f))
+        tintedShell(shellColor(), tint, mix)
 
     val shadowElevation: Dp
         @Composable @ReadOnlyComposable
