@@ -20,6 +20,8 @@ Jetpack Compose. Продуктовое имя: **ARDTT** (Amnezia & Raw Dial ov
 
 ## Сборка
 
+Для Cloud Agent и свежего Linux `scripts/cloud-agent-install.sh` ставит Android SDK/NDK в `$HOME/android-sdk` и Go 1.25 в `/usr/local/go`.
+
 Debug:
 
 ```bash
