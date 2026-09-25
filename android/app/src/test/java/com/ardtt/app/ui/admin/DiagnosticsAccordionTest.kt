@@ -74,11 +74,6 @@ class DiagnosticsAccordionTest {
     }
 
     @Test
-    fun diagnosticsHeaderOmitsNetworkAndLogsSubtitle() {
-        assertTrue(diagnosticsHeaderSubtitle().isNullOrBlank())
-    }
-
-    @Test
     fun diagnosticsUsesStandardTabInsets() {
         assertEquals(ArdttChrome.FadeHeight, diagnosticsChromeFade())
         assertEquals(ArdttHeaderDefaults.BottomPaddingBelowTitle, diagnosticsHeaderBottomPadding())

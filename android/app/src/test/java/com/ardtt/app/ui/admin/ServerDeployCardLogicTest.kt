@@ -400,7 +400,6 @@ class ServerDeployCardLogicTest {
 
     @Test
     fun overviewChromeDropsManagementSubtitleAndMovesOverflowToCard() {
-        assertNull(serverOverviewHeaderSubtitle())
         assertEquals(
             ServerOverviewOverflowAnchor.CardTrailingOutside,
             serverOverviewOverflowAnchor(),

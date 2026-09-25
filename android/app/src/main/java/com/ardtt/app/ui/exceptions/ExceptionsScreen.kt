@@ -349,7 +349,6 @@ fun ExceptionsScreen(
             header = {
                 ArdttTabHeader(
                     title = "Исключения",
-                    subtitle = "Приложения и сайты вне туннеля",
                     onBack = onBack,
                 )
             },

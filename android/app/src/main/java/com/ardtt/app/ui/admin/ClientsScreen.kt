@@ -265,11 +265,6 @@ private fun ClientsScreen(
             header = {
                 ArdttTabHeader(
                     title = "Клиенты",
-                    subtitle = when {
-                        loading -> "Загрузка…"
-                        error != null -> server.host
-                        else -> "${users.size} · ${server.name.ifBlank { server.host }}"
-                    },
                     onBack = onBack,
                 )
             },

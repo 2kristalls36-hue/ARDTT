@@ -259,7 +259,6 @@ fun NetworkScreen(
         header = {
             ArdttTabHeader(
                 title = "Сеть",
-                subtitle = NetworkMapCopy.SUBTITLE,
                 onBack = onBack,
             )
         },

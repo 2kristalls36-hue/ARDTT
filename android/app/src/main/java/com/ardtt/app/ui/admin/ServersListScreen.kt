@@ -350,7 +350,6 @@ private fun ServerListScreen(
             header = {
                 ArdttTabHeader(
                     title = if (selectMode) "Экспорт серверов" else "Управление серверами",
-                    subtitle = if (selectMode) "Выбрано: ${selectedIds.size}" else null,
                     actions = {
                         if (selectMode) {
                             ArdttButton(
