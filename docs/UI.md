@@ -149,7 +149,6 @@ ui/
 - Вход: слайдер `AdminUnlockSlider` в карточке «Описание и доступ» (жест, действие
   TalkBack «Активировать», Enter/DPAD на фокусе). Выход: кнопка «Завершить сессию
   администратора» → `ArdttConfirmDialog` с перечислением последствий.
-- Текущий режим виден в подзаголовке Настроек (`AdminModeCopy.modeSubtitle`).
 - Набор вкладок задаёт `ArdttNavPlan.primary(admin, …)`; admin-маршруты (`Servers`,
   `Diagnostics`, `Network`) перечислены в `AppDestination.adminOnly`. Если админ выключен,
   пока открыт admin-экран, `AppRoot` уводит на Туннель (`LaunchedEffect(admin, …, currentRoute)`).
