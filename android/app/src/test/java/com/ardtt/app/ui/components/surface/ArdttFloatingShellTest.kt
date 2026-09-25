@@ -12,13 +12,12 @@ class ArdttFloatingShellTest {
         val shell = Color(0xFF101418).copy(alpha = ArdttSurface.ShellAlphaDark)
         val tint = Color(0xFF1565C0)
         val mixed = ArdttFloatingShell.tintedShell(shell, tint, mix = 0.34f)
-        assertTrue(mixed.alpha > shell.alpha)
-        assertTrue(mixed.alpha < 1f)
-        assertTrue(mixed.blue > shell.blue)
+        assertEquals(shell.alpha, mixed.alpha, 0.001f)
+        assertTrue(mixed.blue > shell.copy(alpha = 1f).blue)
         val solid = ArdttFloatingShell.tintedShell(shell, tint, mix = 1f)
         assertEquals(tint.red, solid.red, 0.001f)
         assertEquals(tint.blue, solid.blue, 0.001f)
-        assertEquals(1f, solid.alpha, 0.001f)
+        assertEquals(shell.alpha, solid.alpha, 0.001f)
     }
 
     @Test
