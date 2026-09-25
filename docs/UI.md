@@ -68,7 +68,7 @@ ui/
 | `ArdttTerminalCard` | монотекст лога | прогресс деплоя |
 | `ArdttFeedScaffold` / `ArdttLazyFeedScaffold` / `ArdttScrollChrome` | каркас экрана | все вкладки |
 | `ArdttTabHeader` / `ArdttFeedHeader` / `ArdttPageHeader` | шапка | все вкладки |
-| `ArdttNavigationBar` | нижняя панель | `AppRoot` |
+| `ArdttNavigationBar` | нижняя панель: заливка оболочки без тени | `AppRoot` |
 | `ArdttStickyBottomBar`, `ArdttBottomChrome` | закреплённые действия снизу | Туннель, Профили, Клиенты, Диагностика, Тестирование |
 | `ArdttDestinationRow` | строка-переход с шевроном; `expanded` — стрелка вверх/вниз | Настройки, Диагностика, Серверы |
 | `ArdttPullRefresh` / `rememberPullRefresh` | обновление жестом | ленты |
@@ -213,7 +213,9 @@ ui/
 Кастомный `containerColor` (в том числе error) не оставляет `onPrimary`, если это
 не подходит фону: цвет текста считается через `ArdttSurface.contentColorOn`.
 Круглая кнопка питания туннеля сохраняет свою форму; цвета и доступность — из
-той же системы.
+той же системы. Полупрозрачная заливка (стекло, замок профиля) не получает тень:
+слой тени Material на кадр рисует её непрозрачной. Питание, бейдж темы, поиск
+обхода и плашка вкладок держат ту же оболочку без тени.
 
 Disabled считается в одном месте (`ardttDisabledButtonColors`): залитые варианты
 уходят в `ArdttAlpha.DisabledContainer` и держат подпись на `Subtle`, контурные /
@@ -255,7 +257,8 @@ Disabled считается в одном месте (`ardttDisabledButtonColors
 Обход · Журнал · Настройки. Администратор: Туннель · Серверы · Профили ·
 Диагностика · Настройки. План: `ArdttNavPlan`. Подпись вкладки `labelMedium`
 ≈ 12 sp, до двух строк, без автоуменьшения системного масштаба.
-`selectableGroup` + `Role.Tab`. Вложенный маршрут (`network`, `logs`,
+Плашка вкладок — та же оболочка, без тени. `selectableGroup` + `Role.Tab`.
+Вложенный маршрут (`network`, `logs`,
 `testing`, `exceptions`, карточка сервера) выделяет родительскую вкладку.
 Повторный выбор вкладки и admin/testing-ограничения не менялись; включение
 тестирования не перестраивает набор вкладок.

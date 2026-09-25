@@ -83,6 +83,7 @@ import com.ardtt.app.ui.nextThemeMode
 import com.ardtt.app.ui.persistThemeMode
 import com.ardtt.app.ui.theme.ArdttAlpha
 import com.ardtt.app.ui.theme.ArdttColors
+import com.ardtt.app.ui.theme.ArdttElevation
 import com.ardtt.app.ui.theme.ArdttMotion
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
@@ -443,7 +444,8 @@ private fun ThemeModeBadge(
         shape = CircleShape,
         color = shellColor,
         border = ArdttFloatingShell.shellBorder(),
-        shadowElevation = ArdttFloatingShell.shadowElevation,
+        // A shadow graphics layer paints this translucent shell opaque for a frame.
+        shadowElevation = ArdttElevation.None,
     ) {
         Box(contentAlignment = Alignment.Center) {
             when (modeBadge) {
@@ -631,7 +633,8 @@ private fun TunnelPowerToggle(
             color = shellColor,
             border = ArdttFloatingShell.shellBorder(),
             shape = CircleShape,
-            shadowElevation = ArdttFloatingShell.shadowElevation,
+            // A shadow graphics layer paints this translucent shell opaque for a frame.
+            shadowElevation = ArdttElevation.None,
         ) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 if (paused) {

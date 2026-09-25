@@ -180,7 +180,8 @@ fun ArdttNavigationBar(
             color = ArdttFloatingShell.shellColor(),
             border = ArdttFloatingShell.shellBorder(),
             tonalElevation = ArdttElevation.None,
-            shadowElevation = ArdttFloatingShell.shadowElevation,
+            // A shadow graphics layer paints this translucent shell opaque for a frame.
+            shadowElevation = ArdttElevation.None,
             modifier = Modifier.fillMaxWidth(),
         ) {
             Box(

@@ -858,7 +858,6 @@ private fun BypassSearchBar(
     val colors = MaterialTheme.colorScheme
     val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
-    val elevation = ArdttFloatingShell.shadowElevation
     val fill = if (keyboardVisible) {
         colors.surface
     } else {
@@ -879,7 +878,8 @@ private fun BypassSearchBar(
         shape = ArdttShapes.Control,
         color = fill,
         border = ArdttFloatingShell.shellBorder(),
-        shadowElevation = elevation,
+        // Idle fill is the translucent shell; a shadow paints it opaque for a frame.
+        shadowElevation = ArdttElevation.None,
         tonalElevation = ArdttElevation.None,
     ) {
         Row(
