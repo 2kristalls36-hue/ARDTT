@@ -78,6 +78,8 @@ PR всегда собирает Preview APK в артефакты (`.github/wor
 
 Важно: debug и release подписаны разными ключами — для перехода с debug-сборки нужна переустановка приложения.
 
+`versionCode` в CI считается из истории git (`scripts/compute-version-code.sh`: релиз — число коммитов × 10, preview ветки — база × 10 плюс коммиты PR, не больше 9), поэтому каждый опубликованный APK ставится поверх предыдущего. Вручную бампать нужно только `releaseVersionName`. `releaseVersionCode` в `app/build.gradle.kts` — нижняя граница локальной сборки, не номер, который уезжает в релиз.
+
 ## Модули
 
 - `app` — UI, ConnectionManager, VpnTunnelService, bypass session
