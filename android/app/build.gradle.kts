@@ -19,13 +19,27 @@ val targetAbis = providers.gradleProperty("targetAbis")
 
 val releaseVersionCode = 289
 val releaseVersionName = "0.5.267"
+// CI выводит versionCode из истории git (scripts/compute-version-code.sh),
+// чтобы каждый опубликованный APK ставился поверх предыдущего.
+// releaseVersionCode — нижняя граница локальной сборки, не номер релиза.
 val previewVersionCode = providers.gradleProperty("previewVersionCode")
     .orNull
     ?.let { value ->
         value.toIntOrNull()?.takeIf { it > 0 }
             ?: throw GradleException("previewVersionCode must be an integer greater than 0")
     }
-    ?: releaseVersionCode
+val ciVersionCode = providers.gradleProperty("ciVersionCode")
+    .orNull
+    ?.let { value ->
+        value.toIntOrNull()?.takeIf { it > 0 }
+            ?: throw GradleException("ciVersionCode must be an integer greater than 0")
+    }
+val effectiveVersionCode = previewVersionCode ?: ciVersionCode ?: releaseVersionCode
+if (effectiveVersionCode < releaseVersionCode) {
+    throw GradleException(
+        "versionCode $effectiveVersionCode is below releaseVersionCode floor $releaseVersionCode",
+    )
+}
 val previewVersionName = providers.gradleProperty("previewVersionName")
     .orNull
     ?.also { value ->
@@ -51,7 +65,7 @@ android {
         applicationId = "com.ardtt.app"
         minSdk = 28
         targetSdk = 35
-        versionCode = previewVersionCode
+        versionCode = effectiveVersionCode
         versionName = previewVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField(

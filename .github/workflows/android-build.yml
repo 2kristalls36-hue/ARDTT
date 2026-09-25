@@ -52,11 +52,15 @@ jobs:
         shell: bash
         run: |
           version_name="$(sed -n 's/.*releaseVersionName = "\([^"]*\)".*/\1/p' android/app/build.gradle.kts | head -n 1)"
-          version_code="$(sed -n 's/.*releaseVersionCode = \([0-9][0-9]*\).*/\1/p' android/app/build.gradle.kts | head -n 1)"
+          version_floor="$(sed -n 's/.*releaseVersionCode = \([0-9][0-9]*\).*/\1/p' android/app/build.gradle.kts | head -n 1)"
+          version_code="$(bash scripts/compute-version-code.sh release)"
           test -n "$version_name"
+          test -n "$version_floor"
           test -n "$version_code"
           echo "version_name=$version_name" >> "$GITHUB_OUTPUT"
           echo "version_code=$version_code" >> "$GITHUB_OUTPUT"
+          echo "version_floor=$version_floor" >> "$GITHUB_OUTPUT"
+          echo "releaseVersionCode floor=${version_floor} computed versionCode=${version_code}"
           echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             tag="${GITHUB_REF_NAME}"
@@ -95,6 +99,34 @@ jobs:
             echo "channel=artifact" >> "$GITHUB_OUTPUT"
           fi
           echo "version=$VERSION_NAME mode=$PUBLISH_MODE is_test=$is_test publish=$publish"
+
+      - name: Guard versionCode against latest release
+        if: steps.channel.outputs.channel == 'release'
+        shell: bash
+        env:
+          VERSION_CODE: ${{ steps.version.outputs.version_code }}
+        run: |
+          set -euo pipefail
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/ardtt-update.json"
+          tmp="$(mktemp)"
+          set +e
+          http="$(curl -fsSL -o "$tmp" -w '%{http_code}' "$url")"
+          rc=$?
+          set -e
+          if [ "$rc" -ne 0 ]; then
+            if [ "$http" = "404" ]; then
+              echo "no latest release yet; new versionCode=${VERSION_CODE}"
+              exit 0
+            fi
+            echo "failed to download ${url} (curl ${rc}, http ${http})" >&2
+            exit 1
+          fi
+          latest="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["versionCode"])' "$tmp")"
+          echo "latest release versionCode=${latest} new versionCode=${VERSION_CODE}"
+          if [ "$VERSION_CODE" -le "$latest" ]; then
+            echo "versionCode ${VERSION_CODE} is not strictly greater than latest release ${latest}" >&2
+            exit 1
+          fi
 
       - name: Validate release tag
         if: github.ref_type == 'tag'
@@ -159,7 +191,36 @@ jobs:
           bash scripts/build-bypass-client.sh
           cd android
           printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > local.properties
-          ./gradlew :app:assembleRelease -PtargetAbis=arm64-v8a,armeabi-v7a,x86_64 --no-daemon
+          ./gradlew :app:assembleRelease -PtargetAbis=arm64-v8a,armeabi-v7a,x86_64 -PciVersionCode=${{ steps.version.outputs.version_code }} --no-daemon
+
+      - name: Verify APK versionCode
+        shell: bash
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
+          VERSION_CODE: ${{ steps.version.outputs.version_code }}
+        run: |
+          set -euo pipefail
+          apk="android/app/build/outputs/apk/release/app-arm64-v8a-release.apk"
+          test -f "$apk"
+          shopt -s nullglob
+          candidates=("${ANDROID_HOME:-}/build-tools/"*/aapt2)
+          if [ "${#candidates[@]}" -eq 0 ] || [ ! -x "${candidates[0]}" ]; then
+            candidates=("${ANDROID_SDK_ROOT:-}/build-tools/"*/aapt2)
+          fi
+          aapt2=""
+          for candidate in "${candidates[@]}"; do
+            if [ -x "$candidate" ]; then
+              aapt2="$candidate"
+              break
+            fi
+          done
+          test -n "$aapt2"
+          echo "aapt2=$aapt2"
+          raw="$("$aapt2" dump badging "$apk" | grep -o "versionCode='[0-9]*'" | head -n 1)"
+          got="$(printf '%s\n' "$raw" | tr -cd '0-9')"
+          echo "apk versionCode=${got} expected=${VERSION_CODE}"
+          test -n "$got"
+          test "$got" = "$VERSION_CODE"
 
       - name: Package build assets
         shell: bash
