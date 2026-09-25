@@ -404,10 +404,15 @@ private fun buttonColors(
         ArdttButtonVariant.Outlined, ArdttButtonVariant.Text, ArdttButtonVariant.Icon -> Color.Transparent
         ArdttButtonVariant.Danger -> scheme.error
     }
-    val container = if (floating) {
-        ArdttFloatingShell.tintedShell(baseContainer)
-    } else {
-        baseContainer
+    // Glass keeps the hue at 80%. Solid primary and danger use that same color
+    // composited on the surface, so the two fills match.
+    val matchOpaqueGlass = !floating &&
+        containerOverride == null &&
+        (variant == ArdttButtonVariant.Primary || variant == ArdttButtonVariant.Danger)
+    val container = when {
+        floating -> ArdttFloatingShell.tintedShell(baseContainer)
+        matchOpaqueGlass -> ArdttFloatingShell.opaqueGlassFill(baseContainer, scheme.surface)
+        else -> baseContainer
     }
     val fallbackContent = when (variant) {
         ArdttButtonVariant.Primary -> onPrimary
@@ -419,7 +424,7 @@ private fun buttonColors(
         ArdttButtonVariant.Danger -> scheme.onError
     }
     val content = when {
-        floating -> ardttFloatingContentColor(container, contentOverride)
+        floating || matchOpaqueGlass -> ardttFloatingContentColor(container, contentOverride)
         contentOverride != null -> contentOverride
         containerOverride != null && container.alpha > 0.04f ->
             ArdttSurface.contentColorOn(container)
