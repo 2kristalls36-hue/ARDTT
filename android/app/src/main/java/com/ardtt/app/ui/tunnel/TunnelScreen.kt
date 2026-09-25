@@ -2,8 +2,6 @@ package com.ardtt.app.ui.tunnel
 
 import android.os.Build
 import android.telephony.SubscriptionManager
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -340,15 +338,6 @@ fun TunnelScreen(
         refreshPublicIps(force = true)
     }
 
-    val buttonColor by animateColorAsState(
-        targetValue = when {
-            sessionUp -> MaterialTheme.colorScheme.error
-            else -> MaterialTheme.colorScheme.primary
-        },
-        animationSpec = tween(400),
-        label = "btn_color",
-    )
-
     val pull = rememberPullRefresh {
         refreshPublicIps(force = true)
         val skipProbe = connecting || connected || pausedTrusted || disconnecting
@@ -382,7 +371,7 @@ fun TunnelScreen(
                 enabled = tunnelStickyCtaEnabled(ui.state, ui.connectEnabled),
                 containerColor = when {
                     tunnelStickyCtaIsDestructive(ui.state) -> MaterialTheme.colorScheme.error
-                    else -> buttonColor
+                    else -> MaterialTheme.colorScheme.primary
                 },
                 icon = when {
                     ui.state == ConnState.Connecting -> Icons.Default.Stop
