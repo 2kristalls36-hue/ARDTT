@@ -6,8 +6,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 
 /**
- * Compatibility wrapper: full-width primary CTA. Implementation lives in
- * [ArdttButton].
+ * Full-width sticky CTA. The fill is [com.ardtt.app.ui.components.surface.ArdttFloatingShell.tintedShell]
+ * with the tab pill's hairline and shadow. A caller [containerColor] is the
+ * tint (connect, stop, warning), not an opaque fill.
  */
 @Composable
 fun ArdttPrimaryButton(
@@ -31,5 +32,6 @@ fun ArdttPrimaryButton(
         icon = icon,
         containerColor = containerColor,
         contentColor = contentColor,
+        floating = true,
     )
 }
