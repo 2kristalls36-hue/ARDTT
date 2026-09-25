@@ -231,11 +231,6 @@ fun LogsScreen(
             header = {
                 ArdttTabHeader(
                     title = "Журнал событий",
-                    subtitle = if (AppLog.isDetailedEnabled()) {
-                        "Подробные события (админ)"
-                    } else {
-                        "Краткие события туннеля"
-                    },
                     onBack = onBack,
                     actions = if (logsActionsInPageHeader(embedded = false)) {
                         { LogsJournalHeaderActions() }

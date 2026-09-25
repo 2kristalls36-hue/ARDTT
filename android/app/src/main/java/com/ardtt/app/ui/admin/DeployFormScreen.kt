@@ -245,11 +245,6 @@ fun DeployScreen(
             header = {
                 ArdttTabHeader(
                     title = serverDeployScreenTitle(saved),
-                    subtitle = if (saved) {
-                        "Стек $expectedDeployVersion · SSH · Compose"
-                    } else {
-                        "SSH · установка Compose-стека ARDTT"
-                    },
                     onBack = if (canLeave) onBack else null,
                 )
             },

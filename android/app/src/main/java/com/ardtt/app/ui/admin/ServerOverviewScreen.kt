@@ -387,7 +387,6 @@ private fun ServerOverviewScreen(
             header = {
                 ArdttTabHeader(
                     title = server.name.ifBlank { server.host },
-                    subtitle = serverOverviewHeaderSubtitle(),
                     onBack = onBack,
                 )
             },

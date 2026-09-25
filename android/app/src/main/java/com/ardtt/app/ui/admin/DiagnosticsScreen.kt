@@ -85,7 +85,6 @@ fun DiagnosticsScreen(
             header = {
                 ArdttTabHeader(
                     title = DiagnosticsCopy.TITLE,
-                    subtitle = diagnosticsHeaderSubtitle(),
                     bottomPadding = diagnosticsHeaderBottomPadding(),
                     titleRowHeight = diagnosticsTitleRowMinHeight(),
                 )
@@ -119,7 +118,6 @@ fun DiagnosticsScreen(
         header = {
             ArdttTabHeader(
                 title = DiagnosticsCopy.TITLE,
-                subtitle = diagnosticsHeaderSubtitle(),
                 bottomPadding = diagnosticsHeaderBottomPadding(),
                 titleRowHeight = diagnosticsTitleRowMinHeight(),
                 actions = if (openTool == DiagnosticsTool.Logs && logsActionsInPageHeader(embedded = true)) {
@@ -197,7 +195,6 @@ private fun DiagnosticsToolRow(
     ArdttDestinationRow(
         icon = spec.icon,
         title = spec.title,
-        subtitle = spec.subtitle,
         onClick = onClick,
         expanded = expanded,
     )
@@ -206,29 +203,22 @@ private fun DiagnosticsToolRow(
 private data class DiagnosticsToolSpec(
     val icon: ImageVector,
     val title: String,
-    val subtitle: String,
 )
 
 private fun diagnosticsToolSpec(tool: DiagnosticsTool): DiagnosticsToolSpec = when (tool) {
     DiagnosticsTool.Network -> DiagnosticsToolSpec(
         icon = Icons.Outlined.Wifi,
         title = "Сеть",
-        subtitle = DiagnosticsCopy.NETWORK_SUBTITLE,
     )
     DiagnosticsTool.Logs -> DiagnosticsToolSpec(
         icon = Icons.Outlined.Terminal,
         title = "Журнал",
-        subtitle = DiagnosticsCopy.LOGS_SUBTITLE,
     )
 }
 
 internal object DiagnosticsCopy {
     const val TITLE = "Диагностика"
-    const val NETWORK_SUBTITLE = "Карта пути и задержки"
-    const val LOGS_SUBTITLE = "События туннеля и деплоя"
 }
-
-internal fun diagnosticsHeaderSubtitle(): String? = null
 
 /** Same chrome and feed insets as the other bottom tabs. */
 internal fun diagnosticsChromeFade() = ArdttChrome.FadeHeight
