@@ -21,18 +21,29 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Read app version
         id: version
         shell: bash
         run: |
-          version_name="0.5.267-pr237-preview"
-          version_code="288"
+          release_version_name="$(sed -n 's/.*releaseVersionName = "\([^"]*\)".*/\1/p' android/app/build.gradle.kts | head -n 1)"
+          test -n "$release_version_name"
+          base_ref="${{ github.base_ref || 'main' }}"
+          git fetch origin "$base_ref"
+          version_code="$(bash scripts/compute-version-code.sh preview "origin/${base_ref}")"
+          short_sha="${GITHUB_SHA::7}"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            version_name="${release_version_name}-pr${{ github.event.pull_request.number }}-preview"
+          else
+            version_name="${release_version_name}-preview-${short_sha}"
+          fi
           test -n "$version_name"
           test -n "$version_code"
           echo "version_name=$version_name" >> "$GITHUB_OUTPUT"
           echo "version_code=$version_code" >> "$GITHUB_OUTPUT"
-          echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${short_sha}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -115,8 +126,8 @@ jobs:
           printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > local.properties
           ./gradlew :app:assembleRelease \
             -PtargetAbis=arm64-v8a \
-            -PpreviewVersionCode=288 \
-            -PpreviewVersionName=0.5.267-pr237-preview \
+            -PpreviewVersionCode=${{ steps.version.outputs.version_code }} \
+            -PpreviewVersionName=${{ steps.version.outputs.version_name }} \
             --no-daemon
 
       - name: Verify signed APK

@@ -63,6 +63,8 @@
 
 Публичный канонический источник **клиента и стека**. Push в `main` собирает подписанный APK. Если в `versionName` есть `test` — файл только в **Actions → Artifacts**. Стабильная версия публикует GitHub Release: APK, `ardtt-update.json` и `ardtt-server-<DEPLOY_VERSION>-linux-*.tar.gz`. В APK остаётся метка `deploy/DEPLOY_VERSION`.
 
+`versionCode` в CI считается автоматически из истории git (`scripts/compute-version-code.sh`: релиз — `git rev-list --count HEAD` × 10, preview — база × 10 плюс число коммитов PR, не больше 9). Поэтому каждая публикация ставится поверх предыдущей. Вручную бампать нужно только `releaseVersionName`; `releaseVersionCode` — нижняя граница для локальных сборок.
+
 ```
 ARDTT/
 ├── android/      # Jetpack Compose-клиент (Gradle живёт здесь)

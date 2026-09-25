@@ -101,6 +101,23 @@ fi
 test -s "$WORKDIR/withapk/SHA256SUMS.txt" || fail "SHA256SUMS.txt not written"
 grep -q 'ardtt-0.5.264-arm64-v8a.apk' "$WORKDIR/withapk/ardtt-update.json" \
   || fail "update json apkUrl not rewritten"
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); raise SystemExit(0 if d.get("versionCode")==289 else 1)' \
+  "$WORKDIR/withapk/ardtt-update.json" \
+  && fail "rewrite without --version-code must not invent versionCode" \
+  || pass "rewrite without --version-code keeps a missing versionCode unset"
+printf '%s\n' '{"versionCode": 1, "versionName": "stale"}' >"$WORKDIR/withapk/ardtt-update.json"
+python3 "$ROOT/scripts/rewrite-release-update-json.py" \
+  v0.5.264 0.5.264 "$GITHUB_REPOSITORY" "$WORKDIR/withapk"
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); raise SystemExit(0 if d.get("versionCode")==1 else 1)' \
+  "$WORKDIR/withapk/ardtt-update.json" \
+  && pass "rewrite without --version-code keeps the existing versionCode" \
+  || fail "stale versionCode should stay when --version-code is omitted"
+python3 "$ROOT/scripts/rewrite-release-update-json.py" \
+  v0.5.264 0.5.264 "$GITHUB_REPOSITORY" "$WORKDIR/withapk" --version-code 10190
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); raise SystemExit(0 if d.get("versionCode")==10190 else 1)' \
+  "$WORKDIR/withapk/ardtt-update.json" \
+  && pass "--version-code replaces a stale versionCode" \
+  || fail "--version-code should replace versionCode"
 
 if [ "$FAIL" -ne 0 ]; then
   echo "test-ensure-release-apks failed" >&2
