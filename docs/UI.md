@@ -177,7 +177,7 @@ ui/
 `ArdttSpacing` — шаговая шкала: `None` 0 · `Hairline` 2 · `HairlinePlus` 3 · `Tiny` 4 · `TinyPlus` 6 ·
 `Small` 8 · `SmallPlus` 10 · `Medium` 12 · `MediumPlus` 14 · `Large` 16 ·
 `LargePlus` 18 · `XLarge` 20 · `XLargePlus` 22 · `XXLarge` 24 · `XXXLarge` 28.
-`ArdttLayout` даёт этим шагам роли (`ScreenPadding`, `FeedSpacing`, `CardPadding`),
+`ArdttLayout` даёт этим шагам роли (`ScreenPadding` 10, `FeedSpacing` 8, `CardPadding` 12, воздух под лентой 12, fade шапки 12),
 `ArdttRadius`/`ArdttShapes` — радиусы по типу поверхности (`Field` — поля ввода,
 тот же радиус, что у `Chip`), `ArdttSize` — фиксированные размеры элементов
 управления (`Chip` 44, `ChipCompact` 40 в быстрых параметрах туннеля).
