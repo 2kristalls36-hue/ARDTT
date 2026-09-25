@@ -34,7 +34,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -256,16 +255,6 @@ fun ProfilesScreen(
         header = {
             ArdttTabHeader(
                 title = "Профили",
-                subtitle = profilesCountSubtitle(
-                    count = catalog.items.size,
-                    countLabel = pluralStringResource(
-                        R.plurals.profiles_count,
-                        catalog.items.size,
-                        catalog.items.size,
-                    ),
-                    activeName = catalog.active?.name,
-                    locked = profileSwitchLocked,
-                ),
             )
         },
     ) {
