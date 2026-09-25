@@ -6,6 +6,7 @@
 |----------|------------|
 | [LEGEND.md](LEGEND.md) | Имя **ARDTT** (Amnezia & Raw Dial over TURN Tunnel), Path A/B, знак AR/DTT |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Схемы, probe, каскад, Hide-IP WARP, VpnService |
+| [DIAGNOSIS-TUNNEL-DROP.md](DIAGNOSIS-TUNNEL-DROP.md) | Почему туннель обрывается сам: сторож и handover клиента, Go-обход, каскад и супервизор |
 | [DEPLOY.md](DEPLOY.md) | Стек **1.0.54**: localhost bind + Bearer; `ardttctl` / atomic current; архив `ardtt-server-*-linux-<arch>.tar.gz` |
 | [TELEMETRY.md](TELEMETRY.md) | Режим тестирования и формат логов |
 | [UI.md](UI.md) | Дизайн-система клиента: реестр компонентов и токенов, карта экранов, режимы |
