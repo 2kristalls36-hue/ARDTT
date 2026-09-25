@@ -21,7 +21,7 @@ class ArdttTokenContractTest {
 
     @Test
     fun sharedLayoutRolesUseTheCommonScale() {
-        assertEquals(ArdttSpacing.Large, ArdttLayout.ScreenPadding)
+        assertEquals(ArdttSpacing.SmallPlus, ArdttLayout.ScreenPadding)
         assertEquals(ArdttSpacing.XLargePlus, ArdttLayout.SheetPadding)
         assertEquals(ArdttSpacing.HairlinePlus, ArdttLayout.BadgeVerticalPadding)
     }

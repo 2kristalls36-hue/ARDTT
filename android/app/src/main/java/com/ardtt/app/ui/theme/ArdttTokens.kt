@@ -43,35 +43,35 @@ object ArdttSpacing {
 /** Named roles for the steps above, so screens describe intent, not size. */
 object ArdttLayout {
     /** Horizontal gutter of every scrollable feed. */
-    val ScreenPadding: Dp = ArdttSpacing.Large
+    val ScreenPadding: Dp = ArdttSpacing.SmallPlus
 
     /** Gap between cards inside a feed. */
-    val FeedSpacing: Dp = ArdttSpacing.MediumPlus
+    val FeedSpacing: Dp = ArdttSpacing.Small
 
     /** Trailing air below the last feed item. */
-    val FeedBottomExtra: Dp = ArdttSpacing.XXLarge
+    val FeedBottomExtra: Dp = ArdttSpacing.Medium
 
     /** Inner padding of a full-width section card. */
-    val CardPadding: PaddingValues = PaddingValues(ArdttSpacing.LargePlus)
+    val CardPadding: PaddingValues = PaddingValues(ArdttSpacing.Medium)
 
     /** Gap between rows inside a section card. */
-    val CardSpacing: Dp = ArdttSpacing.Large
+    val CardSpacing: Dp = ArdttSpacing.SmallPlus
 
     /** Inner padding of a settings card: title, helper text, switch rows. */
-    val SettingsCardPadding: PaddingValues = PaddingValues(ArdttSpacing.Large)
+    val SettingsCardPadding: PaddingValues = PaddingValues(ArdttSpacing.Medium)
 
     /** Gap between rows inside a settings card. */
-    val SettingsCardSpacing: Dp = ArdttSpacing.SmallPlus
+    val SettingsCardSpacing: Dp = ArdttSpacing.Small
 
     /** Inner padding of a compact list card (servers, clients, profiles). */
     val CompactCardPadding: PaddingValues =
-        PaddingValues(horizontal = ArdttSpacing.Medium, vertical = ArdttSpacing.SmallPlus)
+        PaddingValues(horizontal = ArdttSpacing.SmallPlus, vertical = ArdttSpacing.Small)
 
     /** Gap between rows inside a compact list card. */
-    val CompactCardSpacing: Dp = ArdttSpacing.TinyPlus
+    val CompactCardSpacing: Dp = ArdttSpacing.Tiny
 
     /** Gap between items of a list of compact cards. */
-    val ListSpacing: Dp = ArdttSpacing.Small
+    val ListSpacing: Dp = ArdttSpacing.TinyPlus
 
     /** Gap between sibling controls on one row. */
     val ControlSpacing: Dp = ArdttSpacing.Small
@@ -181,7 +181,7 @@ object ArdttSize {
 /** Top chrome: blur strip under the pinned header. */
 object ArdttChrome {
     val BlurRadius: Dp = 18.dp
-    val FadeHeight: Dp = 28.dp
+    val FadeHeight: Dp = 12.dp
     const val ScrimAlphaLight = 0.78f
     const val ScrimAlphaDark = 0.72f
     const val FadeAlpha = 0.92f
