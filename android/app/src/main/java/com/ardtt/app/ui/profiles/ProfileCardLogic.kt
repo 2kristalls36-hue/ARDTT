@@ -108,8 +108,8 @@ internal fun profileCardTitleTone(): ProfileCardTitleTone = ProfileCardTitleTone
 internal fun profileCardHostLayout(): ProfileCardHostLayout =
     ProfileCardHostLayout.InnerWeightedRow
 
-/** Same extra Small under the chrome as the servers list. */
-internal fun profileFeedAddsTopSpacing(): Boolean = true
+/** Profiles use the same top inset as Settings: chrome padding only. */
+internal fun profileFeedAddsTopSpacing(): Boolean = false
 
 internal fun profileCardPresenceLabel(active: Boolean): String? =
     if (active) "● Активен" else null

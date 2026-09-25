@@ -404,13 +404,8 @@ private fun ServerOverviewScreen(
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(
-                        start = ArdttSpacing.Large,
-                        end = ArdttSpacing.Large,
-                        top = if (serverOverviewFeedAddsTopSpacing()) {
-                            ArdttSpacing.Small
-                        } else {
-                            ArdttSpacing.None
-                        },
+                        start = ArdttLayout.ScreenPadding,
+                        end = ArdttLayout.ScreenPadding,
                         bottom = ArdttBottomChrome.scrollContentPadding(),
                     ),
                     verticalArrangement = Arrangement.spacedBy(ArdttLayout.ListSpacing),

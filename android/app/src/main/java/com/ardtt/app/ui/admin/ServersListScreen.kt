@@ -417,7 +417,7 @@ private fun ServerListScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = ArdttSpacing.Large)
+                    .padding(horizontal = ArdttLayout.ScreenPadding)
                     .padding(top = topPad),
             ) {
 
@@ -432,7 +432,6 @@ private fun ServerListScreen(
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(
-                            top = ArdttSpacing.Small,
                             bottom = ArdttBottomChrome.scrollContentPadding(),
                         ),
                         verticalArrangement = Arrangement.spacedBy(ArdttLayout.ListSpacing),

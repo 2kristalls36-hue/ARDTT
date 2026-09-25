@@ -6,6 +6,7 @@ import com.ardtt.app.profile.BypassConfig
 import com.ardtt.app.profile.DirectConfig
 import com.ardtt.app.profile.VpnProfile
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -130,7 +131,7 @@ class ProfileCardLogicTest {
 
     @Test
     fun profileFeedUsesServerListTopSpacing() {
-        assertTrue(profileFeedAddsTopSpacing())
+        assertFalse(profileFeedAddsTopSpacing())
     }
 
     private fun profile(directEndpoint: String, bypassPeer: String) = VpnProfile(
