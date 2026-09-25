@@ -32,10 +32,9 @@ import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.sp
 import com.ardtt.app.ui.theme.ArdttAlpha
+import com.ardtt.app.ui.theme.ArdttButtonLabelStyle
 import com.ardtt.app.ui.theme.ArdttElevation
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSize
@@ -55,8 +54,6 @@ enum class ArdttButtonSize {
     Regular,
     Compact,
 }
-
-private val PrimaryLabelTracking = 0.2.sp
 
 /**
  * Shared button contract. [ArdttPrimaryButton] stays as the full-width primary
@@ -123,10 +120,7 @@ fun ArdttButton(
             if (showsText) {
                 Text(
                     text,
-                    style = MaterialTheme.typography.titleSmall.copy(
-                        letterSpacing = PrimaryLabelTracking,
-                    ),
-                    fontWeight = FontWeight.SemiBold,
+                    style = ArdttButtonLabelStyle,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )

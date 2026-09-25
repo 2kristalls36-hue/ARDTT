@@ -15,13 +15,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import com.ardtt.app.ui.components.control.ArdttButton
 import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
+import com.ardtt.app.ui.theme.ArdttPageTitleStyle
 import com.ardtt.app.ui.theme.ArdttWallpaperTextShadow
 import com.ardtt.app.ui.theme.backdropMutedTextColor
 import com.ardtt.app.ui.theme.backdropTitleColor
@@ -29,7 +29,7 @@ import com.ardtt.app.ui.theme.illustratedBackdropActive
 
 /** Single anchor for every bottom-tab title row in a scrolling feed. */
 object ArdttHeaderDefaults {
-    val TitleRowHeight: Dp = ArdttSize.TouchTarget
+    val TitleRowHeight: Dp = ArdttSize.TitleRow
     val TopPaddingAfterStatusBar: Dp = ArdttSpacing.Small
     val HorizontalPadding: Dp = ArdttSpacing.Large
     val BottomPaddingBelowTitle: Dp = ArdttSpacing.Medium
@@ -153,10 +153,7 @@ private fun PageHeaderChrome(
             Text(
                 title,
                 modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.headlineMedium.copy(
-                    fontWeight = FontWeight.ExtraBold,
-                    shadow = titleShadow,
-                ),
+                style = ArdttPageTitleStyle.copy(shadow = titleShadow),
                 color = backdropTitleColor(),
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,

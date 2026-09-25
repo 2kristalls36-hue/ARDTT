@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
@@ -56,7 +55,6 @@ import com.ardtt.app.ui.components.surface.ArdttSectionCard
 import com.ardtt.app.ui.components.surface.terminalCardColor
 import com.ardtt.app.ui.components.surface.terminalCardElevation
 import com.ardtt.app.ui.theme.ArdttAlpha
-import com.ardtt.app.ui.theme.ArdttRadius
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
@@ -153,10 +151,7 @@ fun LogsScreen(
                             color = MaterialTheme.colorScheme.primary.copy(
                                 alpha = if (isDark) ArdttAlpha.Fill else ArdttAlpha.FillSoft,
                             ),
-                            shape = RoundedCornerShape(
-                                topStart = ArdttRadius.Panel,
-                                topEnd = ArdttRadius.Panel,
-                            ),
+                            shape = ArdttShapes.PanelTop,
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Row(

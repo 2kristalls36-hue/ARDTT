@@ -17,7 +17,8 @@ ui/
 │   ├── ArdttColors.kt      светлая/тёмная схемы, семантические цвета, обои → палитра
 │   ├── ArdttSurface.kt     единственная проверка «тёмная ли поверхность» и заливки
 │   ├── ArdttBackdropTone.kt  цвета и тень текста поверх иллюстрированных обоев
-│   ├── ArdttTypography.kt  Inter + шкала, ArdttTerminalTextStyle / ArdttTerminalLabelStyle
+│   ├── ArdttTypography.kt  Inter + шкала, семантические стили кнопок/навигации/
+│   │                       заголовков/значений, terminal styles
 │   └── ArdttTheme.kt       ArdttTheme() и системные панели (без wallpaper-tint — он в AppRoot)
 ├── components/     # дизайн-система
 │   ├── layout/     каркас: ArdttFeedScaffold, ArdttLazyFeedScaffold, ArdttScrollChrome,
@@ -87,22 +88,24 @@ ui/
 | Объект | Что задаёт |
 |--------|------------|
 | `ArdttSpacing` | шаговая шкала отступов `None … XXXLarge` |
-| `ArdttLayout` | роли шагов: `ScreenPadding`, `FeedSpacing`, `CardPadding`, `CardSpacing`, `SettingsCardPadding`, `SettingsCardSpacing`, `CompactCardPadding`, `ListSpacing`, `ControlSpacing`, `BadgeVerticalPadding`, `DialogPadding`, `SheetPadding` |
-| `ArdttRadius` / `ArdttShapes` | радиусы и формы по типу поверхности (`Badge … Section`, `Field`, `Pill`, `Sheet`) |
+| `ArdttLayout` | роли шагов: `ScreenPadding`, `FeedSpacing`, `CardPadding`, `CardSpacing`, `SettingsCardPadding`, `SettingsCardSpacing`, `CompactCardPadding`, `ListSpacing`, `ControlSpacing`, `DialogPadding`, `SheetPadding`, `BadgeVerticalPadding` |
+| `ArdttRadius` / `ArdttShapes` | радиусы и формы по типу поверхности (`Badge … Section`, `Field`, `Pill`, `PanelTop`, `Sheet`) |
 | `ArdttElevation` | `None`, `Low`, `Card`, `Raised`, `Floating`, `FloatingDark` |
-| `ArdttSize` | размеры контролов и глифов: иконки, спиннеры, `Chip`/`ChipCompact`, `Button`/`ButtonCompact`/`ButtonCluster`, `TouchTarget`, `NavTrack`/`NavZone`, `Border`/`Contour`/`Stroke`, `RecordingFrame` |
+| `ArdttSize` | размеры контролов и глифов: иконки (`IconFeature` — 36 dp), спиннеры как алиасы иконок, `TitleRow` как алиас `TouchTarget`, `Chip`/`ChipCompact`, `Button`/`ButtonCompact`/`ButtonCluster`, `NavTrack`/`NavZone`, `Border`/`Contour`/`Stroke`, `RecordingFrame` |
 | `ArdttAlpha` | роли прозрачности: `Contour`, `Fill`, `FillSoft`, `Outline`, `Divider`, `Shadow`, `Disabled`, `DisabledContainer`, `Muted`, `Subtle`, `Strong` |
 | `ArdttMotion` | длительности `Quick … Pulse` |
 | `ArdttChrome` | blur/fade верхней панели |
 | `ArdttColors` | семантика вне `ColorScheme`: `Connected`/`Warning` (+ `On*`, `*OnLight`/`*OnDark`), `SessionLit`, `Recording`, `PathDirect`/`PathBypass`, `Support*`, `DroneGlow`, `Wallpaper*Overlay`, `Terminal*` |
 | `ArdttSurface` | `isDark`, `contentColorOn`, `contrastRatio`, заливки карточек и «стекла» |
 | `ArdttWallpaperTextShadow` | единственная тень текста прямо на обоях |
+| `ArdttButtonLabelStyle`, `ArdttNavigationLabelStyle`, `ArdttPageTitleStyle`, `ArdttSectionTitleStyle`, `ArdttValueTextStyle` | семантические текстовые роли поверх Material-шкалы |
 | `ArdttTerminalTextStyle` / `ArdttTerminalLabelStyle` | монотекст лога и метка уровня |
 
 Экранные и компонентные `*Defaults`-объекты (`UserTunnelDefaults`,
 `SettingsDefaults`, `AdminUnlockDefaults`, `TunnelPollDefaults`,
-`ServerOsBadgeDefaults`, `ArdttQrCodeDefaults`, `ArdttScrollChromeDefaults`)
-держат разовую геометрию, технические цвета и интервалы рядом с местом
+`ServerOsBadgeDefaults`, `ArdttQrCodeDefaults`, `ArdttScrollChromeDefaults`,
+`ArdttStatusChipDefaults`, `ArdttTerminalCardDefaults`, `ArdttLabelValueRowDefaults`,
+`ArdttStateBlockDefaults`) держат разовую геометрию и интервалы рядом с местом
 использования. Совпавшие числа не поднимаются в общий токен, если у них разная
 семантика.
 
@@ -171,7 +174,7 @@ ui/
 токена (разовая геометрия вроде кольца питания) остаётся литералом рядом с местом
 использования, с именем.
 
-`ArdttSpacing` — шаговая шкала: `None` 0 · `Hairline` 2 · `Tiny` 4 · `TinyPlus` 6 ·
+`ArdttSpacing` — шаговая шкала: `None` 0 · `Hairline` 2 · `HairlinePlus` 3 · `Tiny` 4 · `TinyPlus` 6 ·
 `Small` 8 · `SmallPlus` 10 · `Medium` 12 · `MediumPlus` 14 · `Large` 16 ·
 `LargePlus` 18 · `XLarge` 20 · `XLargePlus` 22 · `XXLarge` 24 · `XXXLarge` 28.
 `ArdttLayout` даёт этим шагам роли (`ScreenPadding`, `FeedSpacing`, `CardPadding`),

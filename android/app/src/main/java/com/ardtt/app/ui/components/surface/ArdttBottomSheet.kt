@@ -9,14 +9,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
+import com.ardtt.app.ui.theme.ArdttLayout
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSpacing
+import com.ardtt.app.ui.theme.sheetContainerColor
 
 /**
  * Scrollable modal sheet for content that is not a confirm/cancel dialog —
@@ -27,7 +28,7 @@ import com.ardtt.app.ui.theme.ArdttSpacing
  * device lists) opt out, the rest apply [ArdttSheetDefaults.HorizontalPadding].
  */
 object ArdttSheetDefaults {
-    val HorizontalPadding: Dp = ArdttSpacing.XLargePlus
+    val HorizontalPadding: Dp = ArdttLayout.SheetPadding
     val ItemSpacing: Dp = ArdttSpacing.Large
     val BottomPadding: Dp = ArdttSpacing.XXXLarge
 }
@@ -47,7 +48,7 @@ fun ArdttBottomSheet(
         onDismissRequest = onDismissRequest,
         sheetState = sheetState,
         shape = ArdttShapes.Sheet,
-        containerColor = MaterialTheme.colorScheme.surface,
+        containerColor = sheetContainerColor(),
     ) {
         Column(
             modifier = modifier

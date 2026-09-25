@@ -57,3 +57,29 @@ val ArdttTypography = Typography(
     labelMedium = inter(FontWeight.Medium, 12, 16, 0.5.sp),
     labelSmall = inter(FontWeight.Medium, 11, 16, 0.5.sp),
 )
+
+/** Label shared by filled, outlined and text buttons. */
+val ArdttButtonLabelStyle: TextStyle = ArdttTypography.titleSmall.copy(
+    fontWeight = FontWeight.SemiBold,
+    letterSpacing = 0.2.sp,
+)
+
+/** Two-line caption of a bottom navigation item. */
+val ArdttNavigationLabelStyle: TextStyle = ArdttTypography.labelMedium.copy(
+    fontSize = 12.sp,
+    lineHeight = 16.sp,
+    letterSpacing = 0.sp,
+)
+
+/** Main title in the shared page header. */
+val ArdttPageTitleStyle: TextStyle = ArdttTypography.headlineMedium.copy(
+    fontWeight = FontWeight.ExtraBold,
+)
+
+/** Heading of a section or centered state block. */
+val ArdttSectionTitleStyle: TextStyle = ArdttTypography.titleMedium
+
+/** Emphasized body-sized value in label/value rows. */
+val ArdttValueTextStyle: TextStyle = ArdttTypography.bodyMedium.copy(
+    fontWeight = FontWeight.SemiBold,
+)
