@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 object ArdttSpacing {
     val None: Dp = 0.dp
     val Hairline: Dp = 2.dp
+    val HairlinePlus: Dp = 3.dp
     val Tiny: Dp = 4.dp
     val TinyPlus: Dp = 6.dp
     val Small: Dp = 8.dp
@@ -75,14 +76,14 @@ object ArdttLayout {
     /** Gap between sibling controls on one row. */
     val ControlSpacing: Dp = ArdttSpacing.Small
 
-    /** Compact vertical inset shared by status and identity badges. */
-    val BadgeVerticalPadding: Dp = 3.dp
-
     /** Horizontal padding of dialog content and footer. */
     val DialogPadding: Dp = ArdttSpacing.XXLarge
 
     /** Horizontal padding of a modal bottom sheet. */
     val SheetPadding: Dp = ArdttSpacing.XLargePlus
+
+    /** Compact vertical inset shared by status and identity badges. */
+    val BadgeVerticalPadding: Dp = ArdttSpacing.HairlinePlus
 }
 
 /** Corner radii, named after the surface they belong to. */
@@ -110,6 +111,10 @@ object ArdttShapes {
     val Control: Shape = RoundedCornerShape(ArdttRadius.Control)
     val Menu: Shape = RoundedCornerShape(ArdttRadius.Menu)
     val Panel: Shape = RoundedCornerShape(ArdttRadius.Panel)
+    val PanelTop: Shape = RoundedCornerShape(
+        topStart = ArdttRadius.Panel,
+        topEnd = ArdttRadius.Panel,
+    )
     val Section: Shape = RoundedCornerShape(ArdttRadius.Section)
     val Pill: Shape = CircleShape
     val Sheet: Shape = RoundedCornerShape(
@@ -135,15 +140,17 @@ object ArdttSize {
     val IconCompact: Dp = 18.dp
     val Icon: Dp = 22.dp
     val IconLarge: Dp = 24.dp
+    val IconFeature: Dp = 36.dp
     val IconHero: Dp = 48.dp
 
-    val SpinnerSmall: Dp = 16.dp
-    val Spinner: Dp = 22.dp
-    val SpinnerLarge: Dp = 36.dp
+    val SpinnerSmall: Dp = IconSmall
+    val Spinner: Dp = Icon
+    val SpinnerLarge: Dp = IconFeature
     val PullIndicator: Dp = 40.dp
 
-    /** Height of a bottom-tab title row and of a choice chip. */
-    val TitleRow: Dp = 44.dp
+    val TouchTarget: Dp = 48.dp
+    /** Height of a bottom-tab title row; it is also the minimum touch target. */
+    val TitleRow: Dp = TouchTarget
     val Chip: Dp = 44.dp
     /** Compact chip in tunnel quick-settings, where three rows share a card. */
     val ChipCompact: Dp = 40.dp
@@ -155,7 +162,6 @@ object ArdttSize {
     val ButtonCompact: Dp = 48.dp
     /** Width of an icon-only primary in a button cluster (profile switcher arrows). */
     val ButtonCluster: Dp = 62.dp
-    val TouchTarget: Dp = 48.dp
 
     /** Inner height of the floating tab pill (icon + wrapping 12 sp caption). */
     val NavTrack: Dp = 72.dp
@@ -168,7 +174,7 @@ object ArdttSize {
     val Contour: Dp = 2.dp
     /** Pulsing frame drawn around the window while telemetry records. */
     val RecordingFrame: Dp = 6.dp
-    val Stroke: Dp = 2.dp
+    val Stroke: Dp = Contour
     val StrokeThick: Dp = 2.5.dp
 }
 

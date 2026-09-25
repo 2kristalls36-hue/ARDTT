@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import com.ardtt.app.ui.theme.ArdttElevation
 import com.ardtt.app.ui.theme.ArdttLayout
 import com.ardtt.app.ui.theme.ArdttSpacing
+import com.ardtt.app.ui.theme.dialogContainerColor
 
 data class ArdttDialogAction(
     val text: String,
@@ -91,7 +92,7 @@ fun ArdttDialog(
             if (allowsHideState.value) onDismissState.value()
         },
         sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        containerColor = dialogContainerColor(),
         contentColor = MaterialTheme.colorScheme.onSurface,
         tonalElevation = ArdttElevation.Raised,
         dragHandle = if (allowsHide) {

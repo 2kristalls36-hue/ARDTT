@@ -25,9 +25,12 @@ import com.ardtt.app.ui.components.control.ArdttButton
 import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
+import com.ardtt.app.ui.theme.ArdttValueTextStyle
 
-/** Label column width that keeps tunnel status values on one axis. */
-private val InlineLabelWidth = 148.dp
+object ArdttLabelValueRowDefaults {
+    /** Label column width that keeps inline status values on one axis. */
+    val InlineLabelWidth: Dp = 148.dp
+}
 
 /**
  * Label on the left, value on the right — the tunnel status panel form.
@@ -43,7 +46,7 @@ fun ArdttInlineFactRow(
     modifier: Modifier = Modifier,
     valueColor: Color = Color.Unspecified,
     pending: Boolean = false,
-    labelWidth: Dp = InlineLabelWidth,
+    labelWidth: Dp = ArdttLabelValueRowDefaults.InlineLabelWidth,
     maxLines: Int = 2,
     leadingIcon: (@Composable () -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
@@ -78,8 +81,7 @@ fun ArdttInlineFactRow(
                 leadingIcon?.invoke()
                 Text(
                     value,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
+                    style = ArdttValueTextStyle,
                     color = valueColor,
                     textAlign = TextAlign.End,
                     maxLines = maxLines,

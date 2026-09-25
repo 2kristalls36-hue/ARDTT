@@ -50,10 +50,10 @@ import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.sp
 import com.ardtt.app.ui.components.surface.ArdttFloatingShell
 import com.ardtt.app.ui.theme.ArdttElevation
 import com.ardtt.app.ui.theme.ArdttMotion
+import com.ardtt.app.ui.theme.ArdttNavigationLabelStyle
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
@@ -68,8 +68,8 @@ data class ArdttNavItem(
 )
 
 internal object ArdttNavChrome {
-    val LabelSize = 12.sp
-    val LabelLineHeight = 16.sp
+    val LabelSize = ArdttNavigationLabelStyle.fontSize
+    val LabelLineHeight = ArdttNavigationLabelStyle.lineHeight
 }
 
 private object NavBarDefaults {
@@ -77,8 +77,6 @@ private object NavBarDefaults {
     val OuterPadding = ArdttSpacing.SmallPlus
     val TrackPadding = ArdttSpacing.Small
     val IndicatorInset = ArdttSpacing.TinyPlus
-    val LabelSize = ArdttNavChrome.LabelSize
-    val LabelLineHeight = ArdttNavChrome.LabelLineHeight
 
     const val BoldEmphasis = 0.55f
     const val OpaqueEmphasis = 0.4f
@@ -288,10 +286,7 @@ private fun NavBarTab(
         Text(
             text = item.label,
             modifier = Modifier.fillMaxWidth(),
-            style = MaterialTheme.typography.labelMedium.copy(
-                fontSize = NavBarDefaults.LabelSize,
-                lineHeight = NavBarDefaults.LabelLineHeight,
-                letterSpacing = 0.sp,
+            style = ArdttNavigationLabelStyle.copy(
                 platformStyle = PlatformTextStyle(includeFontPadding = false),
                 lineHeightStyle = LineHeightStyle(
                     alignment = LineHeightStyle.Alignment.Center,

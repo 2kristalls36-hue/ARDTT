@@ -13,15 +13,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.ardtt.app.ui.theme.ArdttElevation
 import com.ardtt.app.ui.theme.ArdttLayout
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttTerminalTextStyle
 import com.ardtt.app.ui.theme.cardContainerColor
-import com.ardtt.app.ui.theme.isDarkSurface
+import com.ardtt.app.ui.theme.terminalShadowElevation
 
-/** Default height cap of an inline log view. */
-private val TerminalMaxHeight = 240.dp
+object ArdttTerminalCardDefaults {
+    /** Default height cap of an inline log view. */
+    val MaxHeight: Dp = 240.dp
+}
 
 /** Opaque theme surface — not a translucent green terminal on wallpaper. */
 @Composable
@@ -29,14 +30,14 @@ fun terminalCardColor(): Color = cardContainerColor()
 
 @Composable
 fun terminalCardElevation(): Dp =
-    if (isDarkSurface()) ArdttElevation.Card else ArdttElevation.Low
+    terminalShadowElevation()
 
 /** Scrollable monospace log on the Logs-tab terminal chrome. */
 @Composable
 fun ArdttTerminalCard(
     text: String,
     modifier: Modifier = Modifier,
-    maxHeight: Dp = TerminalMaxHeight,
+    maxHeight: Dp = ArdttTerminalCardDefaults.MaxHeight,
     emptyText: String = "—",
 ) {
     val scroll = rememberScrollState()

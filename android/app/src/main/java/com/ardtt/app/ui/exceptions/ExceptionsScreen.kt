@@ -82,7 +82,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -126,14 +125,12 @@ private val CardShape = ArdttShapes.Panel
 private val AppCardShape = ArdttShapes.Row
 /** Keep [AppsLoadingAnimation] stubs in lockstep with [AppExceptionRow]. */
 private val AppRowHorizontalPadding = ArdttSpacing.Medium
-private val AppRowVerticalPadding = 3.dp
 private val AppRowContentPadding = PaddingValues(
     start = ArdttSpacing.Medium,
     end = ArdttSpacing.Small,
     top = ArdttSpacing.TinyPlus,
     bottom = ArdttSpacing.TinyPlus,
 )
-private val AppRowIconSize = 36.dp
 private val AppRowIconCorner = ArdttShapes.Badge
 private val AppRowIconGap = ArdttSpacing.SmallPlus
 private val AppRowShadow = 1.dp
@@ -795,7 +792,7 @@ private fun AppsLoadingAnimation(modifier: Modifier = Modifier) {
                 icon = {
                     Box(
                         modifier = Modifier
-                            .size(AppRowIconSize)
+                            .size(ArdttSize.IconFeature)
                             .clip(AppRowIconCorner)
                             .background(shimmerBrush),
                     )
@@ -999,13 +996,13 @@ private fun AppExceptionRow(
                     bitmap = app.icon,
                     contentDescription = null,
                     modifier = Modifier
-                        .size(AppRowIconSize)
+                        .size(ArdttSize.IconFeature)
                         .clip(AppRowIconCorner),
                 )
             } else {
                 Box(
                     modifier = Modifier
-                        .size(AppRowIconSize)
+                        .size(ArdttSize.IconFeature)
                         .background(colors.surfaceVariant, AppRowIconCorner),
                 )
             }
@@ -1051,7 +1048,7 @@ private fun AppExceptionRowFrame(
         .fillMaxWidth()
         .padding(
             horizontal = AppRowHorizontalPadding,
-            vertical = AppRowVerticalPadding,
+            vertical = ArdttSpacing.HairlinePlus,
         )
         .then(
             if (interactive) {

@@ -1,0 +1,157 @@
+[
+  {
+    "id": "getprop",
+    "timeoutSec": 20,
+    "args": ["shell", "getprop"]
+  },
+  {
+    "id": "getprop-model",
+    "timeoutSec": 10,
+    "args": ["shell", "getprop", "ro.product.model"]
+  },
+  {
+    "id": "getprop-release",
+    "timeoutSec": 10,
+    "args": ["shell", "getprop", "ro.build.version.release"]
+  },
+  {
+    "id": "getprop-sdk",
+    "timeoutSec": 10,
+    "args": ["shell", "getprop", "ro.build.version.sdk"]
+  },
+  {
+    "id": "getprop-abi",
+    "timeoutSec": 10,
+    "args": ["shell", "getprop", "ro.product.cpu.abi"]
+  },
+  {
+    "id": "dumpsys-list",
+    "timeoutSec": 20,
+    "args": ["shell", "dumpsys", "-l"]
+  },
+  {
+    "id": "dumpsys-connectivity",
+    "timeoutSec": 40,
+    "args": ["shell", "dumpsys", "connectivity"]
+  },
+  {
+    "id": "dumpsys-wifi",
+    "timeoutSec": 40,
+    "args": ["shell", "dumpsys", "wifi"]
+  },
+  {
+    "id": "dumpsys-telephony",
+    "timeoutSec": 40,
+    "args": ["shell", "dumpsys", "telephony.registry"]
+  },
+  {
+    "id": "dumpsys-activity-services",
+    "timeoutSec": 30,
+    "args": ["shell", "dumpsys", "activity", "services", "com.ardtt.app"]
+  },
+  {
+    "id": "dumpsys-activity-processes",
+    "timeoutSec": 30,
+    "args": ["shell", "dumpsys", "activity", "processes"]
+  },
+  {
+    "id": "dumpsys-package",
+    "timeoutSec": 30,
+    "args": ["shell", "dumpsys", "package", "com.ardtt.app"]
+  },
+  {
+    "id": "dumpsys-battery",
+    "timeoutSec": 20,
+    "args": ["shell", "dumpsys", "battery"]
+  },
+  {
+    "id": "dumpsys-power",
+    "timeoutSec": 20,
+    "args": ["shell", "dumpsys", "power"]
+  },
+  {
+    "id": "dumpsys-deviceidle",
+    "timeoutSec": 20,
+    "args": ["shell", "dumpsys", "deviceidle"]
+  },
+  {
+    "id": "dumpsys-meminfo",
+    "timeoutSec": 20,
+    "args": ["shell", "dumpsys", "meminfo", "com.ardtt.app"]
+  },
+  {
+    "id": "dumpsys-notification",
+    "timeoutSec": 20,
+    "args": ["shell", "dumpsys", "notification", "--package", "com.ardtt.app"]
+  },
+  {
+    "id": "activity-exit-info",
+    "timeoutSec": 20,
+    "optional": true,
+    "args": ["shell", "dumpsys", "activity", "exit-info", "com.ardtt.app"]
+  },
+  {
+    "id": "pidof",
+    "timeoutSec": 10,
+    "args": ["shell", "pidof", "com.ardtt.app"]
+  },
+  {
+    "id": "ps-app",
+    "timeoutSec": 15,
+    "args": ["shell", "ps", "-A", "-o", "PID,PPID,USER,NAME,ARGS"]
+  },
+  {
+    "id": "ip-addr",
+    "timeoutSec": 15,
+    "optional": true,
+    "args": ["shell", "ip", "addr"]
+  },
+  {
+    "id": "ip-route",
+    "timeoutSec": 15,
+    "optional": true,
+    "args": ["shell", "ip", "route"]
+  },
+  {
+    "id": "cmd-wifi-status",
+    "timeoutSec": 15,
+    "optional": true,
+    "args": ["shell", "cmd", "wifi", "status"]
+  },
+  {
+    "id": "settings-stay-on",
+    "timeoutSec": 10,
+    "args": ["shell", "settings", "get", "global", "stay_on_while_plugged_in"]
+  },
+  {
+    "id": "pm-path",
+    "timeoutSec": 15,
+    "args": ["shell", "pm", "path", "com.ardtt.app"]
+  },
+  {
+    "id": "dumpsys-package-signatures",
+    "timeoutSec": 20,
+    "args": ["shell", "dumpsys", "package", "com.ardtt.app"]
+  },
+  {
+    "id": "logcat-help",
+    "timeoutSec": 10,
+    "args": ["logcat", "--help"]
+  },
+  {
+    "id": "uptime",
+    "timeoutSec": 10,
+    "args": ["shell", "uptime"]
+  },
+  {
+    "id": "date-unix",
+    "timeoutSec": 10,
+    "args": ["shell", "date", "+%s"]
+  },
+  {
+    "id": "dumpsys-help-activity",
+    "timeoutSec": 15,
+    "optional": true,
+    "args": ["shell", "dumpsys", "activity", "-h"]
+  }
+]

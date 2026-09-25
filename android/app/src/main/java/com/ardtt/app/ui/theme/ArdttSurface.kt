@@ -121,6 +121,13 @@ object ArdttSurface {
 
     fun cardShadowElevation(dark: Boolean): Dp =
         if (dark) ArdttElevation.Low else ArdttElevation.Card
+
+    /**
+     * Terminal/log surfaces need a stronger edge in dark chrome and a quieter
+     * edge in light chrome than ordinary cards.
+     */
+    fun terminalShadowElevation(dark: Boolean): Dp =
+        if (dark) ArdttElevation.Card else ArdttElevation.Low
 }
 
 /** True when the active color scheme renders dark chrome. */
@@ -144,6 +151,22 @@ fun cardContainerColor(): Color {
 @Composable
 @ReadOnlyComposable
 fun cardShadowElevation(): Dp = ArdttSurface.cardShadowElevation(isDarkSurface())
+
+/** Shadow of a terminal/log surface under the active scheme. */
+@Composable
+@ReadOnlyComposable
+fun terminalShadowElevation(): Dp =
+    ArdttSurface.terminalShadowElevation(isDarkSurface())
+
+/** Dialog fill under the active Material color scheme. */
+@Composable
+@ReadOnlyComposable
+fun dialogContainerColor(): Color = MaterialTheme.colorScheme.surfaceContainerHigh
+
+/** Modal sheet fill under the active Material color scheme. */
+@Composable
+@ReadOnlyComposable
+fun sheetContainerColor(): Color = MaterialTheme.colorScheme.surface
 
 /**
  * Fill of a selected segmented control — the tab-bar indicator and the selected

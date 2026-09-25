@@ -20,12 +20,12 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import com.ardtt.app.ui.theme.ArdttAlpha
 import com.ardtt.app.ui.theme.ArdttElevation
 import com.ardtt.app.ui.theme.ArdttLayout
 import com.ardtt.app.ui.theme.ArdttShapes
+import com.ardtt.app.ui.theme.ArdttSectionTitleStyle
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
 import com.ardtt.app.ui.theme.ArdttSurface
@@ -138,7 +138,7 @@ fun ArdttCompactCard(
     border: BorderStroke? = null,
     showBorder: Boolean = true,
     color: Color? = null,
-    shadowElevation: Dp? = ArdttElevation.Card,
+    shadowElevation: Dp? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     ArdttSectionCard(
@@ -205,8 +205,7 @@ fun ArdttSectionTitle(
     Text(
         text = text,
         modifier = modifier,
-        style = MaterialTheme.typography.titleMedium,
-        fontWeight = FontWeight.SemiBold,
+        style = ArdttSectionTitleStyle,
         color = if (accent) backdropTitleColor() else Color.Unspecified,
     )
 }
