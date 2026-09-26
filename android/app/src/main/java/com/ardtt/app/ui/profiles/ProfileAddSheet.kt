@@ -25,6 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.ardtt.app.ui.components.surface.ArdttBottomSheet
 import com.ardtt.app.ui.theme.ArdttAlpha
+import com.ardtt.app.ui.theme.ArdttLayout
 import com.ardtt.app.ui.theme.ArdttSpacing
 
 private object ProfileAddSheetDefaults {
@@ -123,7 +124,7 @@ private fun ProfileAddRow(option: ProfileAddOption) {
         )
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Hairline),
+            verticalArrangement = Arrangement.spacedBy(ArdttLayout.StackedLabelSpacing),
         ) {
             Text(
                 option.title,

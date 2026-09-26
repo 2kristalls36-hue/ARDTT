@@ -69,7 +69,7 @@ fun ArdttDestinationRow(
             )
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(ArdttLayout.CompactCardSpacing),
+                verticalArrangement = Arrangement.spacedBy(ArdttLayout.StackedLabelSpacing),
             ) {
                 Text(
                     title,
