@@ -119,6 +119,11 @@ class LogsCatalogTest {
     }
 
     @Test
+    fun journalPageTitleStaysWhileTheFeedScrolls() {
+        assertTrue(logsPageTitleStaysWhileScrolling())
+    }
+
+    @Test
     fun journalUptimeSitsOnTheLeftFromSessionStartNotLogText() {
         assertEquals("00:00", LogsCopy.UPTIME_IDLE)
         assertEquals(

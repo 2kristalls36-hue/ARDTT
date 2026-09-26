@@ -6,12 +6,19 @@ import com.ardtt.app.ui.components.layout.ardttScrollChromeTopPadding
 import com.ardtt.app.ui.theme.ArdttChrome
 import com.ardtt.app.ui.theme.ArdttLayout
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DiagnosticsAccordionTest {
     private val tools = diagnosticsTools()
+
+    @Test
+    fun journalKeepsThePageTitleWhileNetworkStillDissolvesIt() {
+        assertTrue(diagnosticsPageTitleStaysWhileScrolling(DiagnosticsTool.Logs))
+        assertFalse(diagnosticsPageTitleStaysWhileScrolling(DiagnosticsTool.Network))
+    }
 
     @Test
     fun diagnosticsStartsWithNetworkExpanded() {
