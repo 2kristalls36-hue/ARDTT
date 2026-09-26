@@ -63,6 +63,21 @@ object ArdttLayout {
     /** Gap between rows inside a settings card. */
     val SettingsCardSpacing: Dp = ArdttSpacing.Small
 
+    /**
+     * Short message card (donate, connection hint): the paragraph needs more
+     * side air than a settings row, without the tall panel inset.
+     */
+    val NoteCardPadding: PaddingValues = PaddingValues(
+        horizontal = ArdttSpacing.Large,
+        vertical = ArdttSpacing.Medium,
+    )
+
+    /** Gap between the title line, the paragraph and the link of a note card. */
+    val NoteCardSpacing: Dp = ArdttSpacing.Small
+
+    /** Gap between a title and its supporting line inside a card. */
+    val StackedLabelSpacing: Dp = ArdttSpacing.TinyPlus
+
     /** Inner padding of a compact list card (servers, clients, profiles). */
     val CompactCardPadding: PaddingValues =
         PaddingValues(horizontal = ArdttSpacing.SmallPlus, vertical = ArdttSpacing.Small)

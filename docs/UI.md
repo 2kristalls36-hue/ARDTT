@@ -88,7 +88,7 @@ ui/
 | Объект | Что задаёт |
 |--------|------------|
 | `ArdttSpacing` | шаговая шкала отступов `None … XXXLarge` |
-| `ArdttLayout` | роли шагов: `ScreenPadding`, `FeedSpacing`, `CardPadding`, `CardSpacing`, `SettingsCardPadding`, `SettingsCardSpacing`, `CompactCardPadding`, `ListSpacing`, `ControlSpacing`, `DialogPadding`, `SheetPadding`, `BadgeVerticalPadding` |
+| `ArdttLayout` | роли шагов: `ScreenPadding`, `FeedSpacing`, `CardPadding`, `CardSpacing`, `SettingsCardPadding`, `SettingsCardSpacing`, `NoteCardPadding`, `NoteCardSpacing`, `StackedLabelSpacing`, `CompactCardPadding`, `ListSpacing`, `ControlSpacing`, `DialogPadding`, `SheetPadding`, `BadgeVerticalPadding` |
 | `ArdttRadius` / `ArdttShapes` | радиусы и формы по типу поверхности (`Badge … Section`, `Field`, `Pill`, `PanelTop`, `Sheet`) |
 | `ArdttElevation` | `None`, `Low`, `Card`, `Raised`, `Floating`, `FloatingDark` |
 | `ArdttSize` | размеры контролов и глифов: иконки (`IconFeature` — 36 dp), спиннеры как алиасы иконок, `TitleRow` как алиас `TouchTarget`, `Chip`/`ChipCompact`, `Button`/`ButtonCompact`/`ButtonCluster`, `NavTrack`/`NavZone`, `Border`/`Contour`/`Stroke`, `RecordingFrame` |
@@ -176,12 +176,18 @@ ui/
 `ArdttSpacing` — шаговая шкала: `None` 0 · `Hairline` 2 · `HairlinePlus` 3 · `Tiny` 4 · `TinyPlus` 6 ·
 `Small` 8 · `SmallPlus` 10 · `Medium` 12 · `MediumPlus` 14 · `Large` 16 ·
 `LargePlus` 18 · `XLarge` 20 · `XLargePlus` 22 · `XXLarge` 24 · `XXXLarge` 28.
-`ArdttLayout` даёт этим шагам роли (`ScreenPadding` 10, `FeedSpacing` 8, `CardPadding` 12, воздух под лентой 12, fade шапки 12),
+`ArdttLayout` даёт этим шагам роли (`ScreenPadding` 10, `FeedSpacing` 8, `CardPadding` 12, `NoteCardPadding` 16×12, `StackedLabelSpacing` 6, воздух под лентой 12, fade шапки 12),
 `ArdttRadius`/`ArdttShapes` — радиусы по типу поверхности (`Field` — поля ввода,
 тот же радиус, что у `Chip`), `ArdttSize` — фиксированные размеры элементов
 управления (`Chip` 44, `ChipCompact` 40 в быстрых параметрах туннеля).
 `BadgeVerticalPadding` = 3 dp — компактный inset общего badge-контракта,
 намеренно меньший первого шага шкалы.
+
+Карточка-заметка (`ArdttMessageCard`): заголовок, абзац и ссылка в одном поле.
+Иконка и компактный крестик стоят в строке заголовка, текст и ссылка начинаются
+с одного края. Так собраны «Поддержка автора» и баннер «Информация о подключении».
+Подпись и пояснение внутри карточек (переключатели, блоки настроек, метрики
+сервера, слот деплоя, строки добавления профиля) разделены `StackedLabelSpacing`.
 
 Технические инварианты не зависят от темы: QR всегда рендерится чёрным на белом
 через `ArdttQrCodeDefaults`; `ArdttScrollChromeDefaults` хранит цвета alpha-mask.
