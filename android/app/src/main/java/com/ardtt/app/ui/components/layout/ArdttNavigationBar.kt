@@ -37,7 +37,9 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -57,7 +59,9 @@ import com.ardtt.app.ui.theme.ArdttNavigationLabelStyle
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.sin
 
 data class ArdttNavItem(
@@ -119,7 +123,7 @@ internal fun navTabPendingRoute(currentRoute: String, clickedRoute: String): Str
 /** One-second icon motion. Every pose is back at rest when progress is 0 or 1. */
 internal enum class TabIconMotion {
     KeyTurn,
-    Float,
+    ServerLights,
     Lift,
     Slide,
     Pulse,
@@ -138,12 +142,16 @@ internal data class TabIconPose(
 /**
  * Full roll around the horizontal axis. Halfway the key is upside down;
  * at the end it is home again. Not a spin in the plane of the icon.
+ *
+ * Drawn as a vector scale, not a 3D layer: a small glyph rotated in X is
+ * clipped by a near camera and looks like dropped frames. The gear stays
+ * smooth because it is a flat spin.
  */
 internal const val KeyTurnDegrees = 360f
 
 internal fun tabIconMotionFor(route: String): TabIconMotion = when (route) {
     "tunnel" -> TabIconMotion.KeyTurn
-    "servers" -> TabIconMotion.Float
+    "servers" -> TabIconMotion.ServerLights
     "profiles" -> TabIconMotion.Lift
     "exceptions" -> TabIconMotion.Slide
     "network" -> TabIconMotion.Pulse
@@ -175,6 +183,20 @@ internal fun tabIconTurn(progress: Float): Float {
     return t * t * (3f - 2f * t)
 }
 
+/**
+ * Orthographic height of the key. 1 upright, 0 edge-on, −1 upside down.
+ * Same turn as [KeyTurnDegrees], sampled so neighbouring frames stay close.
+ */
+internal fun tabIconKeyScaleY(rotationX: Float): Float =
+    cos(rotationX * (PI.toFloat() / 180f))
+
+/**
+ * Both server lamps, same curve as the diagnostic heartbeat: two soft blinks,
+ * fully lit at the start, the middle, and the end.
+ */
+internal fun tabIconServerLightAlpha(progress: Float): Float =
+    1f - tabIconHeartbeat(progress)
+
 internal fun tabIconPose(motion: TabIconMotion, progress: Float): TabIconPose {
     val settle = tabIconSettle(progress)
     return when (motion) {
@@ -182,7 +204,7 @@ internal fun tabIconPose(motion: TabIconMotion, progress: Float): TabIconPose {
         TabIconMotion.KeyTurn -> TabIconPose(
             rotationX = KeyTurnDegrees * tabIconTurn(progress),
         )
-        TabIconMotion.Float -> TabIconPose(translationYFraction = -0.2f * settle)
+        TabIconMotion.ServerLights -> TabIconPose()
         TabIconMotion.Lift -> TabIconPose(
             translationYFraction = -0.16f * settle,
             rotationZ = -8f * settle,
@@ -190,6 +212,20 @@ internal fun tabIconPose(motion: TabIconMotion, progress: Float): TabIconPose {
         TabIconMotion.Slide -> TabIconPose(translationXFraction = 0.16f * settle)
         TabIconMotion.Pulse -> TabIconPose(scale = 1f + 0.12f * settle)
         TabIconMotion.Heartbeat -> TabIconPose(scale = 1f + 0.14f * tabIconHeartbeat(progress))
+    }
+}
+
+/**
+ * Vector flip around the horizontal axis. The glyph is redrawn under the
+ * scale, so the edge stays a smooth hairline instead of a torn texture.
+ */
+private fun Modifier.tunnelKeyFlip(rotationX: Float): Modifier = drawWithContent {
+    val pivot = center
+    val sy = tabIconKeyScaleY(rotationX)
+    withTransform({
+        scale(scaleX = 1f, scaleY = sy, pivot = pivot)
+    }) {
+        this@drawWithContent.drawContent()
     }
 }
 
@@ -328,21 +364,31 @@ private fun NavBarTab(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(contentAlignment = Alignment.TopEnd) {
-            Icon(
-                imageVector = item.icon,
-                contentDescription = null,
-                modifier = Modifier
-                    .size(ArdttSize.Icon)
-                    .graphicsLayer {
-                        rotationX = iconPose.rotationX
-                        rotationZ = iconPose.rotationZ
-                        translationX = iconPose.translationXFraction * size.width
-                        translationY = iconPose.translationYFraction * size.height
-                        scaleX = iconPose.scale
-                        scaleY = iconPose.scale
+            val glyph = Modifier.size(ArdttSize.Icon)
+            if (iconMotion == TabIconMotion.ServerLights) {
+                ArdttServersTabIcon(
+                    lightAlpha = tabIconServerLightAlpha(iconProgress.value),
+                    tint = paint.color,
+                    modifier = glyph,
+                )
+            } else {
+                Icon(
+                    imageVector = item.icon,
+                    contentDescription = null,
+                    modifier = if (iconMotion == TabIconMotion.KeyTurn) {
+                        glyph.tunnelKeyFlip(iconPose.rotationX)
+                    } else {
+                        glyph.graphicsLayer {
+                            rotationZ = iconPose.rotationZ
+                            translationX = iconPose.translationXFraction * size.width
+                            translationY = iconPose.translationYFraction * size.height
+                            scaleX = iconPose.scale
+                            scaleY = iconPose.scale
+                        }
                     },
-                tint = paint.color,
-            )
+                    tint = paint.color,
+                )
+            }
             if (item.badgeCount > 0) {
                 Badge(
                     modifier = Modifier.offset(

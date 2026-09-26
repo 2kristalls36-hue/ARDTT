@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import com.ardtt.app.ui.AppDestination
 import com.ardtt.app.ui.theme.ArdttMotion
+import kotlin.math.abs
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -126,7 +127,16 @@ class ArdttNavigationBarTest {
         assertEquals(0f, upsideDown.rotationZ, 0.01f)
         assertEquals(KeyTurnDegrees, end.rotationX, 0.01f)
         assertEquals(360f, end.rotationX, 0.01f)
+        assertEquals(1f, tabIconKeyScaleY(start.rotationX), 0.001f)
+        assertEquals(-1f, tabIconKeyScaleY(upsideDown.rotationX), 0.001f)
+        assertEquals(1f, tabIconKeyScaleY(end.rotationX), 0.001f)
         assertTrue(tabIconPoseAtRest(end))
+        var previousScale = tabIconKeyScaleY(start.rotationX)
+        for (step in 1..60) {
+            val scale = tabIconKeyScaleY(tabIconPose(TabIconMotion.KeyTurn, step / 60f).rotationX)
+            assertTrue(abs(scale - previousScale) < 0.2f)
+            previousScale = scale
+        }
         val gear = tabIconPose(TabIconMotion.GearHalfTurn, 0.5f)
         assertEquals(0f, gear.rotationX, 0.01f)
         assertEquals(180f, gear.rotationZ, 0.01f)
@@ -146,7 +156,15 @@ class ArdttNavigationBarTest {
     @Test
     fun eachPrimaryTabHasItsOwnReturningMotion() {
         assertEquals(TabIconMotion.KeyTurn, tabIconMotionFor(AppDestination.Tunnel.route))
-        assertEquals(TabIconMotion.Float, tabIconMotionFor(AppDestination.Servers.route))
+        assertEquals(TabIconMotion.ServerLights, tabIconMotionFor(AppDestination.Servers.route))
+        assertEquals(1f, tabIconServerLightAlpha(0f), 0.001f)
+        assertEquals(1f, tabIconServerLightAlpha(0.5f), 0.001f)
+        assertEquals(1f, tabIconServerLightAlpha(1f), 0.001f)
+        assertEquals(0f, tabIconServerLightAlpha(0.25f), 0.001f)
+        assertEquals(0f, tabIconServerLightAlpha(0.75f), 0.001f)
+        assertEquals(24f, ArdttServersChassis.viewportWidth, 0.01f)
+        assertEquals(24f, ArdttServersLights.viewportWidth, 0.01f)
+        assertEquals(ArdttServersChassis.viewportHeight, ArdttServersLights.viewportHeight, 0.01f)
         assertEquals(TabIconMotion.Lift, tabIconMotionFor(AppDestination.Profiles.route))
         assertEquals(TabIconMotion.Slide, tabIconMotionFor(AppDestination.Exceptions.route))
         assertEquals(TabIconMotion.Pulse, tabIconMotionFor(AppDestination.Network.route))
