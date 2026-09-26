@@ -115,6 +115,7 @@ fun DiagnosticsScreen(
     ArdttScrollChrome(
         modifier = Modifier.fillMaxSize(),
         fadeHeight = diagnosticsChromeFade(),
+        pinHeader = diagnosticsPageTitleStaysWhileScrolling(openTool),
         header = {
             ArdttTabHeader(
                 title = DiagnosticsCopy.TITLE,

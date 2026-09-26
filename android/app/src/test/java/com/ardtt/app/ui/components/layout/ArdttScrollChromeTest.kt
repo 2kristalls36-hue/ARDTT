@@ -46,6 +46,16 @@ class ArdttScrollChromeTest {
     }
 
     @Test
+    fun pinnedHeaderStaysVisibleForTheWholeScroll() {
+        val range = 80f
+        assertEquals(1f, ardttScrollChromeHeaderVisibility(0f, range, pinned = true), 0f)
+        assertEquals(1f, ardttScrollChromeHeaderVisibility(40f, range, pinned = true), 0f)
+        assertEquals(1f, ardttScrollChromeHeaderVisibility(80f, range, pinned = true), 0f)
+        assertEquals(1f, ardttScrollChromeHeaderVisibility(120f, range, pinned = true), 0f)
+        assertEquals(0f, ardttScrollChromeHeaderVisibility(80f, range, pinned = false), 0f)
+    }
+
+    @Test
     fun headerVisibilitySafeWhenRangeIsZero() {
         assertEquals(1f, ardttScrollChromeHeaderVisibility(10f, 0f), 0f)
         assertEquals(1f, ardttScrollChromeHeaderVisibility(0f, -1f), 0f)

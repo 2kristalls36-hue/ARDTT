@@ -229,6 +229,7 @@ fun LogsScreen(
         LogsBody(ArdttSpacing.None, ArdttSpacing.None)
     } else {
         ArdttScrollChrome(
+            pinHeader = logsPageTitleStaysWhileScrolling(),
             header = {
                 ArdttTabHeader(
                     title = "Журнал событий",
@@ -354,6 +355,9 @@ internal fun logsChromeActionAnchor(): LogsChromeActionAnchor =
     LogsChromeActionAnchor.TerminalHeader
 
 internal fun logsActionsInPageHeader(embedded: Boolean): Boolean = false
+
+/** Journal heading stays put. Other screens still dissolve the title on scroll. */
+internal fun logsPageTitleStaysWhileScrolling(): Boolean = true
 
 internal fun logsShowsTerminalHeaderWithoutSession(): Boolean = true
 

@@ -69,6 +69,7 @@ internal object ArdttScrollChromeDefaults {
 fun ArdttScrollChrome(
     modifier: Modifier = Modifier,
     fadeHeight: Dp = ArdttChrome.FadeHeight,
+    pinHeader: Boolean = false,
     header: @Composable () -> Unit,
     content: @Composable (topContentPadding: Dp) -> Unit,
 ) {
@@ -91,7 +92,12 @@ fun ArdttScrollChrome(
     val collapseRangePx = with(density) { headerHeight.toPx() }.coerceAtLeast(1f)
     var collapseScrollPx by remember { mutableFloatStateOf(0f) }
     val collapseRangeState = rememberUpdatedState(collapseRangePx)
-    val headerVisibility = ardttScrollChromeHeaderVisibility(collapseScrollPx, collapseRangePx)
+    val pinHeaderState = rememberUpdatedState(pinHeader)
+    val headerVisibility = ardttScrollChromeHeaderVisibility(
+        collapseScrollPx,
+        collapseRangePx,
+        pinned = pinHeader,
+    )
     val headerInteractive = headerVisibility >= ArdttScrollChromeHeaderGoneAlpha
     val hitChrome = status + headerHeight * headerVisibility
     val contentMask = status + (headerHeight + fade) * headerVisibility
@@ -102,6 +108,7 @@ fun ArdttScrollChrome(
                 available: Offset,
                 source: NestedScrollSource,
             ): Offset {
+                if (pinHeaderState.value) return Offset.Zero
                 if (consumed.y == 0f) return Offset.Zero
                 val range = collapseRangeState.value
                 val next = (collapseScrollPx - consumed.y).coerceIn(0f, range)
@@ -233,12 +240,14 @@ internal fun ardttScrollChromeTopPadding(chromeHeight: Dp, fade: Dp): Dp = chrom
 /**
  * 1 = title fully visible, 0 = dissolved. Progress is linear over
  * [collapseScrollPx] of feed scroll so scrubbing back reverses the same curve.
+ * A pinned header stays fully visible for the whole scroll.
  */
 internal fun ardttScrollChromeHeaderVisibility(
     collapseScrollPx: Float,
     collapseRangePx: Float,
+    pinned: Boolean = false,
 ): Float {
-    if (collapseRangePx <= 0f) return 1f
+    if (pinned || collapseRangePx <= 0f) return 1f
     return (1f - collapseScrollPx / collapseRangePx).coerceIn(0f, 1f)
 }
 
