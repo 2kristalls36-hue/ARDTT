@@ -168,11 +168,20 @@ internal fun tabIconHeartbeat(progress: Float): Float {
     return wave * wave
 }
 
+/**
+ * One-way 0→1 turn. Speed is zero at both ends, so a full circle starts and
+ * stops on the same glyph without a kick.
+ */
+internal fun tabIconTurn(progress: Float): Float {
+    val t = progress.coerceIn(0f, 1f)
+    return t * t * (3f - 2f * t)
+}
+
 internal fun tabIconPose(motion: TabIconMotion, progress: Float): TabIconPose {
     val settle = tabIconSettle(progress)
     return when (motion) {
         TabIconMotion.GearHalfTurn -> TabIconPose(rotationZ = 180f * settle)
-        TabIconMotion.KeyTurn -> TabIconPose(rotationZ = -36f * settle)
+        TabIconMotion.KeyTurn -> TabIconPose(rotationZ = 360f * tabIconTurn(progress))
         TabIconMotion.Float -> TabIconPose(translationYFraction = -0.2f * settle)
         TabIconMotion.Lift -> TabIconPose(
             translationYFraction = -0.16f * settle,
@@ -184,11 +193,14 @@ internal fun tabIconPose(motion: TabIconMotion, progress: Float): TabIconPose {
     }
 }
 
-internal fun tabIconPoseAtRest(pose: TabIconPose): Boolean =
-    abs(pose.rotationZ) < 0.01f &&
+internal fun tabIconPoseAtRest(pose: TabIconPose): Boolean {
+    val wrapped = abs(pose.rotationZ % 360f)
+    val rotationRest = wrapped < 0.05f || abs(wrapped - 360f) < 0.05f
+    return rotationRest &&
         abs(pose.translationXFraction) < 0.01f &&
         abs(pose.translationYFraction) < 0.01f &&
         abs(pose.scale - 1f) < 0.01f
+}
 
 /** Floating pill bottom bar with a sliding selection indicator. */
 @Composable

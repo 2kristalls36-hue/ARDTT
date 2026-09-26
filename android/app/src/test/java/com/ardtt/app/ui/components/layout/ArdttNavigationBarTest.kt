@@ -116,6 +116,27 @@ class ArdttNavigationBarTest {
     }
 
     @Test
+    fun tunnelKeyTurnsAFullCircleLikeALock() {
+        val start = tabIconPose(TabIconMotion.KeyTurn, 0f)
+        val end = tabIconPose(TabIconMotion.KeyTurn, 1f)
+        assertEquals(0f, start.rotationZ, 0.01f)
+        assertEquals(360f, end.rotationZ, 0.01f)
+        assertTrue(tabIconPoseAtRest(end))
+        assertEquals(180f, tabIconPose(TabIconMotion.KeyTurn, 0.5f).rotationZ, 0.01f)
+        val early = tabIconPose(TabIconMotion.KeyTurn, 0.1f).rotationZ
+        val midStep = tabIconPose(TabIconMotion.KeyTurn, 0.5f).rotationZ -
+            tabIconPose(TabIconMotion.KeyTurn, 0.4f).rotationZ
+        assertTrue(early < midStep)
+        var previous = 0f
+        for (step in 1..20) {
+            val rotation = tabIconPose(TabIconMotion.KeyTurn, step / 20f).rotationZ
+            assertTrue(rotation > previous)
+            assertTrue(rotation - previous < 40f)
+            previous = rotation
+        }
+    }
+
+    @Test
     fun eachPrimaryTabHasItsOwnReturningMotion() {
         assertEquals(TabIconMotion.KeyTurn, tabIconMotionFor(AppDestination.Tunnel.route))
         assertEquals(TabIconMotion.Float, tabIconMotionFor(AppDestination.Servers.route))
