@@ -66,7 +66,8 @@ fun CallHashSettingsContent(
     var manualDraft by rememberSaveable { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var showEndVkSessionConfirm by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf<String?>(null) }
+    var codeNotice by remember { mutableStateOf<String?>(null) }
+    var sessionNotice by remember { mutableStateOf<String?>(null) }
     var vkLoggedIn by remember { mutableStateOf(VkSession.hasSessionCookie()) }
 
     val vpnActive = ui.state.holdsUserSession()
@@ -97,13 +98,16 @@ fun CallHashSettingsContent(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        if (vkLoggedIn) {
-            Text(
-                "Вход выполнен",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
-        }
+        Text(
+            bypassCodeNotice(
+                vpnActive = vpnActive,
+                transient = codeNotice,
+                hasCallHash = ui.hasCallHash,
+                hasProfile = profile != null,
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
@@ -113,15 +117,16 @@ fun CallHashSettingsContent(
                 onClick = {
                     scope.launch {
                         busy = true
-                        message = "Выполняется создание кода…"
+                        sessionNotice = null
+                        codeNotice = "Выполняется создание кода…"
                         val r = VkCallHashGenerator.generateOne(context)
                         busy = false
                         refreshVkSession()
                         r.onSuccess { hash ->
                             conn.saveCallHash(hash)
-                            message = "Код звонка сохранён."
+                            codeNotice = "Код звонка сохранён."
                         }.onFailure { e ->
-                            message = e.message ?: "Не удалось создать код звонка."
+                            codeNotice = e.message ?: "Не удалось создать код звонка."
                         }
                     }
                 },
@@ -144,6 +149,13 @@ fun CallHashSettingsContent(
                 modifier = Modifier.weight(1f),
             )
         }
+        bypassLoginNotice(loggedIn = vkLoggedIn, transient = sessionNotice)?.let { notice ->
+            Text(
+                notice,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
         val sessionAction = vkSessionAction(
             loggedIn = vkLoggedIn,
             vpnActive = vpnActive,
@@ -161,7 +173,8 @@ fun CallHashSettingsContent(
                 scope.launch {
                     val startedLoggedIn = vkLoggedIn
                     busy = true
-                    message = "Открывается авторизация ВКонтакте…"
+                    codeNotice = null
+                    sessionNotice = "Открывается авторизация ВКонтакте…"
                     AppLog.i("VK", "Settings login")
                     val activityCtx = context.findActivity() ?: context
                     val r = runCatching { VkLoginActivity.login(activityCtx) }
@@ -172,9 +185,8 @@ fun CallHashSettingsContent(
                     }
                     refreshVkSession()
                     busy = false
-                    message = when {
-                        r.isSuccess && vkLoggedIn ->
-                            "Вход выполнен. Создайте код звонка."
+                    sessionNotice = when {
+                        r.isSuccess && vkLoggedIn -> null
                         r.isSuccess -> "Сессия не подтверждена. Повторите вход."
                         else -> r.exceptionOrNull()?.message ?: "Авторизация отменена."
                     }
@@ -198,18 +210,6 @@ fun CallHashSettingsContent(
                 null
             },
         )
-        Text(
-            when {
-                vpnActive -> "Недоступно во время соединения."
-                !message.isNullOrBlank() -> message.orEmpty()
-                ui.hasCallHash -> "Код сохранён на этом устройстве."
-                vkLoggedIn -> "Вход выполнен. Создайте код звонка."
-                profile == null -> "Сначала выберите профиль."
-                else -> "Код не задан."
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.primary,
-        )
     }
 
     if (showManual) {
@@ -222,15 +222,18 @@ fun CallHashSettingsContent(
                 if (VkUrl.isPlausibleHash(cleaned)) {
                     conn.saveCallHash(cleaned)
                     showManual = false
-                    message = "Код звонка сохранён."
+                    sessionNotice = null
+                    codeNotice = "Код звонка сохранён."
                 } else {
-                    message = "Указано недопустимое значение кода."
+                    sessionNotice = null
+                    codeNotice = "Указано недопустимое значение кода."
                 }
             },
             onClear = {
                 conn.clearCallHash()
                 showManual = false
-                message = "Код звонка удалён."
+                sessionNotice = null
+                codeNotice = "Код звонка удалён."
             },
             onCopy = {
                 if (manualDraft.isBlank()) return@CallHashDialog
@@ -253,7 +256,8 @@ fun CallHashSettingsContent(
                     refreshVkSession()
                     busy = false
                     showEndVkSessionConfirm = false
-                    message = if (!vkLoggedIn) {
+                    codeNotice = null
+                    sessionNotice = if (!vkLoggedIn) {
                         "Сессия ВКонтакте завершена."
                     } else {
                         "Не удалось очистить сессию. Повторите."
@@ -308,6 +312,49 @@ private fun CallHashDialog(
             )
         }
     }
+}
+
+internal enum class BypassMethodBlock {
+    CodeNotice,
+    CodeActions,
+    LoginNotice,
+    SessionAction,
+}
+
+/** Saved-code line, then the two code buttons, then login line, then end-session. */
+internal fun bypassMethodBlockOrder(): List<BypassMethodBlock> = listOf(
+    BypassMethodBlock.CodeNotice,
+    BypassMethodBlock.CodeActions,
+    BypassMethodBlock.LoginNotice,
+    BypassMethodBlock.SessionAction,
+)
+
+internal object BypassMethodCopy {
+    const val CODE_SAVED = "Код сохранён на этом устройстве."
+    const val CODE_MISSING = "Код не задан."
+    const val NEED_PROFILE = "Сначала выберите профиль."
+    const val VPN_LOCKED = "Недоступно во время соединения."
+    const val LOGIN_DONE = "Вход выполнен"
+}
+
+internal fun bypassCodeNotice(
+    vpnActive: Boolean,
+    transient: String?,
+    hasCallHash: Boolean,
+    hasProfile: Boolean,
+): String = when {
+    vpnActive -> BypassMethodCopy.VPN_LOCKED
+    !transient.isNullOrBlank() -> transient
+    hasCallHash -> BypassMethodCopy.CODE_SAVED
+    !hasProfile -> BypassMethodCopy.NEED_PROFILE
+    else -> BypassMethodCopy.CODE_MISSING
+}
+
+/** Steady «Вход выполнен», or a login/logout message. Absent until there is a session. */
+internal fun bypassLoginNotice(loggedIn: Boolean, transient: String?): String? = when {
+    !transient.isNullOrBlank() -> transient
+    loggedIn -> BypassMethodCopy.LOGIN_DONE
+    else -> null
 }
 
 private fun Context.findActivity(): Activity? {
