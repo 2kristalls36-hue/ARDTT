@@ -17,6 +17,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -81,6 +82,8 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -114,6 +117,7 @@ import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
 import java.util.Locale
+import kotlin.math.ceil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -755,6 +759,21 @@ fun ExceptionsScreen(
     }
 }
 
+/**
+ * One stub is as tall as an app row. Count covers the whole list, including
+ * the area under the floating search bar, so the placeholders reach the bottom.
+ */
+internal fun appsLoadingStubStride(): Dp =
+    ArdttSpacing.HairlinePlus * 2 +
+        ArdttSpacing.TinyPlus * 2 +
+        ArdttSize.IconFeature
+
+internal fun appsLoadingStubCount(viewportHeight: Dp, stride: Dp, topPadding: Dp): Int {
+    if (stride <= 0.dp) return 1
+    val room = (viewportHeight - topPadding).coerceAtLeast(stride)
+    return ceil(room.value / stride.value).toInt().coerceAtLeast(1)
+}
+
 @Composable
 private fun AppsLoadingAnimation(modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
@@ -771,15 +790,20 @@ private fun AppsLoadingAnimation(modifier: Modifier = Modifier) {
     )
     val titleStyle = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
     val subtitleStyle = MaterialTheme.typography.labelSmall
+    val topPadding = ArdttSpacing.Small
 
-    LazyColumn(
-        modifier = modifier,
-        contentPadding = PaddingValues(
-            top = ArdttSpacing.Small,
-            bottom = ArdttBottomChrome.scrollContentPadding(extra = ArdttSpacing.Small),
-        ),
-    ) {
-        items(count = 9) {
+    BoxWithConstraints(modifier = modifier) {
+        val stubCount = appsLoadingStubCount(
+            viewportHeight = maxHeight,
+            stride = appsLoadingStubStride(),
+            topPadding = topPadding,
+        )
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            userScrollEnabled = false,
+            contentPadding = PaddingValues(top = topPadding),
+        ) {
+            items(count = stubCount) {
             val shimmerBrush = Brush.horizontalGradient(
                 colors = listOf(base, highlight, base),
                 startX = shift,
@@ -814,6 +838,7 @@ private fun AppsLoadingAnimation(modifier: Modifier = Modifier) {
                     }
                 },
             )
+            }
         }
     }
 }
