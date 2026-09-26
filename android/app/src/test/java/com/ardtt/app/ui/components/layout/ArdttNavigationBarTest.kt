@@ -116,36 +116,29 @@ class ArdttNavigationBarTest {
     }
 
     @Test
-    fun tunnelKeyTurnsAroundTheBladeTipAndReturns() {
+    fun tunnelKeyRollsUpsideDownAroundTheHorizontalAxis() {
         val start = tabIconPose(TabIconMotion.KeyTurn, 0f)
-        val peak = tabIconPose(TabIconMotion.KeyTurn, 0.5f)
+        val upsideDown = tabIconPose(TabIconMotion.KeyTurn, 0.5f)
         val end = tabIconPose(TabIconMotion.KeyTurn, 1f)
+        assertEquals(0f, start.rotationX, 0.01f)
         assertEquals(0f, start.rotationZ, 0.01f)
-        assertEquals(KeyTurnDegrees, peak.rotationZ, 0.01f)
-        assertTrue(peak.rotationZ < 180f)
-        assertEquals(0f, end.rotationZ, 0.01f)
+        assertEquals(180f, upsideDown.rotationX, 0.01f)
+        assertEquals(0f, upsideDown.rotationZ, 0.01f)
+        assertEquals(KeyTurnDegrees, end.rotationX, 0.01f)
+        assertEquals(360f, end.rotationX, 0.01f)
         assertTrue(tabIconPoseAtRest(end))
-        assertEquals(KeyholePivotX, peak.pivotX, 0.001f)
-        assertEquals(KeyholePivotY, peak.pivotY, 0.001f)
-        assertTrue(peak.pivotX > 0.9f)
         val gear = tabIconPose(TabIconMotion.GearHalfTurn, 0.5f)
-        assertEquals(0.5f, gear.pivotX, 0.001f)
-        assertEquals(0.5f, gear.pivotY, 0.001f)
-        val opening = tabIconPose(TabIconMotion.KeyTurn, 0.1f).rotationZ
-        val fastest = tabIconPose(TabIconMotion.KeyTurn, 0.3f).rotationZ -
-            tabIconPose(TabIconMotion.KeyTurn, 0.2f).rotationZ
+        assertEquals(0f, gear.rotationX, 0.01f)
+        assertEquals(180f, gear.rotationZ, 0.01f)
+        val opening = tabIconPose(TabIconMotion.KeyTurn, 0.1f).rotationX
+        val fastest = tabIconPose(TabIconMotion.KeyTurn, 0.5f).rotationX -
+            tabIconPose(TabIconMotion.KeyTurn, 0.4f).rotationX
         assertTrue(opening < fastest)
         var previous = 0f
-        for (step in 1..10) {
-            val rotation = tabIconPose(TabIconMotion.KeyTurn, step / 20f).rotationZ
+        for (step in 1..20) {
+            val rotation = tabIconPose(TabIconMotion.KeyTurn, step / 20f).rotationX
             assertTrue(rotation >= previous)
-            assertTrue(rotation - previous < 20f)
-            previous = rotation
-        }
-        previous = peak.rotationZ
-        for (step in 11..20) {
-            val rotation = tabIconPose(TabIconMotion.KeyTurn, step / 20f).rotationZ
-            assertTrue(rotation <= previous)
+            assertTrue(rotation - previous < 40f)
             previous = rotation
         }
     }
