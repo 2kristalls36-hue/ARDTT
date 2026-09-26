@@ -42,47 +42,56 @@ import kotlin.math.min
  *
  * One pass records the tree with the glass plates left out and flattens it to
  * a bitmap, so a plate can bend those pixels without sampling a layer that is
- * still recording. The next pass draws the plates on top. The lens magnifies
- * across the whole plate and bends harder along the rim, so text behind it
- * curves instead of sitting flat under a tint. Older releases keep the flat
- * translucent fill. Sheets, dialogs, and the header are not plates.
+ * still recording. The next pass draws the plates on top. The lens is a dome:
+ * text in the middle is magnified, and a narrow bevel at the rim squeezes the
+ * backdrop along the outline, with a thin highlight on that bevel only. Older
+ * releases keep the flat translucent fill. Sheets, dialogs, and the header
+ * are not plates.
  */
 internal object ArdttLiquidGlass {
     /**
-     * Share of the vector from the plate center added to the sample shift.
-     * Moves text in the middle of the plate, not only at the rim.
+     * Magnification once the sample is inside the bevel. 0.55 pulls a point
+     * halfway to the rim back toward the center by about a quarter of that
+     * distance, so letters behind the plate grow instead of sitting flat.
      */
-    const val LensZoom = 0.34f
-
-    /** Extra inward shift, in pixels, where the rim weight is 1. */
-    const val BendPx = 48f
-
-    /** Rim band as a fraction of the plate's shorter side. */
-    const val RimBandFraction = 0.42f
-
-    /** Red/blue split at full rim weight, in pixels along the outward normal. */
-    const val ChromaPx = 6f
-
-    /** Backdrop blur before the bend, in pixels. Letters stay recognizable. */
-    const val BlurPx = 12f
-
-    /** Extra pixels recorded around a plate so the blur can read past the rim. */
-    const val SampleMarginPx = 64f
+    const val LensZoom = 0.55f
 
     /**
-     * Shell plates stay glassy: the middle is a light wash, the rim is almost
-     * clear so the bent backdrop reads through.
+     * Peak bevel shift, in pixels, before the height derivative (max 1.5).
+     * The bright rim of the glass lives in this band.
      */
-    const val ShellCenterAlpha = 0.26f
-    const val ShellEdgeAlpha = 0.04f
+    const val BendPx = 36f
+
+    /** Bevel width as a fraction of the plate's shorter side. */
+    const val BevelFraction = 0.28f
+
+    /** Red/blue split at the peak of the bevel, in pixels along the outward normal. */
+    const val ChromaPx = 5f
+
+    /** Backdrop blur before the bend, in pixels. Low enough that letter edges survive. */
+    const val BlurPx = 2.5f
+
+    /**
+     * Extra pixels around a plate. A wide bar magnifies by hundreds of pixels
+     * toward its ends; a short margin clamps that read to empty pixels and the
+     * rim looks like a flat tint.
+     */
+    const val SampleMarginPx = 280f
+
+    /**
+     * Shell plates stay clear. The dome has to read through the middle, so the
+     * wash is only a hint of the shell color.
+     */
+    const val ShellCenterAlpha = 0.07f
+    const val ShellEdgeAlpha = 0.02f
 
     /**
      * Hue-locked buttons keep their own RGB, as a thin wash. A light tint at
-     * a high alpha paints a white disk in the middle and hides the label.
+     * a high alpha paints a white disk in the middle and hides the refraction.
      * A dimmed tint scales both alphas down.
      */
-    const val HueCenterAlpha = 0.18f
-    const val HueEdgeAlpha = 0.05f
+    const val HueCenterAlpha = 0.10f
+    const val HueEdgeAlpha = 0.03f
 
     /** Share of the frost radius that stays at the center wash. */
     const val FrostKnee = 0.22f
@@ -131,11 +140,19 @@ internal val LocalArdttLiquidGlass = staticCompositionLocalOf {
 
 internal fun liquidGlassSupported(sdk: Int = Build.VERSION.SDK_INT): Boolean = sdk >= 33
 
-/** 0 deep inside the rim band, 1 on the outline and outside it. */
-internal fun liquidGlassRimWeight(signedDistance: Float, band: Float): Float {
-    val safe = band.coerceAtLeast(1f)
-    val t = ((signedDistance + safe) / safe).coerceIn(0f, 1f)
-    return t * t * (3f - 2f * t)
+/**
+ * Bevel response for a point [inside] pixels in from the outline.
+ * [spread] is how far the bevel reaches. The first value rises from 0 on the
+ * outline to 1 once the bevel is passed (dome weight). The second is the
+ * height slope, 0 on the outline and past the bevel, peaking at 1.5 halfway
+ * across it.
+ */
+internal fun liquidGlassBevel(inside: Float, spread: Float): Pair<Float, Float> {
+    val safe = spread.coerceAtLeast(1f)
+    val u = (inside / safe).coerceIn(0f, 1f)
+    val dome = u * u * (3f - 2f * u)
+    val slope = 6f * u * (1f - u)
+    return dome to slope
 }
 
 /** Signed distance of a rounded box. [point] and [halfSize] are pixels from the center. */
@@ -190,11 +207,13 @@ internal fun liquidGlassSampleShift(local: Offset, size: Size, corner: Float): O
     val rad = corner.coerceIn(0f, min(size.width, size.height) * 0.5f)
     val distance = liquidGlassRoundBoxDistance(point, half, rad)
     val normal = liquidGlassRoundBoxNormal(point, half, rad)
-    val band = max(min(size.width, size.height) * ArdttLiquidGlass.RimBandFraction, 1f)
-    val rim = liquidGlassRimWeight(distance, band)
+    val spread = max(min(size.width, size.height) * ArdttLiquidGlass.BevelFraction, 1f)
+    val (dome, slope) = liquidGlassBevel(-distance, spread)
+    val zoom = ArdttLiquidGlass.LensZoom * dome
+    val bend = slope * ArdttLiquidGlass.BendPx
     return Offset(
-        x = point.x * ArdttLiquidGlass.LensZoom + normal.x * rim * ArdttLiquidGlass.BendPx,
-        y = point.y * ArdttLiquidGlass.LensZoom + normal.y * rim * ArdttLiquidGlass.BendPx,
+        x = point.x * zoom + normal.x * bend,
+        y = point.y * zoom + normal.y * bend,
     )
 }
 
@@ -289,7 +308,7 @@ internal fun liquidGlassShapePath(
 /** AGSL body. Uniform names are the contract with [android.graphics.RuntimeShader]. */
 internal fun liquidGlassAgsl(): String {
     val zoom = "%.2f".format(Locale.US, ArdttLiquidGlass.LensZoom)
-    val band = "%.2f".format(Locale.US, ArdttLiquidGlass.RimBandFraction)
+    val bevel = "%.2f".format(Locale.US, ArdttLiquidGlass.BevelFraction)
     return """
         uniform shader contents;
         uniform float2 size;
@@ -320,14 +339,19 @@ internal fun liquidGlassAgsl(): String {
             float2 box = size * 0.5;
             float sdf = sdRoundBox(p, box, rad);
             float2 n = sdRoundBoxNormal(p, box, rad);
-            float bandPx = max(min(size.x, size.y) * $band, 1.0);
-            float t = clamp((sdf + bandPx) / bandPx, 0.0, 1.0);
-            float rim = t * t * (3.0 - 2.0 * t);
-            float2 delta = p * $zoom + n * rim * bend;
+            float spread = max(min(size.x, size.y) * $bevel, 1.0);
+            float u = clamp(max(-sdf, 0.0) / spread, 0.0, 1.0);
+            float dome = u * u * (3.0 - 2.0 * u);
+            float dh = 6.0 * u * (1.0 - u);
+            float2 delta = p * ($zoom * dome) + n * dh * bend;
+            float fringe = dh * chroma;
             half4 mid = contents.eval(coord - delta);
-            half4 hi = contents.eval(coord - delta + n * rim * chroma);
-            half4 lo = contents.eval(coord - delta - n * rim * chroma);
-            return half4(hi.r, mid.g, lo.b, mid.a);
+            half4 hi = contents.eval(coord - delta + n * fringe);
+            half4 lo = contents.eval(coord - delta - n * fringe);
+            float shine = dh / 1.5;
+            shine = shine * shine;
+            half3 rgb = half3(hi.r, mid.g, lo.b) + half3(shine * 0.55);
+            return half4(min(rgb, half3(1.0)), mid.a);
         }
     """.trimIndent()
 }

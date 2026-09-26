@@ -16,15 +16,20 @@ import org.junit.Test
 
 class ArdttLiquidGlassTest {
     @Test
-    fun rimWeightIsZeroInsideTheBandAndFullOnTheOutline() {
-        val band = 20f
-        assertEquals(0f, liquidGlassRimWeight(-band, band), 0.001f)
-        assertEquals(0f, liquidGlassRimWeight(-band - 4f, band), 0.001f)
-        assertEquals(1f, liquidGlassRimWeight(0f, band), 0.001f)
-        assertEquals(1f, liquidGlassRimWeight(6f, band), 0.001f)
-        val mid = liquidGlassRimWeight(-band / 2f, band)
-        assertTrue(mid > 0.4f)
-        assertTrue(mid < 0.6f)
+    fun bevelIsFlatPastTheRimAndSteepestHalfwayAcrossIt() {
+        val spread = 20f
+        val (edgeDome, edgeSlope) = liquidGlassBevel(0f, spread)
+        assertEquals(0f, edgeDome, 0.001f)
+        assertEquals(0f, edgeSlope, 0.001f)
+        val (innerDome, innerSlope) = liquidGlassBevel(spread, spread)
+        assertEquals(1f, innerDome, 0.001f)
+        assertEquals(0f, innerSlope, 0.001f)
+        val (midDome, midSlope) = liquidGlassBevel(spread / 2f, spread)
+        assertTrue(midDome > 0.4f)
+        assertTrue(midDome < 0.6f)
+        assertEquals(1.5f, midSlope, 0.001f)
+        assertTrue(midSlope > edgeSlope)
+        assertTrue(midSlope > innerSlope)
     }
 
     @Test
@@ -125,12 +130,13 @@ class ArdttLiquidGlassTest {
         val source = liquidGlassAgsl()
         assertTrue(source.contains("uniform shader contents"))
         assertTrue(source.contains("sdRoundBox"))
-        assertTrue(source.contains("0.34"))
-        assertTrue(source.contains("0.42"))
-        assertTrue(source.contains("t * t * (3.0 - 2.0 * t)"))
+        assertTrue(source.contains("0.55"))
+        assertTrue(source.contains("0.28"))
+        assertTrue(source.contains("float dh = 6.0 * u * (1.0 - u)"))
         assertTrue(source.contains("contents.eval(coord - delta)"))
         assertTrue(source.contains("hi.r"))
         assertTrue(source.contains("lo.b"))
+        assertTrue(source.contains("shine * 0.55"))
     }
 
     @Test
