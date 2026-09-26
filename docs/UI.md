@@ -57,7 +57,7 @@ ui/
 | `ArdttSettingBlock` | заголовок + подзаголовок + произвольный контрол | Настройки, Туннель |
 | `ArdttTextField` / `ArdttPasswordField` / `ArdttDigitsField` | единственный текстовый ввод; пароль с показом; цифры с числовой клавиатурой | Деплой, Клиенты, Профили, Тестирование, код звонка |
 | `ArdttOverflowMenu` / `ArdttOverflowMenuItem` | меню ⋮ | Профили, Серверы, Клиенты |
-| `ArdttSectionCard` | базовая карточка | все ленты |
+| `ArdttSectionCard` | базовая карточка без тени | все ленты |
 | `ArdttSettingsCard` | пресет карточки настроек (Large / SmallPlus) | Настройки |
 | `ArdttCompactCard` | плотная карточка списка | Серверы, Клиенты, Профили |
 | `ArdttSectionTitle`, `ArdttLeadingIcon` | заголовок блока, квадратная иконка | карточки, ряды |
@@ -65,7 +65,7 @@ ui/
 | `ArdttConfirmDialog` | подтверждение необратимого / меняющего сессию действия | очистка журнала, удаление профиля/записи/клиента, отвязка устройства, выход из admin, выход из VK |
 | `ArdttBottomSheet` | прокручиваемый лист без кнопок, заливка непрозрачная | добавление профиля, настройки клиента |
 | `ArdttLinkShareDialog`, `ArdttQrCode` | ссылка + QR | профиль, сервер |
-| `ArdttTerminalCard` | монотекст лога | прогресс деплоя |
+| `ArdttTerminalCard` | монотекст лога без тени | прогресс деплоя |
 | `ArdttFeedScaffold` / `ArdttLazyFeedScaffold` / `ArdttScrollChrome` | каркас экрана | все вкладки |
 | `ArdttTabHeader` / `ArdttFeedHeader` / `ArdttPageHeader` | шапка | все вкладки |
 | `ArdttNavigationBar` | нижняя панель: заливка оболочки без тени | `AppRoot` |
