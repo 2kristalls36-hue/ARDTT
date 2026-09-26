@@ -1,51 +1,73 @@
 package com.ardtt.app.ui.components.surface
 
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import kotlin.math.hypot
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
+import com.ardtt.app.ui.theme.ArdttAlpha
+import kotlin.math.abs
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ArdttLiquidGlassTest {
     @Test
-    fun bendIsOffInTheMiddleAndFullPastTheRim() {
-        assertEquals(0f, liquidGlassEdgeWeight(0f), 0.001f)
-        assertEquals(0f, liquidGlassEdgeWeight(ArdttLiquidGlass.EdgeInner), 0.001f)
-        val midRadius = ArdttLiquidGlass.EdgeInner + ArdttLiquidGlass.EdgeSpan / 2f
-        assertEquals(0.5f, liquidGlassEdgeWeight(midRadius), 0.001f)
-        val outer = ArdttLiquidGlass.EdgeInner + ArdttLiquidGlass.EdgeSpan
-        assertEquals(1.05f, outer, 0.001f)
-        assertEquals(1f, liquidGlassEdgeWeight(outer), 0.001f)
-        assertEquals(1f, liquidGlassEdgeWeight(outer + 1f), 0.001f)
+    fun rimWeightIsZeroInsideTheBandAndFullOnTheOutline() {
+        val band = 20f
+        assertEquals(0f, liquidGlassRimWeight(-band, band), 0.001f)
+        assertEquals(0f, liquidGlassRimWeight(-band - 4f, band), 0.001f)
+        assertEquals(1f, liquidGlassRimWeight(0f, band), 0.001f)
+        assertEquals(1f, liquidGlassRimWeight(6f, band), 0.001f)
+        val mid = liquidGlassRimWeight(-band / 2f, band)
+        assertTrue(mid > 0.4f)
+        assertTrue(mid < 0.6f)
     }
 
     @Test
-    fun sampleDoesNotMoveAtTheCenterAndClearsTheRim() {
-        val center = liquidGlassSampleOffset(Offset.Zero)
-        assertEquals(0f, center.x, 0.001f)
-        assertEquals(0f, center.y, 0.001f)
+    fun textUnderThePlateBendsBeforeTheRim() {
+        val size = Size(280f, 64f)
+        val corner = 32f
+        val center = liquidGlassSampleShift(Offset(140f, 32f), size, corner)
+        assertEquals(0f, center.x, 0.5f)
+        assertEquals(0f, center.y, 0.5f)
 
-        val inside = liquidGlassSampleOffset(Offset(ArdttLiquidGlass.EdgeInner / 2f, 0f))
-        assertEquals(0f, inside.x, 0.001f)
+        val upper = liquidGlassSampleShift(Offset(140f, 8f), size, corner)
+        val lower = liquidGlassSampleShift(Offset(140f, 24f), size, corner)
+        assertTrue(upper.y < -8f)
+        assertTrue(abs(upper.y - lower.y) > 4f)
 
-        val rim = liquidGlassSampleOffset(Offset(0.5f, 0f))
-        assertTrue(rim.x > 24f)
-
-        val corner = liquidGlassSampleOffset(Offset(0.5f, 0.5f))
-        val cornerDistance = hypot(corner.x.toDouble(), corner.y.toDouble()).toFloat()
-        assertTrue(cornerDistance < ArdttLiquidGlass.SampleMarginPx)
+        val side = liquidGlassSampleShift(Offset(270f, 32f), size, corner)
+        assertTrue(side.x > 24f)
+        assertTrue(abs(side.x) + abs(side.y) < ArdttLiquidGlass.SampleMarginPx + size.width)
     }
 
     @Test
-    fun hueLockedFrostKeepsTheButtonAlphaInTheCenter() {
+    fun blurAndFringeStayInsideTheCaptureMargin() {
+        assertTrue(ArdttLiquidGlass.BlurPx + ArdttLiquidGlass.ChromaPx < ArdttLiquidGlass.SampleMarginPx)
+        assertTrue(ArdttLiquidGlass.LensZoom > 0f)
+        assertTrue(ArdttLiquidGlass.BendPx > 24f)
+    }
+
+    @Test
+    fun hueLockedFrostKeepsTheButtonHueAndThinsTheWash() {
         val red = Color(0xFFBA1A1A).copy(alpha = ArdttFloatingShell.ButtonAlpha)
         val frost = liquidGlassFrost(red, hueLocked = true)
-        assertEquals(ArdttFloatingShell.ButtonAlpha, frost.centerAlpha, 0.001f)
-        assertEquals(ArdttFloatingShell.ButtonAlpha * ArdttLiquidGlass.HueEdgeScale, frost.edgeAlpha, 0.001f)
+        assertEquals(ArdttLiquidGlass.HueCenterAlpha, frost.centerAlpha, 0.001f)
+        assertEquals(ArdttLiquidGlass.HueEdgeAlpha, frost.edgeAlpha, 0.001f)
+        assertTrue(frost.centerAlpha < ArdttFloatingShell.ButtonAlpha)
+        assertTrue(frost.edgeAlpha < frost.centerAlpha)
         assertEquals(red.red, frost.red, 0.001f)
         assertEquals(red.green, frost.green, 0.001f)
         assertEquals(red.blue, frost.blue, 0.001f)
+
+        val disabled = red.copy(alpha = ArdttFloatingShell.ButtonAlpha * ArdttAlpha.DisabledContainer)
+        val faded = liquidGlassFrost(disabled, hueLocked = true)
+        assertEquals(ArdttLiquidGlass.HueCenterAlpha * ArdttAlpha.DisabledContainer, faded.centerAlpha, 0.001f)
+        assertEquals(red.red, faded.red, 0.001f)
     }
 
     @Test
@@ -56,6 +78,7 @@ class ArdttLiquidGlassTest {
         assertEquals(ArdttLiquidGlass.ShellEdgeAlpha, light.edgeAlpha, 0.001f)
         assertEquals(light.centerAlpha, dark.centerAlpha, 0.001f)
         assertEquals(light.edgeAlpha, dark.edgeAlpha, 0.001f)
+        assertTrue(light.edgeAlpha < 0.1f)
         assertEquals(1f, light.red, 0.001f)
         assertEquals(1f, light.green, 0.001f)
         assertEquals(1f, light.blue, 0.001f)
@@ -63,7 +86,7 @@ class ArdttLiquidGlassTest {
     }
 
     @Test
-    fun frostHoldsInTheMiddleAndThinsTowardTheCorner() {
+    fun widePlateClearsAlongTheLongEdge() {
         val center = ArdttLiquidGlass.ShellCenterAlpha
         val edge = ArdttLiquidGlass.ShellEdgeAlpha
         assertEquals(center, liquidGlassFrostAlpha(center, edge, 0f), 0.001f)
@@ -72,22 +95,42 @@ class ArdttLiquidGlassTest {
         val between = liquidGlassFrostAlpha(center, edge, (ArdttLiquidGlass.FrostKnee + 1f) / 2f)
         assertTrue(between < center)
         assertTrue(between > edge)
-        val radius = liquidGlassFrostRadius(100f, 100f)
-        assertEquals(hypot(100.0, 100.0).toFloat() * 0.5f, radius, 0.01f)
-        val circleRim = 50f / radius
-        val rimAlpha = liquidGlassFrostAlpha(center, edge, circleRim)
-        assertTrue(rimAlpha < center)
-        assertTrue(rimAlpha > edge)
+
+        val radius = liquidGlassFrostRadius(300f, 48f)
+        assertEquals(24f, radius, 0.01f)
+        assertEquals(edge, liquidGlassFrostAlpha(center, edge, 24f / radius), 0.001f)
+
+        val circle = liquidGlassFrostRadius(100f, 100f)
+        assertEquals(50f, circle, 0.01f)
+        assertEquals(edge, liquidGlassFrostAlpha(center, edge, 50f / circle), 0.001f)
     }
 
     @Test
-    fun shaderUsesTheSameRimCurveAsTheOffset() {
+    fun cornerRadiusFollowsTheShape() {
+        val density = Density(1f)
+        val size = Size(100f, 40f)
+        val rounded = liquidGlassCornerRadius(
+            RoundedCornerShape(12.dp),
+            size,
+            LayoutDirection.Ltr,
+            density,
+        )
+        assertEquals(12f, rounded, 0.1f)
+        val circle = liquidGlassCornerRadius(CircleShape, size, LayoutDirection.Ltr, density)
+        assertEquals(20f, circle, 0.1f)
+    }
+
+    @Test
+    fun shaderBendsAcrossThePlateAndSplitsTheRim() {
         val source = liquidGlassAgsl()
         assertTrue(source.contains("uniform shader contents"))
-        assertTrue(source.contains("0.45"))
-        assertTrue(source.contains("0.60"))
+        assertTrue(source.contains("sdRoundBox"))
+        assertTrue(source.contains("0.34"))
+        assertTrue(source.contains("0.42"))
         assertTrue(source.contains("t * t * (3.0 - 2.0 * t)"))
-        assertTrue(source.contains("contents.eval"))
+        assertTrue(source.contains("contents.eval(coord - delta)"))
+        assertTrue(source.contains("hi.r"))
+        assertTrue(source.contains("lo.b"))
     }
 
     @Test
