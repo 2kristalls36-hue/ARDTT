@@ -44,8 +44,8 @@ class ArdttTokenContractTest {
 
     @Test
     fun cardElevationFollowsTheSharedSurfacePolicy() {
-        assertEquals(ArdttElevation.Low, ArdttSurface.cardShadowElevation(dark = true))
-        assertEquals(ArdttElevation.Card, ArdttSurface.cardShadowElevation(dark = false))
+        assertEquals(ArdttElevation.None, ArdttSurface.cardShadowElevation(dark = true))
+        assertEquals(ArdttElevation.None, ArdttSurface.cardShadowElevation(dark = false))
     }
 
     @Test

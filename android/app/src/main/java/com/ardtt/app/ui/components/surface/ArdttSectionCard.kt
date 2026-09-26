@@ -61,9 +61,9 @@ fun sectionCardContourBorder(
 /**
  * The single card surface of the app.
  *
- * Fill, content color and shadow follow the active scheme through
- * [cardContainerColor] / [cardShadowElevation]; pass [color] only for a
- * semantic surface such as the terminal.
+ * Fill and content color follow the active scheme through
+ * [cardContainerColor]. Cards are flat; pass [color] only for a semantic
+ * surface such as the terminal.
  */
 @Composable
 fun ArdttSectionCard(

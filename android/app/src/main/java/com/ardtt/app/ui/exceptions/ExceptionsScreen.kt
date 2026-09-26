@@ -81,7 +81,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -133,7 +132,6 @@ private val AppRowContentPadding = PaddingValues(
 )
 private val AppRowIconCorner = ArdttShapes.Badge
 private val AppRowIconGap = ArdttSpacing.SmallPlus
-private val AppRowShadow = 1.dp
 private const val AppRowTitleBarWidth = 0.62f
 private const val AppRowSubtitleBarWidth = 0.86f
 
@@ -1087,7 +1085,7 @@ private fun AppExceptionRowFrame(
         shape = AppCardShape,
         color = colors.surface,
         contentColor = colors.onSurface,
-        shadowElevation = AppRowShadow,
+        shadowElevation = ArdttElevation.None,
         tonalElevation = ArdttElevation.None,
         border = sectionCardContourBorder(),
         content = { content() },
