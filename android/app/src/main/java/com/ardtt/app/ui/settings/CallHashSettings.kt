@@ -14,7 +14,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,6 +45,7 @@ import com.ardtt.app.ui.components.control.ArdttTextField
 import com.ardtt.app.ui.components.surface.ArdttConfirmDialog
 import com.ardtt.app.ui.components.surface.ArdttDialog
 import com.ardtt.app.ui.components.surface.ArdttDialogAction
+import com.ardtt.app.ui.components.surface.ArdttFloatingShell
 import com.ardtt.app.ui.components.surface.ArdttSectionTitle
 import com.ardtt.app.ui.theme.ArdttSpacing
 import kotlinx.coroutines.launch
@@ -68,7 +68,6 @@ fun CallHashSettingsContent(
     var showEndVkSessionConfirm by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     var vkLoggedIn by remember { mutableStateOf(VkSession.hasSessionCookie()) }
-    var vkDisplayName by remember { mutableStateOf<String?>(null) }
 
     val vpnActive = ui.state.holdsUserSession()
     val canEdit = profile != null && !vpnActive && !busy
@@ -87,10 +86,6 @@ fun CallHashSettingsContent(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    LaunchedEffect(vkLoggedIn) {
-        vkDisplayName = if (vkLoggedIn) VkSession.resolveDisplayName() else null
-    }
-
     Column(
         verticalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
     ) {
@@ -104,7 +99,7 @@ fun CallHashSettingsContent(
         )
         if (vkLoggedIn) {
             Text(
-                "Выполнен вход под: ${vkDisplayName?.takeIf { it.isNotBlank() } ?: "аккаунт ВКонтакте"}",
+                "Вход выполнен",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary,
             )
@@ -193,6 +188,15 @@ fun CallHashSettingsContent(
             } else {
                 ArdttButtonVariant.Primary
             },
+            // Same danger fill while the tunnel keeps the button disabled.
+            containerColor = if (sessionAction.destructive) {
+                ArdttFloatingShell.opaqueGlassFill(
+                    MaterialTheme.colorScheme.error,
+                    MaterialTheme.colorScheme.surface,
+                )
+            } else {
+                null
+            },
         )
         Text(
             when {
@@ -247,7 +251,6 @@ fun CallHashSettingsContent(
                     busy = true
                     VkSession.clear()
                     refreshVkSession()
-                    vkDisplayName = null
                     busy = false
                     showEndVkSessionConfirm = false
                     message = if (!vkLoggedIn) {
