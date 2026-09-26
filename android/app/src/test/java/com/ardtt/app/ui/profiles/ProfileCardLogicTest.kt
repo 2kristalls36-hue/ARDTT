@@ -1,11 +1,15 @@
 package com.ardtt.app.ui.profiles
 
+import androidx.compose.ui.unit.dp
 import com.ardtt.app.deploy.DeployTarget
 import com.ardtt.app.deploy.ProvisionAdminApi
 import com.ardtt.app.profile.BypassConfig
 import com.ardtt.app.profile.DirectConfig
 import com.ardtt.app.profile.VpnProfile
+import com.ardtt.app.ui.theme.ArdttLayout
+import com.ardtt.app.ui.theme.ArdttSpacing
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -47,6 +51,21 @@ class ProfileCardLogicTest {
                 servers = emptyList(),
             ),
         )
+    }
+
+    @Test
+    fun trafficBarSitsInTheExistingBottomPadding() {
+        assertEquals(
+            ProfileTrafficBarPlacement.InsideBottomPadding,
+            profileTrafficBarPlacement(),
+        )
+        assertFalse(profileTrafficBarVisible(0L))
+        assertTrue(profileTrafficBarVisible(1L))
+        val padding = ArdttLayout.CompactCardPadding.calculateBottomPadding()
+        val bar = ArdttSpacing.Tiny
+        assertTrue(padding >= bar)
+        assertEquals(bar, profileTrafficBarDrop(padding, bar))
+        assertEquals(0.dp, profileTrafficBarDrop(2.dp, 4.dp))
     }
 
     @Test
@@ -130,27 +149,7 @@ class ProfileCardLogicTest {
 
     @Test
     fun profileFeedUsesServerListTopSpacing() {
-        assertTrue(profileFeedAddsTopSpacing())
-    }
-
-    @Test
-    fun profileCountSubtitleUsesCallerPlural() {
-        assertEquals(
-            "1 профиль · активен: Дом",
-            profilesCountSubtitle(1, "1 профиль", "Дом", locked = false),
-        )
-        assertEquals(
-            "2 профиля · активен: Дом",
-            profilesCountSubtitle(2, "2 профиля", "Дом", locked = false),
-        )
-        assertEquals(
-            "5 профилей · активен: —",
-            profilesCountSubtitle(5, "5 профилей", null, locked = false),
-        )
-        assertEquals(
-            "Импортируйте JSON с сервера",
-            profilesCountSubtitle(0, "0 профилей", null, locked = false),
-        )
+        assertFalse(profileFeedAddsTopSpacing())
     }
 
     private fun profile(directEndpoint: String, bypassPeer: String) = VpnProfile(

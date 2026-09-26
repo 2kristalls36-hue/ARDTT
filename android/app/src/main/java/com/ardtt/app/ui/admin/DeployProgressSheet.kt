@@ -32,6 +32,7 @@ import com.ardtt.app.ui.components.surface.ArdttSectionCardDefaults
 import com.ardtt.app.ui.components.surface.ArdttTerminalCard
 import com.ardtt.app.ui.theme.ArdttColors
 import com.ardtt.app.ui.theme.ArdttElevation
+import com.ardtt.app.ui.theme.ArdttLayout
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSpacing
 import com.ardtt.app.ui.theme.connectedStatusColor
@@ -272,7 +273,7 @@ private fun DeployHopSlotCard(
     }
     ArdttSectionCard(
         contentPadding = PaddingValues(horizontal = ArdttSpacing.MediumPlus, vertical = ArdttSpacing.SmallPlus),
-        verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Hairline),
+        verticalArrangement = Arrangement.spacedBy(ArdttLayout.StackedLabelSpacing),
         shape = ArdttShapes.Chip,
         shadowElevation = ArdttElevation.None,
         tonalElevation = ArdttElevation.None,

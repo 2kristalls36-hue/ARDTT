@@ -13,7 +13,6 @@ import com.ardtt.app.ui.theme.ArdttColors
 
 /** Labels for the Network tab connection map. */
 internal object NetworkMapCopy {
-    const val SUBTITLE = "Карта подключения"
     const val PROVIDER = "IP провайдера"
     const val VPS = "IP VPS"
     const val VPS1 = "IP VPS 1"

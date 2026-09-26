@@ -29,9 +29,9 @@ class SharedDefaultsContractTest {
 
     @Test
     fun cardAndTerminalElevationPoliciesStayExplicit() {
-        assertEquals(ArdttElevation.Low, ArdttSurface.cardShadowElevation(dark = true))
-        assertEquals(ArdttElevation.Card, ArdttSurface.cardShadowElevation(dark = false))
-        assertEquals(ArdttElevation.Card, ArdttSurface.terminalShadowElevation(dark = true))
-        assertEquals(ArdttElevation.Low, ArdttSurface.terminalShadowElevation(dark = false))
+        assertEquals(ArdttElevation.None, ArdttSurface.cardShadowElevation(dark = true))
+        assertEquals(ArdttElevation.None, ArdttSurface.cardShadowElevation(dark = false))
+        assertEquals(ArdttElevation.None, ArdttSurface.terminalShadowElevation(dark = true))
+        assertEquals(ArdttElevation.None, ArdttSurface.terminalShadowElevation(dark = false))
     }
 }

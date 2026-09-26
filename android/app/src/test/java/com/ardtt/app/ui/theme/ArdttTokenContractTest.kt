@@ -1,5 +1,7 @@
 package com.ardtt.app.ui.theme
 
+import androidx.compose.ui.unit.LayoutDirection
+import com.ardtt.app.ui.components.surface.messageCardDismissUsesCompactIcon
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -20,8 +22,29 @@ class ArdttTokenContractTest {
     }
 
     @Test
+    fun noteCardGivesTheParagraphOneInset() {
+        val padding = ArdttLayout.NoteCardPadding
+        assertEquals(ArdttSpacing.Large, padding.calculateLeftPadding(LayoutDirection.Ltr))
+        assertEquals(ArdttSpacing.Large, padding.calculateRightPadding(LayoutDirection.Ltr))
+        assertEquals(ArdttSpacing.Medium, padding.calculateTopPadding())
+        assertEquals(ArdttSpacing.Medium, padding.calculateBottomPadding())
+        assertEquals(ArdttSpacing.Small, ArdttLayout.NoteCardSpacing)
+        assertTrue(
+            padding.calculateLeftPadding(LayoutDirection.Ltr) >
+                ArdttLayout.CardPadding.calculateLeftPadding(LayoutDirection.Ltr),
+        )
+        assertTrue(messageCardDismissUsesCompactIcon())
+    }
+
+    @Test
+    fun stackedLabelsKeepAirBetweenTitleAndSupport() {
+        assertEquals(ArdttSpacing.TinyPlus, ArdttLayout.StackedLabelSpacing)
+        assertTrue(ArdttLayout.StackedLabelSpacing > ArdttSpacing.Hairline)
+    }
+
+    @Test
     fun sharedLayoutRolesUseTheCommonScale() {
-        assertEquals(ArdttSpacing.Large, ArdttLayout.ScreenPadding)
+        assertEquals(ArdttSpacing.SmallPlus, ArdttLayout.ScreenPadding)
         assertEquals(ArdttSpacing.XLargePlus, ArdttLayout.SheetPadding)
         assertEquals(ArdttSpacing.HairlinePlus, ArdttLayout.BadgeVerticalPadding)
     }
@@ -44,8 +67,8 @@ class ArdttTokenContractTest {
 
     @Test
     fun cardElevationFollowsTheSharedSurfacePolicy() {
-        assertEquals(ArdttElevation.Low, ArdttSurface.cardShadowElevation(dark = true))
-        assertEquals(ArdttElevation.Card, ArdttSurface.cardShadowElevation(dark = false))
+        assertEquals(ArdttElevation.None, ArdttSurface.cardShadowElevation(dark = true))
+        assertEquals(ArdttElevation.None, ArdttSurface.cardShadowElevation(dark = false))
     }
 
     @Test

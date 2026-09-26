@@ -22,10 +22,13 @@ import android.os.PowerManager
 import android.system.OsConstants
 import android.util.Log
 import android.widget.RemoteViews
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import com.ardtt.app.MainActivity
+import com.ardtt.app.QuickLaunchOutcome
 import com.ardtt.app.R
+import com.ardtt.app.runQuickLaunchToggle
 import com.ardtt.app.settings.AppSettingsRepository
 import com.ardtt.app.tunnel.BypassBackend
 import com.ardtt.app.tunnel.DirectBackend
@@ -43,6 +46,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CancellationException
 import org.json.JSONObject
 
@@ -283,6 +287,10 @@ class VpnTunnelService : VpnService(), TunEstablisher {
                 }
                 return if (tunnelSessionActive) START_STICKY else START_NOT_STICKY
             }
+            ACTION_QS_TOGGLE -> {
+                handleQsToggle()
+                return START_STICKY
+            }
             ACTION_START, null -> {
                 userStopRequested = false
                 trustedWifiWaiting = false
@@ -307,6 +315,42 @@ class VpnTunnelService : VpnService(), TunEstablisher {
             }
         }
         return START_STICKY
+    }
+
+    /**
+     * QS connect. [startForeground] runs before this method returns so the
+     * process stays eligible after SystemUI unbinds the tile. Profile load and
+     * [runQuickLaunchToggle] happen after that.
+     */
+    private fun handleQsToggle() {
+        val path = TunnelSessionHolder.config?.path ?: VpnPath.Direct
+        startForegroundNotification(path, "Подключение…")
+        scope.launch {
+            val failure = runCatching {
+                val result = withContext(Dispatchers.Main) {
+                    runQuickLaunchToggle(applicationContext) {
+                        runCatching { VpnService.prepare(this@VpnTunnelService) }.getOrNull()
+                    }
+                }
+                when (result.outcome) {
+                    QuickLaunchOutcome.MissingProfile -> "Нет активного профиля"
+                    QuickLaunchOutcome.NeedVpnConsent -> "Разрешите ARDTT создать VPN-подключение"
+                    QuickLaunchOutcome.ConnectInPlace,
+                    QuickLaunchOutcome.Disconnect -> null
+                }
+            }.getOrElse { error ->
+                AppLog.e(TAG, "QS toggle failed: ${error.message}")
+                error.message ?: "Не удалось переключить туннель"
+            }
+            if (failure != null && !tunnelSessionActive) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(applicationContext, failure, Toast.LENGTH_LONG).show()
+                }
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+            }
+            com.ardtt.app.QuickToggleTileService.requestTileUpdate(this@VpnTunnelService)
+        }
     }
 
     private fun startSession() {
@@ -2695,7 +2739,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         open: PendingIntent,
     ): RemoteViews {
         return RemoteViews(packageName, R.layout.notif_vpn_shade).apply {
-            setOnClickPendingIntent(R.id.notif_root, open)
+            bindShadeOpenClicks(open)
             setTextViewText(R.id.notif_title, shade.title)
             val pathColor = when {
                 shade.title.contains("Обход", ignoreCase = true) ||
@@ -2735,6 +2779,7 @@ class VpnTunnelService : VpnService(), TunEstablisher {
         private const val TAG = "VpnTunnel"
         const val ACTION_START = "com.ardtt.app.action.START"
         const val ACTION_STOP = "com.ardtt.app.action.STOP"
+        const val ACTION_QS_TOGGLE = "com.ardtt.app.action.QS_TOGGLE"
         const val ACTION_RESTART_TRANSPORT = "com.ardtt.app.action.RESTART_TRANSPORT"
         const val ACTION_REFRESH_NOTIFICATION = "com.ardtt.app.action.REFRESH_NOTIFICATION"
         const val ACTION_SESSION_CONTROL = "com.ardtt.app.action.SESSION_CONTROL"

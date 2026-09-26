@@ -1,5 +1,7 @@
 package com.ardtt.app.ui.profiles
 
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import com.ardtt.app.deploy.DeployHop
 import com.ardtt.app.deploy.DeployTarget
 import com.ardtt.app.deploy.ProvisionAdminApi
@@ -26,6 +28,31 @@ internal fun profileTrafficRemainingLabel(limitBytes: Long, usedBytes: Long): St
     if (limitBytes <= 0L) return "без лимита"
     val left = (limitBytes - usedBytes).coerceAtLeast(0L)
     return "осталось ${formatClientBytes(left)}"
+}
+
+/**
+ * Where the usage bar sits on a profile card. Clients add it as an extra row;
+ * profiles draw the same bar in the card's existing bottom padding so the
+ * card does not grow.
+ */
+internal enum class ProfileTrafficBarPlacement {
+    ExtraRow,
+    InsideBottomPadding,
+}
+
+internal fun profileTrafficBarPlacement(): ProfileTrafficBarPlacement =
+    ProfileTrafficBarPlacement.InsideBottomPadding
+
+internal fun profileTrafficBarVisible(limitBytes: Long): Boolean = limitBytes > 0L
+
+/**
+ * Shift of the bar below the last text row. Equals the bar height when the
+ * bottom padding can hold it, so the bar leaves the text and stays inside
+ * the card.
+ */
+internal fun profileTrafficBarDrop(bottomPadding: Dp, barHeight: Dp): Dp {
+    if (barHeight <= 0.dp || bottomPadding < barHeight) return 0.dp
+    return barHeight
 }
 
 internal fun profileLiveFactsFromUsers(
@@ -81,7 +108,8 @@ internal enum class ProfileCardHostLayout {
 /**
  * Same identity order as the server list card: title → badge,
  * trailing ⋮ outside the column like the chevron, hosts left / presence right,
- * remaining traffic on the fact row.
+ * remaining traffic on the fact row. A traffic limit draws the usage bar in
+ * the card's bottom padding, not as another row.
  */
 internal fun profileCardSlotOrder(): List<ProfileCardSlot> = listOf(
     ProfileCardSlot.Title,
@@ -108,8 +136,8 @@ internal fun profileCardTitleTone(): ProfileCardTitleTone = ProfileCardTitleTone
 internal fun profileCardHostLayout(): ProfileCardHostLayout =
     ProfileCardHostLayout.InnerWeightedRow
 
-/** Same extra Small under the chrome as the servers list. */
-internal fun profileFeedAddsTopSpacing(): Boolean = true
+/** Profiles use the same top inset as Settings: chrome padding only. */
+internal fun profileFeedAddsTopSpacing(): Boolean = false
 
 internal fun profileCardPresenceLabel(active: Boolean): String? =
     if (active) "● Активен" else null

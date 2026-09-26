@@ -265,11 +265,6 @@ private fun ClientsScreen(
             header = {
                 ArdttTabHeader(
                     title = "Клиенты",
-                    subtitle = when {
-                        loading -> "Загрузка…"
-                        error != null -> server.host
-                        else -> "${users.size} · ${server.name.ifBlank { server.host }}"
-                    },
                     onBack = onBack,
                 )
             },
@@ -301,9 +296,8 @@ private fun ClientsScreen(
                     } else {
                         LazyColumn(
                             contentPadding = PaddingValues(
-                                start = ArdttSpacing.Large,
-                                end = ArdttSpacing.Large,
-                                top = ArdttSpacing.Small,
+                                start = ArdttLayout.ScreenPadding,
+                                end = ArdttLayout.ScreenPadding,
                                 bottom = ArdttBottomChrome.scrollContentPadding(),
                             ),
                             verticalArrangement = Arrangement.spacedBy(ArdttLayout.ListSpacing),
@@ -701,16 +695,13 @@ private fun ClientCard(
     val subActive = clientSubscriptionActive(user)
     val used = user.usedBytes
     val limit = user.trafficLimitBytes
-    val progress = when {
-        limit <= 0L -> 0f
-        else -> (used.toFloat() / limit.toFloat()).coerceIn(0f, 1f)
-    }
-    val trafficColor = when {
-        limit <= 0L -> connectedStatusColor()
-        progress >= 0.85f -> MaterialTheme.colorScheme.error
-        progress >= 0.55f -> warningStatusColor()
-        else -> connectedStatusColor()
-    }
+    val progress = trafficUsageProgress(used, limit)
+    val trafficColor = trafficUsageColor(
+        trafficUsageTone(used, limit),
+        connected = connectedStatusColor(),
+        warning = warningStatusColor(),
+        error = MaterialTheme.colorScheme.error,
+    )
     val deviceLine = deviceDisplayLabels(user.deviceIds, user.deviceModels)
         .joinToString(" · ")
         .ifBlank { "" }

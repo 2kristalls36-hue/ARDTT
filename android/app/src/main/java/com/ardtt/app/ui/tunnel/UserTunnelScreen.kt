@@ -83,6 +83,7 @@ import com.ardtt.app.ui.nextThemeMode
 import com.ardtt.app.ui.persistThemeMode
 import com.ardtt.app.ui.theme.ArdttAlpha
 import com.ardtt.app.ui.theme.ArdttColors
+import com.ardtt.app.ui.theme.ArdttElevation
 import com.ardtt.app.ui.theme.ArdttMotion
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
@@ -442,8 +443,10 @@ private fun ThemeModeBadge(
             .semantics { contentDescription = label },
         shape = CircleShape,
         color = shellColor,
+        contentColor = glyphColor,
         border = ArdttFloatingShell.shellBorder(),
-        shadowElevation = ArdttFloatingShell.shadowElevation,
+        // A shadow graphics layer paints this translucent shell opaque for a frame.
+        shadowElevation = ArdttElevation.None,
     ) {
         Box(contentAlignment = Alignment.Center) {
             when (modeBadge) {
@@ -629,9 +632,11 @@ private fun TunnelPowerToggle(
                         .onFailure { t -> AppLog.e("TunnelToggle", "toggle failed: ${t.message}") }
                 },
             color = shellColor,
+            contentColor = accentColor,
             border = ArdttFloatingShell.shellBorder(),
             shape = CircleShape,
-            shadowElevation = ArdttFloatingShell.shadowElevation,
+            // A shadow graphics layer paints this translucent shell opaque for a frame.
+            shadowElevation = ArdttElevation.None,
         ) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 if (paused) {
@@ -678,20 +683,16 @@ private fun ProfileSwitcherBar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.SmallPlus),
     ) {
-        val scheme = MaterialTheme.colorScheme
         val sessionLocked = canSwitch && !switchEnabled
-        val lockedContainer = scheme.surface.copy(alpha = ArdttAlpha.Strong)
-        val lockedContent = scheme.onSurface.copy(alpha = ArdttAlpha.Muted)
         val label = activeItem?.profile?.name?.ifBlank { "Профиль" } ?: "Выбрать профиль"
         if (canSwitch) {
             ArdttButton(
                 onClick = onPrev,
                 enabled = switchEnabled,
                 variant = ArdttButtonVariant.Primary,
+                floating = true,
                 icon = Icons.AutoMirrored.Filled.ArrowBack,
                 contentDescription = "Предыдущий профиль",
-                containerColor = if (sessionLocked) lockedContainer else null,
-                contentColor = if (sessionLocked) lockedContent else null,
                 modifier = Modifier.width(ArdttSize.ButtonCluster),
             )
         }
@@ -700,6 +701,7 @@ private fun ProfileSwitcherBar(
             onClick = onOpenProfiles,
             enabled = true,
             variant = ArdttButtonVariant.Primary,
+            floating = true,
             fillMaxWidth = false,
             icon = if (sessionLocked) Icons.Filled.Lock else null,
             contentDescription = if (sessionLocked) {
@@ -707,8 +709,6 @@ private fun ProfileSwitcherBar(
             } else {
                 label
             },
-            containerColor = if (sessionLocked) lockedContainer else null,
-            contentColor = if (sessionLocked) lockedContent else null,
             modifier = Modifier.weight(1f),
         )
         if (canSwitch) {
@@ -716,10 +716,9 @@ private fun ProfileSwitcherBar(
                 onClick = onNext,
                 enabled = switchEnabled,
                 variant = ArdttButtonVariant.Primary,
+                floating = true,
                 icon = Icons.AutoMirrored.Filled.ArrowForward,
                 contentDescription = "Следующий профиль",
-                containerColor = if (sessionLocked) lockedContainer else null,
-                contentColor = if (sessionLocked) lockedContent else null,
                 modifier = Modifier.width(ArdttSize.ButtonCluster),
             )
         }

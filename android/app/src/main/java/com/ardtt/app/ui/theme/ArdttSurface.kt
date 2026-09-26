@@ -119,15 +119,13 @@ object ArdttSurface {
             lerp(surface, surfaceVariant, ShellTintLight).copy(alpha = ShellAlphaLight)
         }
 
-    fun cardShadowElevation(dark: Boolean): Dp =
-        if (dark) ArdttElevation.Low else ArdttElevation.Card
+    /** Flat in both themes. The contour border is the card edge. */
+    @Suppress("UNUSED_PARAMETER")
+    fun cardShadowElevation(dark: Boolean): Dp = ArdttElevation.None
 
-    /**
-     * Terminal/log surfaces need a stronger edge in dark chrome and a quieter
-     * edge in light chrome than ordinary cards.
-     */
-    fun terminalShadowElevation(dark: Boolean): Dp =
-        if (dark) ArdttElevation.Card else ArdttElevation.Low
+    /** Log surfaces use the same flat card. */
+    @Suppress("UNUSED_PARAMETER")
+    fun terminalShadowElevation(dark: Boolean): Dp = ArdttElevation.None
 }
 
 /** True when the active color scheme renders dark chrome. */
@@ -147,12 +145,12 @@ fun cardContainerColor(): Color {
     )
 }
 
-/** Default shadow of a section / compact card under the active scheme. */
+/** Default shadow of a section / compact card. Cards are flat. */
 @Composable
 @ReadOnlyComposable
 fun cardShadowElevation(): Dp = ArdttSurface.cardShadowElevation(isDarkSurface())
 
-/** Shadow of a terminal/log surface under the active scheme. */
+/** Shadow of a terminal/log surface. Same flat card as the rest. */
 @Composable
 @ReadOnlyComposable
 fun terminalShadowElevation(): Dp =
@@ -168,10 +166,6 @@ fun dialogContainerColor(): Color = MaterialTheme.colorScheme.surfaceContainerHi
 @ReadOnlyComposable
 fun sheetContainerColor(): Color = MaterialTheme.colorScheme.surface
 
-/**
- * Fill of a selected segmented control — the tab-bar indicator and the selected
- * choice chip, which used to carry two copies of this formula.
- */
 /** Status text/chip accent on the current surface (not the chip fill). */
 @Composable
 @ReadOnlyComposable
@@ -182,6 +176,7 @@ fun connectedStatusColor(): Color = ArdttColors.connectedForeground(isDarkSurfac
 @ReadOnlyComposable
 fun warningStatusColor(): Color = ArdttColors.warningForeground(isDarkSurface())
 
+/** Fill of a selected segmented control, shared by the choice chips. */
 @Composable
 @ReadOnlyComposable
 fun selectedControlContainer(darkAlpha: Float = ArdttAlpha.Fill): Color {
