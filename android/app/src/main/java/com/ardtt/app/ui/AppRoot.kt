@@ -55,10 +55,6 @@ import com.ardtt.app.ui.components.layout.ArdttNavItem
 import com.ardtt.app.ui.components.layout.ArdttNavigationBar
 import com.ardtt.app.ui.components.surface.ArdttDialog
 import com.ardtt.app.ui.components.surface.ArdttDialogAction
-import com.ardtt.app.ui.components.surface.ArdttLiquidGlassSession
-import com.ardtt.app.ui.components.surface.LocalArdttLiquidGlass
-import com.ardtt.app.ui.components.surface.liquidGlassBackdrop
-import com.ardtt.app.ui.components.surface.liquidGlassSupported
 import com.ardtt.app.ui.exceptions.ExceptionsScreen
 import com.ardtt.app.ui.profiles.ProfilesScreen
 import com.ardtt.app.ui.settings.SettingsScreen
@@ -400,18 +396,8 @@ fun AppRoot(
             colorScheme = adaptedColorScheme,
             typography = MaterialTheme.typography,
         ) {
-            val liquidGlassSession = remember {
-                ArdttLiquidGlassSession(liquidGlassSupported())
-            }
-            CompositionLocalProvider(
-                LocalIllustratedBackdrop provides showUserWallpaper,
-                LocalArdttLiquidGlass provides liquidGlassSession,
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .liquidGlassBackdrop(),
-                ) {
+            CompositionLocalProvider(LocalIllustratedBackdrop provides showUserWallpaper) {
+                Box(modifier = Modifier.fillMaxSize()) {
                     // One scene × time-of-day for every user-mode tab, including Tunnel.
                     // Keep the Image composed so tab switches do not flash Field.
                     if (showUserWallpaper) {

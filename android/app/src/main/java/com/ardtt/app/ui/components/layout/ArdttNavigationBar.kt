@@ -50,7 +50,6 @@ import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import com.ardtt.app.ui.components.surface.ArdttFloatingShell
-import com.ardtt.app.ui.components.surface.liquidGlass
 import com.ardtt.app.ui.theme.ArdttElevation
 import com.ardtt.app.ui.theme.ArdttSurface
 import com.ardtt.app.ui.theme.ArdttMotion
@@ -227,8 +226,7 @@ fun ArdttNavigationBar(
 
     Surface(
         shape = ArdttShapes.Section,
-        // The plate draws its own frost; a second fill would hide the bend.
-        color = Color.Transparent,
+        color = shell,
         contentColor = ArdttSurface.contentColorOn(shell),
         border = ArdttFloatingShell.shellBorder(),
         tonalElevation = ArdttElevation.None,
@@ -240,8 +238,7 @@ fun ArdttNavigationBar(
             .padding(
                 horizontal = NavBarDefaults.OuterPadding,
                 vertical = NavBarDefaults.TrackPadding,
-            )
-            .liquidGlass(ArdttShapes.Section, shell, hueLocked = false),
+            ),
     ) {
         Box(
             modifier = Modifier

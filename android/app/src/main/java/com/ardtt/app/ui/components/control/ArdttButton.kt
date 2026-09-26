@@ -1,5 +1,6 @@
 package com.ardtt.app.ui.components.control
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -40,7 +41,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import com.ardtt.app.ui.components.surface.ArdttFloatingShell
-import com.ardtt.app.ui.components.surface.liquidGlass
 import com.ardtt.app.ui.theme.ArdttAlpha
 import com.ardtt.app.ui.theme.ArdttButtonLabelStyle
 import com.ardtt.app.ui.theme.ArdttElevation
@@ -309,8 +309,8 @@ private fun GlassFillButton(
 ) {
     Box(
         modifier = modifier
-            .liquidGlass(ArdttShapes.Control, fill, hueLocked = true)
             .clip(ArdttShapes.Control)
+            .background(fill)
             .border(ArdttFloatingShell.shellBorder(), ArdttShapes.Control)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
@@ -424,11 +424,7 @@ private fun buttonColors(
         ArdttButtonVariant.Danger -> scheme.onError
     }
     val content = when {
-        // The glass wash is thin, so the label sits on the page, not on the
-        // tint. A light primary would otherwise pick a near-black label and
-        // lose it on a dark surface.
-        floating -> ardttFloatingContentColor(scheme.surface, contentOverride ?: fallbackContent)
-        matchOpaqueGlass -> ardttFloatingContentColor(container, contentOverride)
+        floating || matchOpaqueGlass -> ardttFloatingContentColor(container, contentOverride)
         contentOverride != null -> contentOverride
         containerOverride != null && container.alpha > 0.04f ->
             ArdttSurface.contentColorOn(container)
