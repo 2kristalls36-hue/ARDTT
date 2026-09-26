@@ -695,16 +695,13 @@ private fun ClientCard(
     val subActive = clientSubscriptionActive(user)
     val used = user.usedBytes
     val limit = user.trafficLimitBytes
-    val progress = when {
-        limit <= 0L -> 0f
-        else -> (used.toFloat() / limit.toFloat()).coerceIn(0f, 1f)
-    }
-    val trafficColor = when {
-        limit <= 0L -> connectedStatusColor()
-        progress >= 0.85f -> MaterialTheme.colorScheme.error
-        progress >= 0.55f -> warningStatusColor()
-        else -> connectedStatusColor()
-    }
+    val progress = trafficUsageProgress(used, limit)
+    val trafficColor = trafficUsageColor(
+        trafficUsageTone(used, limit),
+        connected = connectedStatusColor(),
+        warning = warningStatusColor(),
+        error = MaterialTheme.colorScheme.error,
+    )
     val deviceLine = deviceDisplayLabels(user.deviceIds, user.deviceModels)
         .joinToString(" · ")
         .ifBlank { "" }

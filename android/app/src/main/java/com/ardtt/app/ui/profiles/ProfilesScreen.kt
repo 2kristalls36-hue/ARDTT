@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ContentCopy
@@ -57,6 +58,9 @@ import com.ardtt.app.ui.PendingUiAction
 import com.ardtt.app.ui.admin.ClientExpiresTone
 import com.ardtt.app.ui.admin.clientExpiresTone
 import com.ardtt.app.ui.admin.formatClientExpires
+import com.ardtt.app.ui.admin.trafficUsageColor
+import com.ardtt.app.ui.admin.trafficUsageProgress
+import com.ardtt.app.ui.admin.trafficUsageTone
 import com.ardtt.app.ui.components.control.ArdttButton
 import com.ardtt.app.ui.components.control.ArdttButtonSize
 import com.ardtt.app.ui.components.control.ArdttButtonVariant
@@ -66,6 +70,7 @@ import com.ardtt.app.ui.components.control.ArdttPrimaryButton
 import com.ardtt.app.ui.components.control.ArdttTextField
 import com.ardtt.app.ui.components.control.ArdttTextFieldDefaults
 import com.ardtt.app.ui.components.feedback.ArdttEmptyState
+import com.ardtt.app.ui.components.feedback.ArdttLinearProgress
 import com.ardtt.app.ui.components.feedback.ArdttIdentityBadge
 import com.ardtt.app.ui.components.feedback.ArdttIpHostRow
 import com.ardtt.app.ui.components.layout.ArdttLazyFeedScaffold
@@ -519,73 +524,98 @@ private fun ProfileCard(
                 painter = painterResource(R.drawable.ic_profile),
                 contentDescription = "Профиль",
             )
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(ArdttLayout.CompactCardSpacing),
-            ) {
-                Row(
+            Box(modifier = Modifier.weight(1f)) {
+                Column(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
+                    verticalArrangement = Arrangement.spacedBy(ArdttLayout.CompactCardSpacing),
                 ) {
-                    Text(
-                        item.profile.name,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = titleColor,
-                        modifier = Modifier.weight(1f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    ArdttIdentityBadge(
-                        text = formatClientExpires(facts.expiresAt),
-                        contentColor = expiresColor,
-                    )
-                }
-                val presence = profileCardPresenceLabel(active)
-                if (addressHosts.isNotEmpty() || presence != null) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
                     ) {
-                        Row(
+                        Text(
+                            item.profile.name,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = titleColor,
                             modifier = Modifier.weight(1f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        ArdttIdentityBadge(
+                            text = formatClientExpires(facts.expiresAt),
+                            contentColor = expiresColor,
+                        )
+                    }
+                    val presence = profileCardPresenceLabel(active)
+                    if (addressHosts.isNotEmpty() || presence != null) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.TinyPlus),
+                            horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
                         ) {
-                            if (addressHosts.isNotEmpty()) {
-                                ArdttIpHostRow(
-                                    hosts = addressHosts,
-                                    muted = muted,
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.TinyPlus),
+                            ) {
+                                if (addressHosts.isNotEmpty()) {
+                                    ArdttIpHostRow(
+                                        hosts = addressHosts,
+                                        muted = muted,
+                                    )
+                                }
+                            }
+                            if (presence != null) {
+                                Text(
+                                    presence,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = connectedStatusColor(),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                 )
                             }
                         }
-                        if (presence != null) {
-                            Text(
-                                presence,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                color = connectedStatusColor(),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
+                    ) {
+                        Text(
+                            profileTrafficRemainingLabel(facts.trafficLimitBytes, facts.usedBytes),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = muted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
                     }
                 }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
-                ) {
-                    Text(
-                        profileTrafficRemainingLabel(facts.trafficLimitBytes, facts.usedBytes),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = muted,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
+                if (profileTrafficBarVisible(facts.trafficLimitBytes)) {
+                    val tone = trafficUsageTone(facts.usedBytes, facts.trafficLimitBytes)
+                    ArdttLinearProgress(
+                        progress = trafficUsageProgress(facts.usedBytes, facts.trafficLimitBytes),
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .height(ArdttSpacing.Tiny)
+                            .offset(
+                                y = profileTrafficBarDrop(
+                                    bottomPadding = ArdttLayout.CompactCardPadding
+                                        .calculateBottomPadding(),
+                                    barHeight = ArdttSpacing.Tiny,
+                                ),
+                            ),
+                        color = trafficUsageColor(
+                            tone,
+                            connected = connectedStatusColor(),
+                            warning = warningStatusColor(),
+                            error = colors.error,
+                        ),
+                        trackColor = colors.surfaceVariant,
                     )
                 }
             }

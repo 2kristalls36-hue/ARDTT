@@ -183,6 +183,33 @@ class ClientPresentationTest {
     }
 
     @Test
+    fun trafficUsageMatchesTheClientLimitBar() {
+        assertEquals(0f, trafficUsageProgress(500L, 0L))
+        assertEquals(TrafficUsageTone.None, trafficUsageTone(500L, 0L))
+        assertEquals(0.5f, trafficUsageProgress(50L, 100L))
+        assertEquals(TrafficUsageTone.Ok, trafficUsageTone(54L, 100L))
+        assertEquals(TrafficUsageTone.Warning, trafficUsageTone(55L, 100L))
+        assertEquals(TrafficUsageTone.Full, trafficUsageTone(85L, 100L))
+        assertEquals(1f, trafficUsageProgress(250L, 100L))
+        assertEquals(TrafficUsageTone.Full, trafficUsageTone(250L, 100L))
+        val connected = Color.Green
+        val warning = Color.Yellow
+        val error = Color.Red
+        assertEquals(
+            connected,
+            trafficUsageColor(TrafficUsageTone.Ok, connected, warning, error),
+        )
+        assertEquals(
+            warning,
+            trafficUsageColor(TrafficUsageTone.Warning, connected, warning, error),
+        )
+        assertEquals(
+            error,
+            trafficUsageColor(TrafficUsageTone.Full, connected, warning, error),
+        )
+    }
+
+    @Test
     fun clientCardChromeMatchesServerIdentity() {
         assertEquals(ClientCardOverflowAnchor.TrailingOutside, clientCardOverflowAnchor())
         assertTrue(clientCardOverflowUsesCompactIcon())
