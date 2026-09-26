@@ -38,6 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -133,7 +134,20 @@ internal data class TabIconPose(
     val translationXFraction: Float = 0f,
     val translationYFraction: Float = 0f,
     val scale: Float = 1f,
+    /** Fraction of the icon. 0.5, 0.5 spins in place; the key uses the blade tip. */
+    val pivotX: Float = 0.5f,
+    val pivotY: Float = 0.5f,
 )
+
+/**
+ * Outlined key, 24×24. The blade ends at the right, and the shaft sits near y=14.
+ * Turning around that point swings the bow, the way a key turns in a lock.
+ */
+internal const val KeyholePivotX = 23f / 24f
+internal const val KeyholePivotY = 14f / 24f
+
+/** Quarter turn: a lock, not a full spin. */
+internal const val KeyTurnDegrees = 90f
 
 internal fun tabIconMotionFor(route: String): TabIconMotion = when (route) {
     "tunnel" -> TabIconMotion.KeyTurn
@@ -163,20 +177,15 @@ internal fun tabIconHeartbeat(progress: Float): Float {
     return wave * wave
 }
 
-/**
- * One-way 0→1 turn. Speed is zero at both ends, so a full circle starts and
- * stops on the same glyph without a kick.
- */
-internal fun tabIconTurn(progress: Float): Float {
-    val t = progress.coerceIn(0f, 1f)
-    return t * t * (3f - 2f * t)
-}
-
 internal fun tabIconPose(motion: TabIconMotion, progress: Float): TabIconPose {
     val settle = tabIconSettle(progress)
     return when (motion) {
         TabIconMotion.GearHalfTurn -> TabIconPose(rotationZ = 180f * settle)
-        TabIconMotion.KeyTurn -> TabIconPose(rotationZ = 360f * tabIconTurn(progress))
+        TabIconMotion.KeyTurn -> TabIconPose(
+            rotationZ = KeyTurnDegrees * settle,
+            pivotX = KeyholePivotX,
+            pivotY = KeyholePivotY,
+        )
         TabIconMotion.Float -> TabIconPose(translationYFraction = -0.2f * settle)
         TabIconMotion.Lift -> TabIconPose(
             translationYFraction = -0.16f * settle,
@@ -328,6 +337,7 @@ private fun NavBarTab(
                 modifier = Modifier
                     .size(ArdttSize.Icon)
                     .graphicsLayer {
+                        transformOrigin = TransformOrigin(iconPose.pivotX, iconPose.pivotY)
                         rotationZ = iconPose.rotationZ
                         translationX = iconPose.translationXFraction * size.width
                         translationY = iconPose.translationYFraction * size.height
