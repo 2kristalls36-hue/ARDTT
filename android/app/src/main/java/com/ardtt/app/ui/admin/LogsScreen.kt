@@ -55,6 +55,7 @@ import com.ardtt.app.ui.components.surface.ArdttSectionCard
 import com.ardtt.app.ui.components.surface.terminalCardColor
 import com.ardtt.app.ui.components.surface.terminalCardElevation
 import com.ardtt.app.ui.theme.ArdttAlpha
+import com.ardtt.app.ui.theme.ArdttLayout
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
@@ -255,27 +256,32 @@ internal fun RowScope.LogsJournalHeaderActions(
     val fmt = remember { logsLineFormat() }
     var showClearConfirm by remember { mutableStateOf(false) }
     val dump = { logsDumpBody(entries, fmt) }
-    logsHeaderActionOrder().forEach { label ->
-        when (label) {
-            LogsCopy.COPY -> LogsHeaderIconButton(
-                onClick = { copyToClipboard(context, dump(), "ARDTT logs") },
-                icon = Icons.Default.ContentCopy,
-                contentDescription = label,
-                contentColor = contentColor,
-            )
-            LogsCopy.SHARE -> LogsHeaderIconButton(
-                onClick = { shareText(context, dump(), "ARDTT logs", "Экспорт логов") },
-                icon = Icons.Default.Share,
-                contentDescription = label,
-                contentColor = contentColor,
-            )
-            LogsCopy.CLEAR -> LogsHeaderIconButton(
-                onClick = { showClearConfirm = true },
-                icon = Icons.Default.Delete,
-                contentDescription = label,
-                enabled = entries.isNotEmpty(),
-                contentColor = contentColor,
-            )
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(logsHeaderActionSpacing()),
+    ) {
+        logsHeaderActionOrder().forEach { label ->
+            when (label) {
+                LogsCopy.COPY -> LogsHeaderIconButton(
+                    onClick = { copyToClipboard(context, dump(), "ARDTT logs") },
+                    icon = Icons.Default.ContentCopy,
+                    contentDescription = label,
+                    contentColor = contentColor,
+                )
+                LogsCopy.SHARE -> LogsHeaderIconButton(
+                    onClick = { shareText(context, dump(), "ARDTT logs", "Экспорт логов") },
+                    icon = Icons.Default.Share,
+                    contentDescription = label,
+                    contentColor = contentColor,
+                )
+                LogsCopy.CLEAR -> LogsHeaderIconButton(
+                    onClick = { showClearConfirm = true },
+                    icon = Icons.Default.Delete,
+                    contentDescription = label,
+                    enabled = entries.isNotEmpty(),
+                    contentColor = contentColor,
+                )
+            }
         }
     }
     if (showClearConfirm) {
@@ -328,6 +334,9 @@ internal object LogsCopy {
 
 internal fun logsHeaderActionOrder(): List<String> =
     listOf(LogsCopy.COPY, LogsCopy.SHARE, LogsCopy.CLEAR)
+
+/** Gap between copy, share, and delete. The glyphs are 24 dp and used to touch. */
+internal fun logsHeaderActionSpacing() = ArdttLayout.ControlSpacing
 
 internal fun logsShowsInlineActionRow(embedded: Boolean): Boolean = false
 
