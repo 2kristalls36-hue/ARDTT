@@ -4,16 +4,21 @@ import android.os.Build
 import android.telephony.SubscriptionManager
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
@@ -854,21 +859,34 @@ private fun SignalMetric(
         UnderlaySignalQuality.Good,
         UnderlaySignalQuality.Excellent -> connectedStatusColor()
     }
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Tiny),
+    val underlined = signalMetricMark(emphasized) == SignalMetricMark.Underline
+    Column(
+        modifier = Modifier.width(IntrinsicSize.Max),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = contentDescription,
-            tint = color,
-            modifier = Modifier.size(ArdttSize.IconSmall),
-        )
-        Text(
-            text,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = if (emphasized) FontWeight.SemiBold else FontWeight.Normal,
-            color = color,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Tiny),
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = color,
+                modifier = Modifier.size(ArdttSize.IconSmall),
+            )
+            Text(
+                text,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = if (emphasized) FontWeight.SemiBold else FontWeight.Normal,
+                color = color,
+            )
+        }
+        Box(
+            modifier = Modifier
+                .padding(top = ArdttSpacing.Hairline)
+                .fillMaxWidth()
+                .height(ArdttSize.Stroke)
+                .background(if (underlined) color else Color.Transparent),
         )
     }
 }
