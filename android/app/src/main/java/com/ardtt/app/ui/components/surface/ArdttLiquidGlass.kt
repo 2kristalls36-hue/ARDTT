@@ -14,13 +14,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
@@ -32,46 +31,69 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.hypot
+import kotlin.math.max
+import kotlin.math.min
 
 /**
  * Refraction for translucent chrome on Android 13+ (RuntimeShader).
  *
  * One pass records the tree with the glass plates left out and flattens it to
  * a bitmap, so a plate can bend those pixels without sampling a layer that is
- * still recording. The next pass draws the plates on top. Older releases keep
- * the flat translucent fill. Sheets, dialogs, and the header are not plates.
+ * still recording. The next pass draws the plates on top. The lens magnifies
+ * across the whole plate and bends harder along the rim, so text behind it
+ * curves instead of sitting flat under a tint. Older releases keep the flat
+ * translucent fill. Sheets, dialogs, and the header are not plates.
  */
 internal object ArdttLiquidGlass {
-    /** Normalized radius where the rim bend begins. */
-    const val EdgeInner = 0.45f
-
-    /** How far past [EdgeInner] the bend reaches full strength (radius 1.05). */
-    const val EdgeSpan = 0.60f
-
     /**
-     * Shader multiplier. At the rim, where the normalized offset is about 0.5,
-     * the sample moves by roughly half of this, in pixels.
+     * Share of the vector from the plate center added to the sample shift.
+     * Moves text in the middle of the plate, not only at the rim.
      */
-    const val BendPx = 72f
+    const val LensZoom = 0.34f
 
-    /** Extra pixels recorded around a plate so the rim can sample outside it. */
+    /** Extra inward shift, in pixels, where the rim weight is 1. */
+    const val BendPx = 48f
+
+    /** Rim band as a fraction of the plate's shorter side. */
+    const val RimBandFraction = 0.42f
+
+    /** Red/blue split at full rim weight, in pixels along the outward normal. */
+    const val ChromaPx = 6f
+
+    /** Backdrop blur before the bend, in pixels. Letters stay recognizable. */
+    const val BlurPx = 12f
+
+    /** Extra pixels recorded around a plate so the blur can read past the rim. */
     const val SampleMarginPx = 64f
 
-    /** Shell plates: frost in the middle, clearer at the rim. RGB comes from the tint. */
-    const val ShellCenterAlpha = 0.62f
-    const val ShellEdgeAlpha = 0.24f
+    /**
+     * Shell plates stay glassy: the middle is a light wash, the rim is almost
+     * clear so the bent backdrop reads through.
+     */
+    const val ShellCenterAlpha = 0.26f
+    const val ShellEdgeAlpha = 0.04f
 
-    /** Hue-locked buttons keep [tint alpha] in the middle and this fraction at the rim. */
-    const val HueEdgeScale = 0.525f
+    /**
+     * Hue-locked buttons keep their own RGB. The wash is thinner than
+     * [ArdttFloatingShell.ButtonAlpha] so the refraction is visible; a dimmed
+     * tint scales both alphas down.
+     */
+    const val HueCenterAlpha = 0.50f
+    const val HueEdgeAlpha = 0.08f
 
-    /** Share of the half-diagonal that stays at the center frost. */
-    const val FrostKnee = 0.45f
+    /** Share of the frost radius that stays at the center wash. */
+    const val FrostKnee = 0.22f
 
-    const val SheenAlpha = 0.16f
-    const val SheenReach = 0.42f
+    const val SheenAlpha = 0.55f
+    const val SheenReach = 0.20f
+    const val ShadeAlpha = 0.14f
+    const val ShadeReach = 0.18f
+    const val RimAlpha = 0.72f
 
     private const val LogTag = "ArdttLiquidGlass"
     private var loggedSnapshotFailure = false
@@ -88,7 +110,7 @@ internal class ArdttLiquidGlassSession(
 ) {
     var capturing: Boolean = false
     var root: LayoutCoordinates? = null
-    var frame: ImageBitmap? = null
+    var frame: Bitmap? = null
     private var latest: Bitmap? = null
     private var previous: Bitmap? = null
 
@@ -98,7 +120,7 @@ internal class ArdttLiquidGlassSession(
         }
         previous = latest
         latest = bitmap
-        frame = bitmap.asImageBitmap()
+        frame = bitmap
     }
 
     fun clear() {
@@ -117,24 +139,70 @@ internal val LocalArdttLiquidGlass = staticCompositionLocalOf {
 
 internal fun liquidGlassSupported(sdk: Int = Build.VERSION.SDK_INT): Boolean = sdk >= 33
 
-/** Smoothstep weight: 0 at and inside [ArdttLiquidGlass.EdgeInner], 1 at the outer rim. */
-internal fun liquidGlassEdgeWeight(normalizedRadius: Float): Float {
-    val t = ((normalizedRadius - ArdttLiquidGlass.EdgeInner) / ArdttLiquidGlass.EdgeSpan)
-        .coerceIn(0f, 1f)
+/** 0 deep inside the rim band, 1 on the outline and outside it. */
+internal fun liquidGlassRimWeight(signedDistance: Float, band: Float): Float {
+    val safe = band.coerceAtLeast(1f)
+    val t = ((signedDistance + safe) / safe).coerceIn(0f, 1f)
     return t * t * (3f - 2f * t)
 }
 
+/** Signed distance of a rounded box. [point] and [halfSize] are pixels from the center. */
+internal fun liquidGlassRoundBoxDistance(point: Offset, halfSize: Offset, corner: Float): Float {
+    val rad = corner.coerceIn(0f, min(halfSize.x, halfSize.y))
+    val qx = abs(point.x) - halfSize.x + rad
+    val qy = abs(point.y) - halfSize.y + rad
+    val outside = hypot(max(qx, 0f).toDouble(), max(qy, 0f).toDouble()).toFloat()
+    val inside = min(max(qx, qy), 0f)
+    return outside + inside - rad
+}
+
+/** Outward normal of [liquidGlassRoundBoxDistance]. Zero at the exact center. */
+internal fun liquidGlassRoundBoxNormal(point: Offset, halfSize: Offset, corner: Float): Offset {
+    val rad = corner.coerceIn(0f, min(halfSize.x, halfSize.y))
+    val qx = abs(point.x) - halfSize.x + rad
+    val qy = abs(point.y) - halfSize.y + rad
+    val gx: Float
+    val gy: Float
+    if (qx > 0f && qy > 0f) {
+        val len = hypot(qx.toDouble(), qy.toDouble()).toFloat().coerceAtLeast(0.001f)
+        gx = qx / len
+        gy = qy / len
+    } else if (qx > qy) {
+        gx = 1f
+        gy = 0f
+    } else {
+        gx = 0f
+        gy = 1f
+    }
+    val sx = when {
+        point.x > 0f -> 1f
+        point.x < 0f -> -1f
+        else -> 0f
+    }
+    val sy = when {
+        point.y > 0f -> 1f
+        point.y < 0f -> -1f
+        else -> 0f
+    }
+    return Offset(gx * sx, gy * sy)
+}
+
 /**
- * Pixel offset added to a sample. [normalizedFromCenter] is `coord / size - 0.5`
- * in the plate's own space (before the capture margin).
+ * Pixel shift of the backdrop sample. The shader reads `coord - shift`, so a
+ * positive x pulls content from the left. [local] is the plate point in pixels,
+ * origin at the top-left, before the capture margin.
  */
-internal fun liquidGlassSampleOffset(normalizedFromCenter: Offset): Offset {
-    val radius = hypot(normalizedFromCenter.x.toDouble(), normalizedFromCenter.y.toDouble())
-        .toFloat() * 2f
-    val edge = liquidGlassEdgeWeight(radius)
+internal fun liquidGlassSampleShift(local: Offset, size: Size, corner: Float): Offset {
+    val point = Offset(local.x - size.width * 0.5f, local.y - size.height * 0.5f)
+    val half = Offset(size.width * 0.5f, size.height * 0.5f)
+    val rad = corner.coerceIn(0f, min(size.width, size.height) * 0.5f)
+    val distance = liquidGlassRoundBoxDistance(point, half, rad)
+    val normal = liquidGlassRoundBoxNormal(point, half, rad)
+    val band = max(min(size.width, size.height) * ArdttLiquidGlass.RimBandFraction, 1f)
+    val rim = liquidGlassRimWeight(distance, band)
     return Offset(
-        x = normalizedFromCenter.x * edge * ArdttLiquidGlass.BendPx,
-        y = normalizedFromCenter.y * edge * ArdttLiquidGlass.BendPx,
+        x = point.x * ArdttLiquidGlass.LensZoom + normal.x * rim * ArdttLiquidGlass.BendPx,
+        y = point.y * ArdttLiquidGlass.LensZoom + normal.y * rim * ArdttLiquidGlass.BendPx,
     )
 }
 
@@ -147,17 +215,26 @@ internal data class LiquidGlassFrost(
 )
 
 /**
- * Frost laid over the refraction. Hue-locked buttons keep the tint's alpha in
- * the center (80% for an enabled glass CTA). Shell chrome ignores the tint
- * alpha, which is the flat-fill opacity, and uses the shell pair instead.
+ * Wash laid over the refraction. Hue-locked buttons keep the tint's RGB and
+ * scale the wash by how strong that tint is, so a disabled button thins out.
+ * Shell chrome ignores the flat-fill alpha and uses the shell pair.
  */
 internal fun liquidGlassFrost(tint: Color, hueLocked: Boolean): LiquidGlassFrost {
-    val center = if (hueLocked) tint.alpha else ArdttLiquidGlass.ShellCenterAlpha
-    val edge = if (hueLocked) {
-        center * ArdttLiquidGlass.HueEdgeScale
+    val presence = if (hueLocked) {
+        (tint.alpha / ArdttFloatingShell.ButtonAlpha).coerceIn(0f, 1f)
+    } else {
+        1f
+    }
+    val center = (if (hueLocked) {
+        ArdttLiquidGlass.HueCenterAlpha
+    } else {
+        ArdttLiquidGlass.ShellCenterAlpha
+    }) * presence
+    val edge = (if (hueLocked) {
+        ArdttLiquidGlass.HueEdgeAlpha
     } else {
         ArdttLiquidGlass.ShellEdgeAlpha
-    }
+    }) * presence
     return LiquidGlassFrost(
         red = tint.red,
         green = tint.green,
@@ -167,9 +244,29 @@ internal fun liquidGlassFrost(tint: Color, hueLocked: Boolean): LiquidGlassFrost
     )
 }
 
-/** Half the diagonal, so a corner of the plate is the clear rim. */
+/**
+ * Half the shorter side. On a wide pill the top and bottom edges reach the
+ * clear rim; a half-diagonal left those edges inside the dense center.
+ */
 internal fun liquidGlassFrostRadius(width: Float, height: Float): Float =
-    hypot(width.toDouble(), height.toDouble()).toFloat() * 0.5f
+    min(width, height) * 0.5f
+
+/** Corner radius of [shape] in pixels. A circle uses half its shorter side. */
+internal fun liquidGlassCornerRadius(
+    shape: Shape,
+    size: Size,
+    layoutDirection: LayoutDirection,
+    density: Density,
+): Float {
+    val outline = shape.createOutline(size, layoutDirection, density)
+    return when (outline) {
+        is Outline.Rounded -> max(
+            outline.roundRect.topLeftCornerRadius.x,
+            outline.roundRect.topLeftCornerRadius.y,
+        )
+        else -> min(size.width, size.height) * 0.5f
+    }
+}
 
 /** 0 = center of the plate, 1 = the corner along [liquidGlassFrostRadius]. */
 internal fun liquidGlassFrostAlpha(center: Float, edge: Float, distanceFraction: Float): Float {
@@ -199,21 +296,46 @@ internal fun liquidGlassShapePath(
 
 /** AGSL body. Uniform names are the contract with [android.graphics.RuntimeShader]. */
 internal fun liquidGlassAgsl(): String {
-    val inner = "%.2f".format(Locale.US, ArdttLiquidGlass.EdgeInner)
-    val span = "%.2f".format(Locale.US, ArdttLiquidGlass.EdgeSpan)
+    val zoom = "%.2f".format(Locale.US, ArdttLiquidGlass.LensZoom)
+    val band = "%.2f".format(Locale.US, ArdttLiquidGlass.RimBandFraction)
     return """
         uniform shader contents;
         uniform float2 size;
         uniform float margin;
         uniform float bend;
+        uniform float radius;
+        uniform float chroma;
+        float sdRoundBox(float2 p, float2 b, float rad) {
+            float2 q = abs(p) - b + float2(rad, rad);
+            return length(max(q, float2(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - rad;
+        }
+        float2 sdRoundBoxNormal(float2 p, float2 b, float rad) {
+            float2 q = abs(p) - b + float2(rad, rad);
+            float2 g;
+            if (q.x > 0.0 && q.y > 0.0) {
+                g = q / max(length(q), 0.001);
+            } else if (q.x > q.y) {
+                g = float2(1.0, 0.0);
+            } else {
+                g = float2(0.0, 1.0);
+            }
+            return g * sign(p);
+        }
         half4 main(float2 coord) {
             float2 local = coord - float2(margin, margin);
-            float2 p = local / size;
-            float2 c = p - float2(0.5, 0.5);
-            float r = length(c) * 2.0;
-            float t = clamp((r - $inner) / $span, 0.0, 1.0);
-            float edge = t * t * (3.0 - 2.0 * t);
-            return contents.eval(coord + c * edge * bend);
+            float2 p = local - size * 0.5;
+            float rad = clamp(radius, 0.0, min(size.x, size.y) * 0.5);
+            float2 box = size * 0.5;
+            float sdf = sdRoundBox(p, box, rad);
+            float2 n = sdRoundBoxNormal(p, box, rad);
+            float bandPx = max(min(size.x, size.y) * $band, 1.0);
+            float t = clamp((sdf + bandPx) / bandPx, 0.0, 1.0);
+            float rim = t * t * (3.0 - 2.0 * t);
+            float2 delta = p * $zoom + n * rim * bend;
+            half4 mid = contents.eval(coord - delta);
+            half4 hi = contents.eval(coord - delta + n * rim * chroma);
+            half4 lo = contents.eval(coord - delta - n * rim * chroma);
+            return half4(hi.r, mid.g, lo.b, mid.a);
         }
     """.trimIndent()
 }
@@ -268,6 +390,29 @@ internal fun DrawScope.drawLiquidGlassFrost(
                     endY = sheenHeight,
                 ),
                 size = Size(size.width, sheenHeight),
+            )
+        }
+        val shadeHeight = size.height * ArdttLiquidGlass.ShadeReach
+        if (shadeHeight > 0f) {
+            drawRect(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color.Transparent,
+                        Color.Black.copy(alpha = ArdttLiquidGlass.ShadeAlpha),
+                    ),
+                    startY = size.height - shadeHeight,
+                    endY = size.height,
+                ),
+                topLeft = Offset(0f, size.height - shadeHeight),
+                size = Size(size.width, shadeHeight),
+            )
+        }
+        val rim = 1.6.dp.toPx()
+        if (rim > 0f) {
+            drawPath(
+                path = path,
+                color = Color.White.copy(alpha = ArdttLiquidGlass.RimAlpha),
+                style = Stroke(width = rim * 2f),
             )
         }
     }
