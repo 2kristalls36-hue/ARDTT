@@ -44,6 +44,25 @@ class QsTileLaunchTest {
     }
 
     @Test
+    fun tileClickStartsTheForegroundServiceBeforeTheTileUnbinds() {
+        assertEquals(
+            QsClickEffect.StartToggleService,
+            qsClickEffect(sessionUp = false, vpnConsentRequired = false),
+        )
+        assertEquals(
+            QsClickEffect.Disconnect,
+            qsClickEffect(sessionUp = true, vpnConsentRequired = true),
+        )
+        assertEquals(
+            QsClickEffect.OpenVpnConsent,
+            qsClickEffect(sessionUp = false, vpnConsentRequired = true),
+        )
+        assertTrue(qsClickStartsForegroundService(QsClickEffect.StartToggleService))
+        assertFalse(qsClickStartsForegroundService(QsClickEffect.Disconnect))
+        assertFalse(qsClickStartsForegroundService(QsClickEffect.OpenVpnConsent))
+    }
+
+    @Test
     fun shadeStaysOpenUnlessSystemVpnConsentIsRequired() {
         assertFalse(qsToggleCollapsesShade(QuickLaunchOutcome.ConnectInPlace))
         assertFalse(qsToggleCollapsesShade(QuickLaunchOutcome.Disconnect))

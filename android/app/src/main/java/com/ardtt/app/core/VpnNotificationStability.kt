@@ -3,8 +3,10 @@ package com.ardtt.app.core
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.os.Build
+import android.widget.RemoteViews
 import com.ardtt.app.R
 
 /**
@@ -137,3 +139,27 @@ internal fun notificationOpenAppFlags(): Int =
     android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
         android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP or
         android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
+
+/**
+ * Views that open the app from the VPN plate.
+ *
+ * A click pending intent on the RemoteViews root is ignored, and it also
+ * swallows the notification content intent. Every content view inside the
+ * plate has to carry the same intent. [R.id.notif_root] stays out of this list.
+ */
+internal fun shadeOpenClickViewIds(): IntArray = intArrayOf(
+    R.id.notif_plate,
+    R.id.notif_title,
+    R.id.notif_status,
+    R.id.notif_stats_row,
+    R.id.notif_ip,
+    R.id.notif_rates,
+    R.id.notif_warp_icon,
+    R.id.notif_rkn_icon,
+)
+
+internal fun RemoteViews.bindShadeOpenClicks(open: PendingIntent) {
+    for (id in shadeOpenClickViewIds()) {
+        setOnClickPendingIntent(id, open)
+    }
+}
