@@ -108,9 +108,11 @@ import com.ardtt.app.ui.components.layout.rememberPullRefresh
 import com.ardtt.app.ui.components.surface.ArdttDialog
 import com.ardtt.app.ui.components.surface.ArdttDialogAction
 import com.ardtt.app.ui.components.surface.ArdttFloatingShell
+import com.ardtt.app.ui.components.surface.liquidGlass
 import com.ardtt.app.ui.components.surface.ArdttSectionCard
 import com.ardtt.app.ui.components.surface.sectionCardContourBorder
 import com.ardtt.app.ui.theme.ArdttAlpha
+import com.ardtt.app.ui.theme.ArdttSurface
 import com.ardtt.app.ui.theme.ArdttElevation
 import com.ardtt.app.ui.theme.ArdttLayout
 import com.ardtt.app.ui.theme.ArdttShapes
@@ -881,11 +883,9 @@ private fun BypassSearchBar(
     val colors = MaterialTheme.colorScheme
     val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
-    val fill = if (keyboardVisible) {
-        colors.surface
-    } else {
-        ArdttFloatingShell.shellColor()
-    }
+    val shell = ArdttFloatingShell.shellColor()
+    // The keyboard plate is an opaque field. Idle search bends the list under it.
+    val glass = !keyboardVisible
     Surface(
         modifier = modifier
             .fillMaxWidth()
@@ -897,9 +897,17 @@ private fun BypassSearchBar(
             ) {
                 focusRequester.requestFocus()
                 keyboard?.show()
-            },
+            }
+            .then(
+                if (glass) {
+                    Modifier.liquidGlass(ArdttShapes.Control, shell, hueLocked = false)
+                } else {
+                    Modifier
+                },
+            ),
         shape = ArdttShapes.Control,
-        color = fill,
+        color = if (glass) Color.Transparent else colors.surface,
+        contentColor = if (glass) ArdttSurface.contentColorOn(shell) else colors.onSurface,
         border = ArdttFloatingShell.shellBorder(),
         // Idle fill is the translucent shell; a shadow paints it opaque for a frame.
         shadowElevation = ArdttElevation.None,

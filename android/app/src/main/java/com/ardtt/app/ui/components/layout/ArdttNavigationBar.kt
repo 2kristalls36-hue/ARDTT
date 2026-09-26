@@ -50,7 +50,9 @@ import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import com.ardtt.app.ui.components.surface.ArdttFloatingShell
+import com.ardtt.app.ui.components.surface.liquidGlass
 import com.ardtt.app.ui.theme.ArdttElevation
+import com.ardtt.app.ui.theme.ArdttSurface
 import com.ardtt.app.ui.theme.ArdttMotion
 import com.ardtt.app.ui.theme.ArdttNavigationLabelStyle
 import com.ardtt.app.ui.theme.ArdttShapes
@@ -204,6 +206,7 @@ fun ArdttNavigationBar(
     modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
+    val shell = ArdttFloatingShell.shellColor()
     val selectedColor = colors.primary
     val unselectedColor = colors.onSurfaceVariant
     var pendingRoute by remember { mutableStateOf<String?>(null) }
@@ -215,7 +218,9 @@ fun ArdttNavigationBar(
 
     Surface(
         shape = ArdttShapes.Section,
-        color = ArdttFloatingShell.shellColor(),
+        // The plate draws its own frost; a second fill would hide the bend.
+        color = Color.Transparent,
+        contentColor = ArdttSurface.contentColorOn(shell),
         border = ArdttFloatingShell.shellBorder(),
         tonalElevation = ArdttElevation.None,
         // A shadow graphics layer paints this translucent shell opaque for a frame.
@@ -226,7 +231,8 @@ fun ArdttNavigationBar(
             .padding(
                 horizontal = NavBarDefaults.OuterPadding,
                 vertical = NavBarDefaults.TrackPadding,
-            ),
+            )
+            .liquidGlass(ArdttShapes.Section, shell, hueLocked = false),
     ) {
         Box(
             modifier = Modifier

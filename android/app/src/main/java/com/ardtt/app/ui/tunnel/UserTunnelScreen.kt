@@ -45,6 +45,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -79,6 +80,7 @@ import com.ardtt.app.ui.components.control.RisingEdgeSuccessHaptic
 import com.ardtt.app.ui.components.control.rememberArdttHaptics
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
 import com.ardtt.app.ui.components.surface.ArdttFloatingShell
+import com.ardtt.app.ui.components.surface.liquidGlass
 import com.ardtt.app.ui.nextThemeMode
 import com.ardtt.app.ui.persistThemeMode
 import com.ardtt.app.ui.theme.ArdttAlpha
@@ -440,9 +442,11 @@ private fun ThemeModeBadge(
         modifier = modifier
             .size(ArdttSize.TouchTarget)
             .clickable(onClick = onClick, role = Role.Button, onClickLabel = label)
-            .semantics { contentDescription = label },
+            .semantics { contentDescription = label }
+            .liquidGlass(CircleShape, shellColor, hueLocked = false),
         shape = CircleShape,
-        color = shellColor,
+        color = Color.Transparent,
+        contentColor = glyphColor,
         border = ArdttFloatingShell.shellBorder(),
         // A shadow graphics layer paints this translucent shell opaque for a frame.
         shadowElevation = ArdttElevation.None,
@@ -629,8 +633,10 @@ private fun TunnelPowerToggle(
                 .clickable(enabled = enabled, role = Role.Button) {
                     runCatching { onClick() }
                         .onFailure { t -> AppLog.e("TunnelToggle", "toggle failed: ${t.message}") }
-                },
-            color = shellColor,
+                }
+                .liquidGlass(CircleShape, shellColor, hueLocked = false),
+            color = Color.Transparent,
+            contentColor = accentColor,
             border = ArdttFloatingShell.shellBorder(),
             shape = CircleShape,
             // A shadow graphics layer paints this translucent shell opaque for a frame.
