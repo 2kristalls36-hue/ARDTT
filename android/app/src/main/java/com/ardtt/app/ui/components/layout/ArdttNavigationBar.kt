@@ -2,6 +2,7 @@ package com.ardtt.app.ui.components.layout
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -32,6 +33,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -39,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
@@ -59,6 +62,7 @@ import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
 import com.ardtt.app.ui.theme.selectedControlContainer
 import kotlin.math.abs
+import kotlin.math.sin
 
 data class ArdttNavItem(
     val route: String,
@@ -117,6 +121,74 @@ internal fun navTabPaint(
 
 internal fun navTabPendingRoute(currentRoute: String, clickedRoute: String): String? =
     clickedRoute.takeIf { it != currentRoute }
+
+/** One-second icon motion. Every pose is back at rest when progress is 0 or 1. */
+internal enum class TabIconMotion {
+    KeyTurn,
+    Float,
+    Lift,
+    Slide,
+    Pulse,
+    Heartbeat,
+    GearHalfTurn,
+}
+
+internal data class TabIconPose(
+    val rotationZ: Float = 0f,
+    val translationXFraction: Float = 0f,
+    val translationYFraction: Float = 0f,
+    val scale: Float = 1f,
+)
+
+internal fun tabIconMotionFor(route: String): TabIconMotion = when (route) {
+    "tunnel" -> TabIconMotion.KeyTurn
+    "servers" -> TabIconMotion.Float
+    "profiles" -> TabIconMotion.Lift
+    "exceptions" -> TabIconMotion.Slide
+    "network" -> TabIconMotion.Pulse
+    "diagnostics" -> TabIconMotion.Heartbeat
+    "settings" -> TabIconMotion.GearHalfTurn
+    else -> TabIconMotion.Pulse
+}
+
+/**
+ * Smooth 0→1→0 weight. Velocity is zero at the start, the midpoint, and the end,
+ * so a there-and-back motion does not kick.
+ */
+internal fun tabIconSettle(progress: Float): Float {
+    val t = progress.coerceIn(0f, 1f)
+    val wave = sin(Math.PI * t).toFloat()
+    return wave * wave
+}
+
+/** Two beats inside the same second, also at rest at the ends and the middle. */
+internal fun tabIconHeartbeat(progress: Float): Float {
+    val t = progress.coerceIn(0f, 1f)
+    val wave = sin(2.0 * Math.PI * t).toFloat()
+    return wave * wave
+}
+
+internal fun tabIconPose(motion: TabIconMotion, progress: Float): TabIconPose {
+    val settle = tabIconSettle(progress)
+    return when (motion) {
+        TabIconMotion.GearHalfTurn -> TabIconPose(rotationZ = 180f * settle)
+        TabIconMotion.KeyTurn -> TabIconPose(rotationZ = -36f * settle)
+        TabIconMotion.Float -> TabIconPose(translationYFraction = -0.2f * settle)
+        TabIconMotion.Lift -> TabIconPose(
+            translationYFraction = -0.16f * settle,
+            rotationZ = -8f * settle,
+        )
+        TabIconMotion.Slide -> TabIconPose(translationXFraction = 0.16f * settle)
+        TabIconMotion.Pulse -> TabIconPose(scale = 1f + 0.12f * settle)
+        TabIconMotion.Heartbeat -> TabIconPose(scale = 1f + 0.14f * tabIconHeartbeat(progress))
+    }
+}
+
+internal fun tabIconPoseAtRest(pose: TabIconPose): Boolean =
+    abs(pose.rotationZ) < 0.01f &&
+        abs(pose.translationXFraction) < 0.01f &&
+        abs(pose.translationYFraction) < 0.01f &&
+        abs(pose.scale - 1f) < 0.01f
 
 /** Floating pill bottom bar with a sliding selection indicator. */
 @Composable
@@ -243,6 +315,21 @@ private fun NavBarTab(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
+    val iconMotion = tabIconMotionFor(item.route)
+    val iconProgress = remember { Animatable(0f) }
+    var iconPlay by remember { mutableIntStateOf(0) }
+    LaunchedEffect(iconPlay) {
+        if (iconPlay == 0) return@LaunchedEffect
+        iconProgress.snapTo(0f)
+        iconProgress.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(
+                durationMillis = ArdttMotion.TabIcon,
+                easing = LinearEasing,
+            ),
+        )
+    }
+    val iconPose = tabIconPose(iconMotion, iconProgress.value)
     val paint = navTabPaint(
         selected = selected,
         pending = pending,
@@ -259,7 +346,10 @@ private fun NavBarTab(
                 interactionSource = interactionSource,
                 indication = null,
                 role = Role.Tab,
-                onClick = onSelect,
+                onClick = {
+                    if (!iconProgress.isRunning) iconPlay++
+                    onSelect()
+                },
             )
             .semantics { this.selected = selected },
         verticalArrangement = Arrangement.Center,
@@ -269,7 +359,15 @@ private fun NavBarTab(
             Icon(
                 imageVector = item.icon,
                 contentDescription = null,
-                modifier = Modifier.size(ArdttSize.Icon),
+                modifier = Modifier
+                    .size(ArdttSize.Icon)
+                    .graphicsLayer {
+                        rotationZ = iconPose.rotationZ
+                        translationX = iconPose.translationXFraction * size.width
+                        translationY = iconPose.translationYFraction * size.height
+                        scaleX = iconPose.scale
+                        scaleY = iconPose.scale
+                    },
                 tint = paint.color,
             )
             if (item.badgeCount > 0) {

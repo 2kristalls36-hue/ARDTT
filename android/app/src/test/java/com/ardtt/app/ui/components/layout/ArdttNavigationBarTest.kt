@@ -2,6 +2,8 @@ package com.ardtt.app.ui.components.layout
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import com.ardtt.app.ui.AppDestination
+import com.ardtt.app.ui.theme.ArdttMotion
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -83,6 +85,47 @@ class ArdttNavigationBarTest {
         assertEquals(unselectedColor, paint.color)
         assertFalse(paint.bold)
         assertEquals(0.92f, paint.labelAlpha, 0f)
+    }
+
+    @Test
+    fun tabIconMotionsRestAtBothEndsOfTheSecond() {
+        assertEquals(1_000, ArdttMotion.TabIcon)
+        for (motion in TabIconMotion.entries) {
+            assertTrue(motion.name, tabIconPoseAtRest(tabIconPose(motion, 0f)))
+            assertTrue(motion.name, tabIconPoseAtRest(tabIconPose(motion, 1f)))
+        }
+    }
+
+    @Test
+    fun settingsGearTurnsHalfWayAndReturns() {
+        assertEquals(TabIconMotion.GearHalfTurn, tabIconMotionFor(AppDestination.Settings.route))
+        val mid = tabIconPose(TabIconMotion.GearHalfTurn, 0.5f)
+        assertEquals(180f, mid.rotationZ, 0.01f)
+        assertEquals(0f, mid.translationXFraction, 0.01f)
+        assertEquals(0f, mid.translationYFraction, 0.01f)
+        assertEquals(1f, mid.scale, 0.01f)
+        val quarter = tabIconPose(TabIconMotion.GearHalfTurn, 0.25f).rotationZ
+        assertTrue(quarter in 1f..179f)
+        var previous = 0f
+        for (step in 1..10) {
+            val rotation = tabIconPose(TabIconMotion.GearHalfTurn, step / 20f).rotationZ
+            assertTrue(rotation >= previous)
+            assertTrue(rotation - previous < 40f)
+            previous = rotation
+        }
+    }
+
+    @Test
+    fun eachPrimaryTabHasItsOwnReturningMotion() {
+        assertEquals(TabIconMotion.KeyTurn, tabIconMotionFor(AppDestination.Tunnel.route))
+        assertEquals(TabIconMotion.Float, tabIconMotionFor(AppDestination.Servers.route))
+        assertEquals(TabIconMotion.Lift, tabIconMotionFor(AppDestination.Profiles.route))
+        assertEquals(TabIconMotion.Slide, tabIconMotionFor(AppDestination.Exceptions.route))
+        assertEquals(TabIconMotion.Pulse, tabIconMotionFor(AppDestination.Network.route))
+        assertEquals(TabIconMotion.Heartbeat, tabIconMotionFor(AppDestination.Diagnostics.route))
+        val heart = tabIconPose(TabIconMotion.Heartbeat, 0.25f)
+        assertTrue(heart.scale > 1f)
+        assertTrue(tabIconPoseAtRest(tabIconPose(TabIconMotion.Heartbeat, 0.5f)))
     }
 
     @Test

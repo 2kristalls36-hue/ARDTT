@@ -230,4 +230,6 @@ object ArdttMotion {
     const val Slow = 700
     const val Indicator = 720
     const val Pulse = 900
+    /** Tab icon plays out and settles back to its rest pose. */
+    const val TabIcon = 1_000
 }
