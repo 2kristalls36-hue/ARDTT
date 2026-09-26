@@ -424,7 +424,11 @@ private fun buttonColors(
         ArdttButtonVariant.Danger -> scheme.onError
     }
     val content = when {
-        floating || matchOpaqueGlass -> ardttFloatingContentColor(container, contentOverride)
+        // The glass wash is thin, so the label sits on the page, not on the
+        // tint. A light primary would otherwise pick a near-black label and
+        // lose it on a dark surface.
+        floating -> ardttFloatingContentColor(scheme.surface, contentOverride ?: fallbackContent)
+        matchOpaqueGlass -> ardttFloatingContentColor(container, contentOverride)
         contentOverride != null -> contentOverride
         containerOverride != null && container.alpha > 0.04f ->
             ArdttSurface.contentColorOn(container)

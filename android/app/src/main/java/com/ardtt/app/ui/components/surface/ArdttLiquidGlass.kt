@@ -19,7 +19,6 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
@@ -31,7 +30,6 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
-import androidx.compose.ui.unit.dp
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.ceil
@@ -79,21 +77,15 @@ internal object ArdttLiquidGlass {
     const val ShellEdgeAlpha = 0.04f
 
     /**
-     * Hue-locked buttons keep their own RGB. The wash is thinner than
-     * [ArdttFloatingShell.ButtonAlpha] so the refraction is visible; a dimmed
-     * tint scales both alphas down.
+     * Hue-locked buttons keep their own RGB, as a thin wash. A light tint at
+     * a high alpha paints a white disk in the middle and hides the label.
+     * A dimmed tint scales both alphas down.
      */
-    const val HueCenterAlpha = 0.50f
-    const val HueEdgeAlpha = 0.08f
+    const val HueCenterAlpha = 0.18f
+    const val HueEdgeAlpha = 0.05f
 
     /** Share of the frost radius that stays at the center wash. */
     const val FrostKnee = 0.22f
-
-    const val SheenAlpha = 0.55f
-    const val SheenReach = 0.20f
-    const val ShadeAlpha = 0.14f
-    const val ShadeReach = 0.18f
-    const val RimAlpha = 0.72f
 
     private const val LogTag = "ArdttLiquidGlass"
     private var loggedSnapshotFailure = false
@@ -376,43 +368,6 @@ internal fun DrawScope.drawLiquidGlassFrost(
                     center = Offset(size.width / 2f, size.height / 2f),
                     radius = radius,
                 ),
-            )
-        }
-        val sheenHeight = size.height * ArdttLiquidGlass.SheenReach
-        if (sheenHeight > 0f) {
-            drawRect(
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        Color.White.copy(alpha = ArdttLiquidGlass.SheenAlpha),
-                        Color.Transparent,
-                    ),
-                    startY = 0f,
-                    endY = sheenHeight,
-                ),
-                size = Size(size.width, sheenHeight),
-            )
-        }
-        val shadeHeight = size.height * ArdttLiquidGlass.ShadeReach
-        if (shadeHeight > 0f) {
-            drawRect(
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        Color.Transparent,
-                        Color.Black.copy(alpha = ArdttLiquidGlass.ShadeAlpha),
-                    ),
-                    startY = size.height - shadeHeight,
-                    endY = size.height,
-                ),
-                topLeft = Offset(0f, size.height - shadeHeight),
-                size = Size(size.width, shadeHeight),
-            )
-        }
-        val rim = 1.6.dp.toPx()
-        if (rim > 0f) {
-            drawPath(
-                path = path,
-                color = Color.White.copy(alpha = ArdttLiquidGlass.RimAlpha),
-                style = Stroke(width = rim * 2f),
             )
         }
     }

@@ -71,6 +71,20 @@ class ArdttButtonContractTest {
     }
 
     @Test
+    fun glassLabelOnADarkSurfaceIsLightWhenTheTintWouldBeBlack() {
+        val surface = Color(0xFF16202C)
+        val onPrimary = Color(0xFF0B355D)
+        assertTrue(ArdttSurface.contrastRatio(onPrimary, surface) < ArdttSurface.TextContrastMin)
+        assertEquals(ArdttSurface.LightContent, ardttFloatingContentColor(surface, onPrimary))
+    }
+
+    @Test
+    fun glassLabelOnALightSurfaceStaysDark() {
+        val surface = Color(0xFFFAFCFF)
+        assertEquals(ArdttSurface.DarkContent, ardttFloatingContentColor(surface, Color.White))
+    }
+
+    @Test
     fun floatingLabelDropsAnOverrideThatFailsContrast() {
         val pale = Color(0xFFFFE0C2)
         assertTrue(ArdttSurface.contrastRatio(Color.White, pale) < ArdttSurface.TextContrastMin)
