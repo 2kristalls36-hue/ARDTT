@@ -38,7 +38,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -130,24 +129,18 @@ internal enum class TabIconMotion {
 }
 
 internal data class TabIconPose(
+    val rotationX: Float = 0f,
     val rotationZ: Float = 0f,
     val translationXFraction: Float = 0f,
     val translationYFraction: Float = 0f,
     val scale: Float = 1f,
-    /** Fraction of the icon. 0.5, 0.5 spins in place; the key uses the blade tip. */
-    val pivotX: Float = 0.5f,
-    val pivotY: Float = 0.5f,
 )
 
 /**
- * Outlined key, 24×24. The blade ends at the right, and the shaft sits near y=14.
- * Turning around that point swings the bow, the way a key turns in a lock.
+ * Full roll around the horizontal axis. Halfway the key is upside down;
+ * at the end it is home again. Not a spin in the plane of the icon.
  */
-internal const val KeyholePivotX = 23f / 24f
-internal const val KeyholePivotY = 14f / 24f
-
-/** Quarter turn: a lock, not a full spin. */
-internal const val KeyTurnDegrees = 90f
+internal const val KeyTurnDegrees = 360f
 
 internal fun tabIconMotionFor(route: String): TabIconMotion = when (route) {
     "tunnel" -> TabIconMotion.KeyTurn
@@ -177,14 +170,18 @@ internal fun tabIconHeartbeat(progress: Float): Float {
     return wave * wave
 }
 
+/** One-way smoothstep, 0→1. Velocity is zero at the start and the end. */
+internal fun tabIconTurn(progress: Float): Float {
+    val t = progress.coerceIn(0f, 1f)
+    return t * t * (3f - 2f * t)
+}
+
 internal fun tabIconPose(motion: TabIconMotion, progress: Float): TabIconPose {
     val settle = tabIconSettle(progress)
     return when (motion) {
         TabIconMotion.GearHalfTurn -> TabIconPose(rotationZ = 180f * settle)
         TabIconMotion.KeyTurn -> TabIconPose(
-            rotationZ = KeyTurnDegrees * settle,
-            pivotX = KeyholePivotX,
-            pivotY = KeyholePivotY,
+            rotationX = KeyTurnDegrees * tabIconTurn(progress),
         )
         TabIconMotion.Float -> TabIconPose(translationYFraction = -0.2f * settle)
         TabIconMotion.Lift -> TabIconPose(
@@ -198,9 +195,12 @@ internal fun tabIconPose(motion: TabIconMotion, progress: Float): TabIconPose {
 }
 
 internal fun tabIconPoseAtRest(pose: TabIconPose): Boolean {
-    val wrapped = abs(pose.rotationZ % 360f)
-    val rotationRest = wrapped < 0.05f || abs(wrapped - 360f) < 0.05f
-    return rotationRest &&
+    fun wrappedRest(degrees: Float): Boolean {
+        val wrapped = abs(degrees % 360f)
+        return wrapped < 0.05f || abs(wrapped - 360f) < 0.05f
+    }
+    return wrappedRest(pose.rotationX) &&
+        wrappedRest(pose.rotationZ) &&
         abs(pose.translationXFraction) < 0.01f &&
         abs(pose.translationYFraction) < 0.01f &&
         abs(pose.scale - 1f) < 0.01f
@@ -337,7 +337,7 @@ private fun NavBarTab(
                 modifier = Modifier
                     .size(ArdttSize.Icon)
                     .graphicsLayer {
-                        transformOrigin = TransformOrigin(iconPose.pivotX, iconPose.pivotY)
+                        rotationX = iconPose.rotationX
                         rotationZ = iconPose.rotationZ
                         translationX = iconPose.translationXFraction * size.width
                         translationY = iconPose.translationYFraction * size.height
