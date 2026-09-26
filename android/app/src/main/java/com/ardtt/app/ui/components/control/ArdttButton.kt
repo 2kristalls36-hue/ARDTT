@@ -1,6 +1,5 @@
 package com.ardtt.app.ui.components.control
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -41,6 +40,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import com.ardtt.app.ui.components.surface.ArdttFloatingShell
+import com.ardtt.app.ui.components.surface.liquidGlass
 import com.ardtt.app.ui.theme.ArdttAlpha
 import com.ardtt.app.ui.theme.ArdttButtonLabelStyle
 import com.ardtt.app.ui.theme.ArdttElevation
@@ -309,8 +309,8 @@ private fun GlassFillButton(
 ) {
     Box(
         modifier = modifier
+            .liquidGlass(ArdttShapes.Control, fill, hueLocked = true)
             .clip(ArdttShapes.Control)
-            .background(fill)
             .border(ArdttFloatingShell.shellBorder(), ArdttShapes.Control)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,

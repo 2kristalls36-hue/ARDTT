@@ -43,6 +43,7 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
+import com.ardtt.app.ui.components.surface.LocalArdttLiquidGlass
 import com.ardtt.app.ui.theme.ArdttChrome
 import com.ardtt.app.ui.theme.ArdttSpacing
 import com.ardtt.app.ui.theme.isDarkSurface
@@ -83,6 +84,7 @@ fun ArdttScrollChrome(
     val topPadding = ardttScrollChromeTopPadding(chromeHeight, fade)
     val overlayHeight = chromeHeight + fade
     val graphicsLayer = rememberGraphicsLayer()
+    val liquidGlass = LocalArdttLiquidGlass.current
     val dark = isDarkSurface()
     val scrim = MaterialTheme.colorScheme.background.copy(
         alpha = if (dark) ArdttChrome.ScrimAlphaDark else ArdttChrome.ScrimAlphaLight,
@@ -123,6 +125,13 @@ fun ArdttScrollChrome(
                     compositingStrategy = CompositingStrategy.Offscreen
                 }
                 .drawWithContent {
+                    // The glass snapshot records this tree. A second record here
+                    // would nest, and the header mask would hide the pixels the
+                    // plates need to bend. Paint the feed straight through.
+                    if (liquidGlass.capturing) {
+                        drawContent()
+                        return@drawWithContent
+                    }
                     val feed = this
                     graphicsLayer.record(
                         density = density,
