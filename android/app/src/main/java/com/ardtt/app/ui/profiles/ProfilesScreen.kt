@@ -585,7 +585,7 @@ private fun ProfileCard(
                         horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
                     ) {
                         Text(
-                            profileTrafficRemainingLabel(facts.trafficLimitBytes, facts.usedBytes),
+                            profileTrafficUsageLabel(facts.trafficLimitBytes, facts.usedBytes),
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.SemiBold,
                             color = muted,
@@ -593,6 +593,15 @@ private fun ProfileCard(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f),
                         )
+                        profileTrafficPercentLabel(facts.trafficLimitBytes, facts.usedBytes)?.let { percent ->
+                            Text(
+                                percent,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = muted,
+                                maxLines = 1,
+                            )
+                        }
                     }
                 }
                 if (profileTrafficBarVisible(facts.trafficLimitBytes)) {

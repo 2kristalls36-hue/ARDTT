@@ -7,7 +7,9 @@ import com.ardtt.app.deploy.DeployTarget
 import com.ardtt.app.deploy.ProvisionAdminApi
 import com.ardtt.app.profile.NetworkEndpoint
 import com.ardtt.app.profile.VpnProfile
-import com.ardtt.app.ui.admin.formatClientBytes
+import com.ardtt.app.ui.admin.trafficUsageProgress
+import java.util.Locale
+import kotlin.math.roundToInt
 
 internal data class ProfileLiveFacts(
     val usedBytes: Long,
@@ -24,10 +26,41 @@ internal fun profileCardFacts(
     expiresAt = live?.expiresAt ?: profile.expiresAt,
 )
 
-internal fun profileTrafficRemainingLabel(limitBytes: Long, usedBytes: Long): String {
+/**
+ * Left side of the traffic row: used out of the limit in one unit,
+ * for example `2,2/100 ГБ`. No limit stays `без лимита`.
+ */
+internal fun profileTrafficUsageLabel(limitBytes: Long, usedBytes: Long): String {
     if (limitBytes <= 0L) return "без лимита"
-    val left = (limitBytes - usedBytes).coerceAtLeast(0L)
-    return "осталось ${formatClientBytes(left)}"
+    val limit = limitBytes.toDouble()
+    val used = usedBytes.coerceAtLeast(0L).toDouble()
+    val (divisor, unit) = when {
+        limit < TRAFFIC_KB -> 1.0 to "Б"
+        limit < TRAFFIC_MB -> TRAFFIC_KB to "КБ"
+        limit < TRAFFIC_GB -> TRAFFIC_MB to "МБ"
+        else -> TRAFFIC_GB to "ГБ"
+    }
+    return "${formatTrafficAmount(used / divisor)}/${formatTrafficAmount(limit / divisor)} $unit"
+}
+
+/** Right side of the traffic row. Missing when the profile has no limit. */
+internal fun profileTrafficPercentLabel(limitBytes: Long, usedBytes: Long): String? {
+    if (limitBytes <= 0L) return null
+    val percent = (trafficUsageProgress(usedBytes, limitBytes) * 100f).roundToInt().coerceIn(0, 100)
+    return "$percent%"
+}
+
+private const val TRAFFIC_KB = 1024.0
+private const val TRAFFIC_MB = 1024.0 * 1024.0
+private const val TRAFFIC_GB = 1024.0 * 1024.0 * 1024.0
+
+private fun formatTrafficAmount(value: Double): String {
+    val text = String.format(Locale("ru"), "%.1f", value)
+    return when {
+        text.endsWith(",0") -> text.dropLast(2)
+        text.endsWith(".0") -> text.dropLast(2)
+        else -> text
+    }
 }
 
 /**
@@ -108,8 +141,9 @@ internal enum class ProfileCardHostLayout {
 /**
  * Same identity order as the server list card: title → badge,
  * trailing ⋮ outside the column like the chevron, hosts left / presence right,
- * remaining traffic on the fact row. A traffic limit draws the usage bar in
- * the card's bottom padding, not as another row.
+ * used/limit on the left of the fact row and the percent on the right.
+ * A traffic limit draws the usage bar in the card's bottom padding, not as
+ * another row.
  */
 internal fun profileCardSlotOrder(): List<ProfileCardSlot> = listOf(
     ProfileCardSlot.Title,

@@ -69,10 +69,18 @@ class ProfileCardLogicTest {
     }
 
     @Test
-    fun remainingTrafficUsesLimitMinusUsed() {
-        assertEquals("без лимита", profileTrafficRemainingLabel(0L, 100L))
-        assertEquals("осталось 500 Б", profileTrafficRemainingLabel(1000L, 500L))
-        assertEquals("осталось 0 Б", profileTrafficRemainingLabel(100L, 250L))
+    fun trafficLineShowsUsedOfLimitAndPercent() {
+        val gb = 1024L * 1024L * 1024L
+        val used = (2.2 * gb).toLong()
+        val limit = 100L * gb
+        assertEquals("2,2/100 ГБ", profileTrafficUsageLabel(limit, used))
+        assertEquals("2%", profileTrafficPercentLabel(limit, used))
+        assertEquals("без лимита", profileTrafficUsageLabel(0L, 100L))
+        assertNull(profileTrafficPercentLabel(0L, 100L))
+        assertEquals("500/1000 Б", profileTrafficUsageLabel(1000L, 500L))
+        assertEquals("50%", profileTrafficPercentLabel(1000L, 500L))
+        assertEquals("250/100 Б", profileTrafficUsageLabel(100L, 250L))
+        assertEquals("100%", profileTrafficPercentLabel(100L, 250L))
     }
 
     @Test
