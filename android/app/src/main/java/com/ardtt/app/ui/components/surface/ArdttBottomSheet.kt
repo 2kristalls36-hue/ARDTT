@@ -26,6 +26,7 @@ import com.ardtt.app.ui.theme.sheetContainerColor
  *
  * Children get no horizontal padding: rows that must reach the rim (dividers,
  * device lists) opt out, the rest apply [ArdttSheetDefaults.HorizontalPadding].
+ * The sheet fill is opaque.
  */
 object ArdttSheetDefaults {
     val HorizontalPadding: Dp = ArdttLayout.SheetPadding

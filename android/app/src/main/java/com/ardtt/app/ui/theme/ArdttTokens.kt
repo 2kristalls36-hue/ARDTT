@@ -43,35 +43,50 @@ object ArdttSpacing {
 /** Named roles for the steps above, so screens describe intent, not size. */
 object ArdttLayout {
     /** Horizontal gutter of every scrollable feed. */
-    val ScreenPadding: Dp = ArdttSpacing.Large
+    val ScreenPadding: Dp = ArdttSpacing.SmallPlus
 
     /** Gap between cards inside a feed. */
-    val FeedSpacing: Dp = ArdttSpacing.MediumPlus
+    val FeedSpacing: Dp = ArdttSpacing.Small
 
     /** Trailing air below the last feed item. */
-    val FeedBottomExtra: Dp = ArdttSpacing.XXLarge
+    val FeedBottomExtra: Dp = ArdttSpacing.Medium
 
     /** Inner padding of a full-width section card. */
-    val CardPadding: PaddingValues = PaddingValues(ArdttSpacing.LargePlus)
+    val CardPadding: PaddingValues = PaddingValues(ArdttSpacing.Medium)
 
     /** Gap between rows inside a section card. */
-    val CardSpacing: Dp = ArdttSpacing.Large
+    val CardSpacing: Dp = ArdttSpacing.SmallPlus
 
     /** Inner padding of a settings card: title, helper text, switch rows. */
-    val SettingsCardPadding: PaddingValues = PaddingValues(ArdttSpacing.Large)
+    val SettingsCardPadding: PaddingValues = PaddingValues(ArdttSpacing.Medium)
 
     /** Gap between rows inside a settings card. */
-    val SettingsCardSpacing: Dp = ArdttSpacing.SmallPlus
+    val SettingsCardSpacing: Dp = ArdttSpacing.Small
+
+    /**
+     * Short message card (donate, connection hint): the paragraph needs more
+     * side air than a settings row, without the tall panel inset.
+     */
+    val NoteCardPadding: PaddingValues = PaddingValues(
+        horizontal = ArdttSpacing.Large,
+        vertical = ArdttSpacing.Medium,
+    )
+
+    /** Gap between the title line, the paragraph and the link of a note card. */
+    val NoteCardSpacing: Dp = ArdttSpacing.Small
+
+    /** Gap between a title and its supporting line inside a card. */
+    val StackedLabelSpacing: Dp = ArdttSpacing.TinyPlus
 
     /** Inner padding of a compact list card (servers, clients, profiles). */
     val CompactCardPadding: PaddingValues =
-        PaddingValues(horizontal = ArdttSpacing.Medium, vertical = ArdttSpacing.SmallPlus)
+        PaddingValues(horizontal = ArdttSpacing.SmallPlus, vertical = ArdttSpacing.Small)
 
     /** Gap between rows inside a compact list card. */
-    val CompactCardSpacing: Dp = ArdttSpacing.TinyPlus
+    val CompactCardSpacing: Dp = ArdttSpacing.Tiny
 
     /** Gap between items of a list of compact cards. */
-    val ListSpacing: Dp = ArdttSpacing.Small
+    val ListSpacing: Dp = ArdttSpacing.TinyPlus
 
     /** Gap between sibling controls on one row. */
     val ControlSpacing: Dp = ArdttSpacing.Small
@@ -178,13 +193,11 @@ object ArdttSize {
     val StrokeThick: Dp = 2.5.dp
 }
 
-/** Top chrome: blur strip under the pinned header. */
+/** Top chrome: alpha dissolve under the header, scrim only in the status inset. */
 object ArdttChrome {
-    val BlurRadius: Dp = 18.dp
-    val FadeHeight: Dp = 28.dp
+    val FadeHeight: Dp = 12.dp
     const val ScrimAlphaLight = 0.78f
     const val ScrimAlphaDark = 0.72f
-    const val FadeAlpha = 0.92f
 }
 
 /** Opacity steps. One name per visual role, not per numeric value. */
@@ -230,6 +243,7 @@ object ArdttMotion {
     const val Standard = 400
     const val Relaxed = 500
     const val Slow = 700
-    const val Indicator = 720
     const val Pulse = 900
+    /** Tab icon plays out and settles back to its rest pose. */
+    const val TabIcon = 1_000
 }

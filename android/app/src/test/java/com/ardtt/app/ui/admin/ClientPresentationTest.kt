@@ -50,6 +50,31 @@ class ClientPresentationTest {
     }
 
     @Test
+    fun listRefreshDoesNotOverwriteATurnOff() {
+        assertFalse(clientsListApplyAllowed(startedEpoch = 0, currentEpoch = 1))
+        assertFalse(
+            clientsListApplyAllowed(
+                startedEpoch = 1,
+                currentEpoch = 1,
+                mutationInFlight = true,
+            ),
+        )
+        assertTrue(clientsListApplyAllowed(startedEpoch = 2, currentEpoch = 2))
+        assertEquals(
+            "Сервер не отключил пользователя",
+            clientDeactivateMismatchMessage(requestedDeactivated = true, appliedDeactivated = false),
+        )
+        assertEquals(
+            "Сервер не включил пользователя",
+            clientDeactivateMismatchMessage(requestedDeactivated = false, appliedDeactivated = true),
+        )
+        assertEquals(
+            null,
+            clientDeactivateMismatchMessage(requestedDeactivated = true, appliedDeactivated = true),
+        )
+    }
+
+    @Test
     fun actionButtonKeepsOutlineWhenAccentIsMissing() {
         val outline = Color(0xFFB2C2D7)
         val limit = clientActionButtonStroke(accent = null, outline = outline, busy = false)
@@ -180,6 +205,33 @@ class ClientPresentationTest {
         assertEquals("", stub.deviceId)
         assertTrue(stub.deviceIds.isEmpty())
         assertEquals("—", clientDeviceSummary(stub))
+    }
+
+    @Test
+    fun trafficUsageMatchesTheClientLimitBar() {
+        assertEquals(0f, trafficUsageProgress(500L, 0L))
+        assertEquals(TrafficUsageTone.None, trafficUsageTone(500L, 0L))
+        assertEquals(0.5f, trafficUsageProgress(50L, 100L))
+        assertEquals(TrafficUsageTone.Ok, trafficUsageTone(54L, 100L))
+        assertEquals(TrafficUsageTone.Warning, trafficUsageTone(55L, 100L))
+        assertEquals(TrafficUsageTone.Full, trafficUsageTone(85L, 100L))
+        assertEquals(1f, trafficUsageProgress(250L, 100L))
+        assertEquals(TrafficUsageTone.Full, trafficUsageTone(250L, 100L))
+        val connected = Color.Green
+        val warning = Color.Yellow
+        val error = Color.Red
+        assertEquals(
+            connected,
+            trafficUsageColor(TrafficUsageTone.Ok, connected, warning, error),
+        )
+        assertEquals(
+            warning,
+            trafficUsageColor(TrafficUsageTone.Warning, connected, warning, error),
+        )
+        assertEquals(
+            error,
+            trafficUsageColor(TrafficUsageTone.Full, connected, warning, error),
+        )
     }
 
     @Test

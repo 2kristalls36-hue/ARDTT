@@ -3,17 +3,16 @@ package com.ardtt.app.ui.components.layout
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ArdttScrollChromeTest {
     @Test
-    fun gpuBlurStartsAtAndroid12() {
-        assertFalse(ardttScrollChromeUsesGpuBlur(28))
-        assertFalse(ardttScrollChromeUsesGpuBlur(30))
-        assertTrue(ardttScrollChromeUsesGpuBlur(31))
-        assertTrue(ardttScrollChromeUsesGpuBlur(35))
+    fun statusScrimStopsAtTheStatusInset() {
+        assertEquals(0.dp, ardttScrollChromeScrimHeight(0.dp))
+        assertEquals(24.dp, ardttScrollChromeScrimHeight(24.dp))
+        val titleRow = 48.dp
+        assertTrue(ardttScrollChromeScrimHeight(24.dp) < 24.dp + titleRow)
     }
 
     @Test
@@ -37,17 +36,6 @@ class ArdttScrollChromeTest {
     }
 
     @Test
-    fun blurFadeIsInverseOfContentFade() {
-        val content = ardttScrollChromeContentFadeStops()
-        val blur = ardttScrollChromeBlurFadeStops()
-        assertEquals(content.size, blur.size)
-        content.zip(blur).forEach { (c, b) ->
-            assertEquals(c.first, b.first)
-            assertEquals(1f - c.second.alpha, b.second.alpha, 0f)
-        }
-    }
-
-    @Test
     fun headerDissolvesWithScrollAndReturnsOnReverse() {
         val range = 80f
         assertEquals(1f, ardttScrollChromeHeaderVisibility(0f, range), 0f)
@@ -55,6 +43,16 @@ class ArdttScrollChromeTest {
         assertEquals(0f, ardttScrollChromeHeaderVisibility(80f, range), 0f)
         assertEquals(0f, ardttScrollChromeHeaderVisibility(120f, range), 0f)
         assertEquals(0.75f, ardttScrollChromeHeaderVisibility(20f, range), 0f)
+    }
+
+    @Test
+    fun pinnedHeaderStaysVisibleForTheWholeScroll() {
+        val range = 80f
+        assertEquals(1f, ardttScrollChromeHeaderVisibility(0f, range, pinned = true), 0f)
+        assertEquals(1f, ardttScrollChromeHeaderVisibility(40f, range, pinned = true), 0f)
+        assertEquals(1f, ardttScrollChromeHeaderVisibility(80f, range, pinned = true), 0f)
+        assertEquals(1f, ardttScrollChromeHeaderVisibility(120f, range, pinned = true), 0f)
+        assertEquals(0f, ardttScrollChromeHeaderVisibility(80f, range, pinned = false), 0f)
     }
 
     @Test

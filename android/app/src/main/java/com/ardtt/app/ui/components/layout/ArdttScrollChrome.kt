@@ -1,6 +1,5 @@
 package com.ardtt.app.ui.components.layout
 
-import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.layout.Box
@@ -28,11 +27,9 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
@@ -54,24 +51,16 @@ import com.ardtt.app.ui.theme.isDarkSurface
 internal object ArdttScrollChromeDefaults {
     val MaskOpaque: Color = Color.Black
     val MaskClear: Color = Color.Transparent
-    const val ScrimMidStop = 0.72f
-    const val StatusInsetFloorAlpha = 0.55f
 }
 
 /**
- * Pins a sharp header over scrolling content and fades the strip that
- * disappears under it.
+ * Pins a sharp header over scrolling content and dissolves what scrolls under it.
  *
- * Scrolling the feed down dissolves the tab title (alpha + slight rise) over
- * one header height; scrolling back restores it on the same curve. The status
- * bar inset stays so system icons keep a readable scrim.
- *
- * Layering (API 31+): the feed is recorded into one offscreen [androidx.compose.ui.graphics.layer.GraphicsLayer]
- * and drawn once with a DstIn alpha mask so sharp pixels become transparent
- * under the chrome (not bleached by a light scrim). The overlay draws that
- * layer again with a GPU [BlurEffect], then the inverse DstIn mask so blur
- * crossfades into sharp content. The header and status icons sit above,
- * unblurred. API 28–30 skip RenderEffect; content still fades by alpha.
+ * The feed is recorded once and masked with DstIn, so rows and buttons lose
+ * coverage and stay their own color — a light plate is not painted over them.
+ * The title and its buttons dissolve the same way (alpha, slight rise) and
+ * return on the way back. A scrim exists only in the status-bar inset, for
+ * system icons, and does not run under the title.
  *
  * Content is padded by chrome + fade so the first row is clear at scroll 0.
  * Only the sharp header consumes hits; the fade strip does not steal taps.
@@ -80,6 +69,7 @@ internal object ArdttScrollChromeDefaults {
 fun ArdttScrollChrome(
     modifier: Modifier = Modifier,
     fadeHeight: Dp = ArdttChrome.FadeHeight,
+    pinHeader: Boolean = false,
     header: @Composable () -> Unit,
     content: @Composable (topContentPadding: Dp) -> Unit,
 ) {
@@ -94,16 +84,20 @@ fun ArdttScrollChrome(
     val topPadding = ardttScrollChromeTopPadding(chromeHeight, fade)
     val overlayHeight = chromeHeight + fade
     val graphicsLayer = rememberGraphicsLayer()
-    val useBlur = ardttScrollChromeUsesGpuBlur(Build.VERSION.SDK_INT)
     val dark = isDarkSurface()
     val scrim = MaterialTheme.colorScheme.background.copy(
         alpha = if (dark) ArdttChrome.ScrimAlphaDark else ArdttChrome.ScrimAlphaLight,
     )
-    val blurPx = with(density) { ArdttChrome.BlurRadius.toPx() }
+    val scrimHeight = ardttScrollChromeScrimHeight(status)
     val collapseRangePx = with(density) { headerHeight.toPx() }.coerceAtLeast(1f)
     var collapseScrollPx by remember { mutableFloatStateOf(0f) }
     val collapseRangeState = rememberUpdatedState(collapseRangePx)
-    val headerVisibility = ardttScrollChromeHeaderVisibility(collapseScrollPx, collapseRangePx)
+    val pinHeaderState = rememberUpdatedState(pinHeader)
+    val headerVisibility = ardttScrollChromeHeaderVisibility(
+        collapseScrollPx,
+        collapseRangePx,
+        pinned = pinHeader,
+    )
     val headerInteractive = headerVisibility >= ArdttScrollChromeHeaderGoneAlpha
     val hitChrome = status + headerHeight * headerVisibility
     val contentMask = status + (headerHeight + fade) * headerVisibility
@@ -114,6 +108,7 @@ fun ArdttScrollChrome(
                 available: Offset,
                 source: NestedScrollSource,
             ): Offset {
+                if (pinHeaderState.value) return Offset.Zero
                 if (consumed.y == 0f) return Offset.Zero
                 val range = collapseRangeState.value
                 val next = (collapseScrollPx - consumed.y).coerceIn(0f, range)
@@ -174,62 +169,26 @@ fun ArdttScrollChrome(
                     .fillMaxWidth()
                     .height(overlayHeight),
             ) {
-                if (useBlur && headerVisibility > 0f) {
+                if (scrimHeight > ArdttSpacing.None) {
                     Box(
                         modifier = Modifier
-                            .matchParentSize()
-                            .clearAndSetSemantics {}
-                            .graphicsLayer {
-                                compositingStrategy = CompositingStrategy.Offscreen
-                                alpha = headerVisibility
-                            }
-                            .drawWithContent {
-                                drawContent()
-                                drawRect(
-                                    brush = Brush.verticalGradient(
-                                        colorStops = ardttScrollChromeBlurFadeStops(),
-                                    ),
-                                    blendMode = BlendMode.DstIn,
-                                )
-                            },
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .matchParentSize()
-                                .graphicsLayer {
-                                    renderEffect = BlurEffect(
-                                        blurPx,
-                                        blurPx,
-                                        TileMode.Clamp,
-                                    )
-                                }
-                                .drawWithContent {
-                                    drawLayer(graphicsLayer)
-                                },
-                        )
-                    }
+                            .align(Alignment.TopCenter)
+                            .fillMaxWidth()
+                            .height(scrimHeight)
+                            .background(
+                                Brush.verticalGradient(
+                                    0f to scrim,
+                                    1f to Color.Transparent,
+                                ),
+                            )
+                            .clearAndSetSemantics {},
+                    )
                 }
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .fillMaxWidth()
                         .height(hitChrome.coerceAtLeast(status))
-                        .background(
-                            Brush.verticalGradient(
-                                0f to scrim,
-                                ArdttScrollChromeDefaults.ScrimMidStop to scrim.copy(
-                                    alpha = scrim.alpha * ArdttChrome.FadeAlpha *
-                                        headerVisibility.coerceAtLeast(
-                                            if (status > ArdttSpacing.None) {
-                                                ArdttScrollChromeDefaults.StatusInsetFloorAlpha
-                                            } else {
-                                                0f
-                                            },
-                                        ),
-                                ),
-                                1f to scrim.copy(alpha = 0f),
-                            ),
-                        )
                         .consumeHiddenContentPointers(),
                 )
                 Column(modifier = Modifier.fillMaxWidth()) {
@@ -270,24 +229,29 @@ fun ArdttScrollChrome(
     }
 }
 
-internal fun ardttScrollChromeUsesGpuBlur(sdkInt: Int): Boolean =
-    sdkInt >= Build.VERSION_CODES.S
+/**
+ * Light plate height. Equals the status inset so the title row and the feed
+ * fade are never painted white.
+ */
+internal fun ardttScrollChromeScrimHeight(statusInset: Dp): Dp = statusInset
 
 internal fun ardttScrollChromeTopPadding(chromeHeight: Dp, fade: Dp): Dp = chromeHeight + fade
 
 /**
  * 1 = title fully visible, 0 = dissolved. Progress is linear over
  * [collapseScrollPx] of feed scroll so scrubbing back reverses the same curve.
+ * A pinned header stays fully visible for the whole scroll.
  */
 internal fun ardttScrollChromeHeaderVisibility(
     collapseScrollPx: Float,
     collapseRangePx: Float,
+    pinned: Boolean = false,
 ): Float {
-    if (collapseRangePx <= 0f) return 1f
+    if (pinned || collapseRangePx <= 0f) return 1f
     return (1f - collapseScrollPx / collapseRangePx).coerceIn(0f, 1f)
 }
 
-/** Shared mid-stop where blur hands off to sharp content. */
+/** Feed pixels stay fully dissolved until this fraction of the mask, then return. */
 internal const val ArdttScrollChromeFadeMid = 0.55f
 
 /** How far the title rises (as a fraction of its height) while dissolving. */
@@ -301,13 +265,6 @@ internal fun ardttScrollChromeContentFadeStops(): Array<Pair<Float, Color>> = ar
     0f to ArdttScrollChromeDefaults.MaskClear,
     ArdttScrollChromeFadeMid to ArdttScrollChromeDefaults.MaskClear,
     1f to ArdttScrollChromeDefaults.MaskOpaque,
-)
-
-/** Inverse mask for the blur overlay: full under chrome, gone below fade. */
-internal fun ardttScrollChromeBlurFadeStops(): Array<Pair<Float, Color>> = arrayOf(
-    0f to ArdttScrollChromeDefaults.MaskOpaque,
-    ArdttScrollChromeFadeMid to ArdttScrollChromeDefaults.MaskOpaque,
-    1f to ArdttScrollChromeDefaults.MaskClear,
 )
 
 /** Eat hits that would otherwise reach rows drawn under the pinned chrome. */

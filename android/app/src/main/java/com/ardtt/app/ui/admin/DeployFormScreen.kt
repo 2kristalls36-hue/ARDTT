@@ -45,6 +45,7 @@ import com.ardtt.app.ui.components.layout.ArdttTabHeader
 import com.ardtt.app.ui.components.surface.ArdttDialog
 import com.ardtt.app.ui.components.surface.ArdttDialogAction
 import com.ardtt.app.ui.components.surface.ArdttSectionCard
+import com.ardtt.app.ui.theme.ArdttLayout
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSpacing
 
@@ -245,11 +246,6 @@ fun DeployScreen(
             header = {
                 ArdttTabHeader(
                     title = serverDeployScreenTitle(saved),
-                    subtitle = if (saved) {
-                        "Стек $expectedDeployVersion · SSH · Compose"
-                    } else {
-                        "SSH · установка Compose-стека ARDTT"
-                    },
                     onBack = if (canLeave) onBack else null,
                 )
             },
@@ -267,11 +263,11 @@ fun DeployScreen(
             serverDeployFormHelp(saved, cascadeEnabled, expectedDeployVersion),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = ArdttSpacing.Large),
+            modifier = Modifier.padding(horizontal = ArdttLayout.ScreenPadding),
         )
 
         Column(
-            modifier = Modifier.padding(horizontal = ArdttSpacing.Large),
+            modifier = Modifier.padding(horizontal = ArdttLayout.ScreenPadding),
             verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Medium),
         ) {
         ArdttTextField(

@@ -109,7 +109,7 @@ import com.ardtt.app.update.updatePrimaryActionLabel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** Strings of the admin-mode card and the mode line in the header. */
+/** Strings of the admin-mode card. */
 internal object AdminModeCopy {
     const val SECTION_TITLE = "Описание и доступ"
     const val ABOUT =
@@ -125,9 +125,6 @@ internal object AdminModeCopy {
     const val END_SESSION_CONFIRM = "Завершить"
     const val END_SESSION_CANCEL = "Отмена"
     const val MODE_ADMIN = "администратор"
-    const val MODE_USER = "пользователь"
-
-    fun modeSubtitle(admin: Boolean): String = "Режим: ${if (admin) MODE_ADMIN else MODE_USER}"
 
     fun versionLine(versionName: String, admin: Boolean): String =
         "Версия $versionName" + if (admin) " · режим: $MODE_ADMIN" else ""
@@ -280,7 +277,6 @@ fun SettingsScreen(
         header = {
             ArdttTabHeader(
                 title = "Настройки приложения",
-                subtitle = AdminModeCopy.modeSubtitle(admin),
             )
         },
     ) {

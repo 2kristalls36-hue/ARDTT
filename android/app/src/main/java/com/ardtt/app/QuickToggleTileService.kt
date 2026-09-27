@@ -12,20 +12,14 @@ import android.service.quicksettings.TileService
 import android.util.Log
 import android.widget.Toast
 import com.ardtt.app.core.ConnectionManager
+import com.ardtt.app.core.VpnTunnelService
 import com.ardtt.app.core.holdsUserSession
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
 
 /**
- * Quick Settings tile — same click path as qWDTT [QuickToggleTileService]:
- * stop or start in-process so the shade stays open. The shade collapses
- * only for the system VPN consent dialog.
- *
- * Work runs on a process-wide scope. SystemUI unbinds this service right
- * after [onClick]; a service-scoped job would be cancelled before the
- * toggle ran.
+ * Quick Settings tile. Stop stays in-process. Start is handed to
+ * [VpnTunnelService] before this click returns: SystemUI unbinds the tile
+ * immediately, and a later coroutine is not allowed to start the foreground
+ * service. The shade collapses only for the system VPN consent dialog.
  */
 class QuickToggleTileService : TileService() {
 
@@ -37,48 +31,43 @@ class QuickToggleTileService : TileService() {
     override fun onClick() {
         super.onClick()
         runCatching {
-            if (isSessionUp()) {
-                ConnectionManager.get(applicationContext).disconnect()
-                updateTile(running = false)
-                return
-            }
-
             val needsVpnPermission = runCatching {
                 VpnService.prepare(this@QuickToggleTileService) != null
             }.getOrDefault(true)
-            if (!needsVpnPermission) {
-                updateTileConnecting()
-                tileScope.launch {
-                    runCatching { startFromSavedSettings() }
-                        .onFailure { e ->
-                            Log.e(TAG, "QS tile start failed", e)
-                            toast(e.message ?: "Не удалось переключить туннель")
-                            updateTileState()
+            when (qsClickEffect(isSessionUp(), needsVpnPermission)) {
+                QsClickEffect.Disconnect -> {
+                    ConnectionManager.get(applicationContext).disconnect()
+                    updateTile(running = false)
+                }
+                QsClickEffect.OpenVpnConsent -> {
+                    toast("Разрешите ARDTT создать VPN-подключение")
+                    openVpnPermissionActivity()
+                }
+                QsClickEffect.StartToggleService -> {
+                    updateTileConnecting()
+                    runCatching { startQsToggleService() }
+                        .onFailure { error ->
+                            Log.e(TAG, "QS foreground start failed", error)
+                            openActivity(
+                                Intent(this, WidgetToggleActivity::class.java).apply {
+                                    flags = widgetToggleLaunchFlags()
+                                },
+                                103,
+                            )
                         }
                 }
-                return
             }
-
-            toast("Разрешите ARDTT создать VPN-подключение")
-            openVpnPermissionActivity()
         }.onFailure { e ->
             Log.e(TAG, "QS tile onClick failed", e)
+            updateTileState()
         }
     }
 
-    private suspend fun startFromSavedSettings() {
-        val result = runQuickLaunchToggle(applicationContext) {
-            runCatching { VpnService.prepare(this@QuickToggleTileService) }.getOrNull()
-        }
-        when (result.outcome) {
-            QuickLaunchOutcome.MissingProfile -> {
-                toast("Нет активного профиля")
-                updateTile(running = false)
-            }
-            QuickLaunchOutcome.NeedVpnConsent -> openVpnPermissionActivity()
-            QuickLaunchOutcome.ConnectInPlace,
-            QuickLaunchOutcome.Disconnect -> updateTileState()
-        }
+    /** Called while this tile is still bound, so the foreground start is allowed. */
+    private fun startQsToggleService() {
+        val intent = Intent(this, VpnTunnelService::class.java)
+            .setAction(VpnTunnelService.ACTION_QS_TOGGLE)
+        startForegroundService(intent)
     }
 
     private fun isSessionUp(): Boolean {
@@ -157,9 +146,6 @@ class QuickToggleTileService : TileService() {
 
     companion object {
         private const val TAG = "QuickToggleTile"
-
-        /** Outlives the bound tile service. SystemUI unbinds immediately after a click. */
-        private val tileScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
         fun requestListening(context: Context) {
             if (Build.VERSION.SDK_INT >= 24) {

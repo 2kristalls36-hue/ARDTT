@@ -1,8 +1,8 @@
 package com.ardtt.app.ui
 
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.CloudUpload
+import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.FilterList
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.MonitorHeart
@@ -40,7 +40,7 @@ enum class AppDestination(
 
     fun navIcon(): ImageVector = when (this) {
         Tunnel -> Icons.Outlined.VpnKey
-        Servers -> Icons.Outlined.Cloud
+        Servers -> Icons.Outlined.Dns
         Profiles -> Icons.Outlined.Folder
         Exceptions -> Icons.Outlined.FilterList
         Network -> Icons.Outlined.Wifi
