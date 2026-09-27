@@ -9,11 +9,11 @@
 
 Каталог по умолчанию — `/opt/ardtt` (`ARDTT_INSTALL_DIR`). Старый `/opt/nonamevpn` при обновлении переносится сюда.
 
-Версия **стека** (`DEPLOY_VERSION`, сейчас **1.0.56**) независима от `versionName` приложения. Её бампят, когда меняется то, что уезжает на VPS (образ, Compose, `install.sh`, Engine).
+Версия **стека** (`DEPLOY_VERSION`, сейчас **1.0.57**) независима от `versionName` приложения. Её бампят, когда меняется то, что уезжает на VPS (образ, Compose, `install.sh`, Engine).
 
 > [!IMPORTANT]
-> Стек **1.0.56** — тот же самодостаточный архив `ardtt-server-<версия>-linux-<amd64|arm64>.tar.gz` (gzip-слои образа + Engine) **плюс** покомпонентные ассеты релиза и индекс `ardtt-server-<версия>-linux-<arch>.index.json`: VPS качает только то, чего у него нет ([частичный деплой](#частичный-деплой)). Рядом с `install.sh` в архиве — host-контроллер `ardttctl` (JSONL protocol=2 и прежние строки `ARDTT_*`).  
-> APK **старше** этой линейки ждут `ardtt-stack-*.tar.gz` и запас с `main` — они **не** поставят 1.0.56. Нужен клиент 0.5.269. Provision API — Bearer; по умолчанию host bind `127.0.0.1:9100`.
+> Стек **1.0.57** — тот же самодостаточный архив `ardtt-server-<версия>-linux-<amd64|arm64>.tar.gz` (gzip-слои образа + Engine) **плюс** покомпонентные ассеты релиза и индекс `ardtt-server-<версия>-linux-<arch>.index.json`: VPS качает только то, чего у него нет ([частичный деплой](#частичный-деплой)). Рядом с `install.sh` в архиве — host-контроллер `ardttctl` (JSONL protocol=2 и прежние строки `ARDTT_*`).  
+> APK **старше** этой линейки ждут `ardtt-stack-*.tar.gz` и запас с `main` — они **не** поставят 1.0.57. Нужен клиент 0.5.269 или новее. Provision API — Bearer; по умолчанию host bind `127.0.0.1:9100`. Обновление уже открытого порта этот bind не затирает.
 
 ---
 
@@ -149,7 +149,7 @@ scripts/safe-extract-package.py
 
 **Цепочка доверия.** Корень — внешняя SHA-256 **индекса**: `digest` актива GitHub, иначе `SHA256SUMS-server.txt` того же релиза, иначе сосед `*.index.json.sha256`. Дальше всё сверяется по индексу: host-файлы по SHA-256 (лишний файл в `hostfiles` тоже отказ), каждый слой — по gzip-SHA-256 **и** по diff ID, Engine и Compose — по закреплённым суммам. `install.sh` повторяет проверку индекса и всего staging **до** того, как трогает живой стек. Суммы внутри архива по-прежнему источником доверия не считаются.
 
-**Overlay hostfiles из APK.** Пока git-стек новее опубликованного пакета на Releases (сейчас 1.0.56 vs 1.0.55), телефон SFTP-ит `assets/deploy/ardtt-hostfiles-overlay.tar.gz` (~80 КБ: `install.sh`, Compose, `install-lib`, без образа, без `ardttctl`) и ставит `ARDTT_HOSTFILES_OVERLAY=1`. `fetch-and-install.sh` сначала сверяет **опубликованные** hostfiles с индексом, затем накладывает overlay, если его `DEPLOY_VERSION` **строго больше** `PKG_VER`. Слои/Engine/Compose остаются с GitHub и дальше сверяются по SHA-256; SHA overlay-установщика с индексом опубликованного стека не сравнивается (`ARDTT_HOSTFILES_OVERLAY_APPLIED=1`). `ARDTT_DONE|deploy_version=` берётся из overlay. `ardttctl` (~2 МиБ × amd64/arm64) в APK не кладётся: при overlay без бинарника durable state пишется как у 1.0.53, install не падает. Если overlay не новее, или APK его не прислал — поведение как раньше: unpublished pin ставит последний опубликованный стек. Старые APK без overlay по-прежнему Releases-only. Когда 1.0.54 появится на Releases, overlay сам перестанет накладываться. Без файла при `ARDTT_HOSTFILES_OVERLAY=1` — `HOSTFILES_OVERLAY_MISSING` (fail-closed).
+**Overlay hostfiles из APK.** Пока git-стек новее опубликованного пакета на Releases (сейчас 1.0.57 vs опубликованный 1.0.56), телефон SFTP-ит `assets/deploy/ardtt-hostfiles-overlay.tar.gz` (~80 КБ: `install.sh`, Compose, `install-lib`, без образа, без `ardttctl`) и ставит `ARDTT_HOSTFILES_OVERLAY=1`. `fetch-and-install.sh` сначала сверяет **опубликованные** hostfiles с индексом, затем накладывает overlay, если его `DEPLOY_VERSION` **строго больше** `PKG_VER`. Слои/Engine/Compose остаются с GitHub и дальше сверяются по SHA-256; SHA overlay-установщика с индексом опубликованного стека не сравнивается (`ARDTT_HOSTFILES_OVERLAY_APPLIED=1`). `ARDTT_DONE|deploy_version=` берётся из overlay. `ardttctl` (~2 МиБ × amd64/arm64) в APK не кладётся: при overlay без бинарника durable state пишется как у 1.0.53, install не падает. Если overlay не новее, или APK его не прислал — поведение как раньше: unpublished pin ставит последний опубликованный стек. Старые APK без overlay по-прежнему Releases-only. Когда 1.0.54 появится на Releases, overlay сам перестанет накладываться. Без файла при `ARDTT_HOSTFILES_OVERLAY=1` — `HOSTFILES_OVERLAY_MISSING` (fail-closed).
 
 **Переменные.**
 
@@ -359,7 +359,7 @@ Production `docker-compose.yml` **без** `build:`. Образ собирает
 
 ### Provision API
 
-Порт снаружи — `ARDTT_PROVISION_PORT` (в профиле поле `provisionPort`). Внутри контейнера слушает `0.0.0.0:9100` (overlay каскада и docker-proxy). На хосте Compose публикует **`127.0.0.1:9100`** по умолчанию. Интернет видит порт только при `ARDTT_PROVISION_PUBLIC=1` (тогда bind `0.0.0.0`). Админ-операции — SSH-туннель `ssh -L 9100:127.0.0.1:9100`.
+Порт снаружи — `ARDTT_PROVISION_PORT` (в профиле поле `provisionPort`). Внутри контейнера слушает `0.0.0.0:9100` (overlay каскада и docker-proxy). На хосте Compose публикует **`127.0.0.1:9100`** по умолчанию. Интернет видит порт только при `ARDTT_PROVISION_PUBLIC=1` (тогда bind `0.0.0.0`). Если переменная не задана, обновление сохраняет уже открытую публикацию: живой HostIp `0.0.0.0`, `ARDTT_PROVISION_BIND=0.0.0.0` или старый compose `PORT:9100/tcp` без host IP. `ARDTT_PROVISION_LISTEN=0.0.0.0:9100` таким сигналом не является. Явный `ARDTT_PROVISION_PUBLIC=0` снова оставляет localhost. Админ-операции — SSH-туннель `ssh -L 9100:127.0.0.1:9100`.
 
 Стек **1.0.54**: Bearer-токен обязателен на API, кроме `/health` и `/ready`.
 

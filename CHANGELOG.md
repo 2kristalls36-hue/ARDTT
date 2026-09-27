@@ -1,8 +1,18 @@
+# ARDTT v0.5.270
+
+Клиент **0.5.270** (`versionCode` считается CI из истории git, ≈ число коммитов × 10). Серверный стек **1.0.57** (`DEPLOY_VERSION`).
+
+GitHub Release `v0.5.270`: APK (`versionCode` считается CI из истории git, ≈ число коммитов × 10), `ardtt-update.json`, стек **1.0.57** `linux-{amd64,arm64}`.
+
+## 0.5.270
+
+- **Стек 1.0.57.** Обновление не прячет provision и telemetry на `127.0.0.1`, если порт уже был доступен снаружи: живой bind `0.0.0.0`, `ARDTT_PROVISION_BIND=0.0.0.0` или прежний compose без host IP (`9100:9100/tcp`). Телефон не передаёт `ARDTT_PROVISION_PUBLIC`. Чистая установка по-прежнему только на localhost. Явный `ARDTT_PROVISION_PUBLIC=0` оставляет порт закрытым. `ARDTT_PROVISION_LISTEN` — адрес внутри контейнера и на публикацию не влияет.
+
 # ARDTT v0.5.269
 
 Клиент **0.5.269** (`versionCode` считается CI из истории git, ≈ число коммитов × 10). Серверный стек **1.0.56** (`DEPLOY_VERSION`).
 
-GitHub Release `v0.5.269`: APK (`versionCode` считается CI из истории git, ≈ число коммитов × 10), `ardtt-update.json`, стек **1.0.55** `linux-{amd64,arm64}`.
+GitHub Release `v0.5.269`: APK (`versionCode` считается CI из истории git, ≈ число коммитов × 10), `ardtt-update.json`, стек **1.0.55** и **1.0.56** `linux-{amd64,arm64}`.
 
 ## 0.5.269
 
