@@ -481,6 +481,9 @@ fi
 if [ -f "$ROOT/scripts/test-install-gc.sh" ]; then
   bash "$ROOT/scripts/test-install-gc.sh" || err "install GC/cleanup"
 fi
+if [ -f "$ROOT/scripts/test-image-gc.sh" ]; then
+  bash "$ROOT/scripts/test-image-gc.sh" || err "owned image gc"
+fi
 if [ -f "$ROOT/scripts/test-disk-budget.sh" ]; then
   bash "$ROOT/scripts/test-disk-budget.sh" || err "disk budget"
 fi
