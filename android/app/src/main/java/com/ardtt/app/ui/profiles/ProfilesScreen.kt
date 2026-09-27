@@ -44,6 +44,7 @@ import com.ardtt.app.core.AppLog
 import com.ardtt.app.core.ConnectionManager
 import com.ardtt.app.deploy.DeployTarget
 import com.ardtt.app.deploy.ProvisionAdminApi
+import com.ardtt.app.deploy.ProvisionAdminToken
 import com.ardtt.app.deploy.ServersRepository
 import com.ardtt.app.profile.PendingProfileImport
 import com.ardtt.app.profile.ProfileCatalog
@@ -196,7 +197,16 @@ fun ProfilesScreen(
         val next = linkedMapOf<String, ProfileLiveFacts>()
         catalog.items.groupBy { it.profile.provisionBaseUrl }.forEach { (base, items) ->
             if (base.isNullOrBlank()) return@forEach
-            val users = ProvisionAdminApi.listUsers(base).getOrNull() ?: return@forEach
+            val server = servers.firstOrNull {
+                ProvisionAdminApi.provisionBase(it).trimEnd('/') == base.trim().trimEnd('/')
+            }
+            val token = when (server) {
+                null -> ""
+                else -> ProvisionAdminToken.normalize(server.provisionAdminToken)
+                    ?: runCatching { ProvisionAdminToken.ensure(serversRepo, server) }.getOrNull()
+            }.orEmpty()
+            if (token.isBlank()) return@forEach
+            val users = ProvisionAdminApi.listUsers(base, token).getOrNull() ?: return@forEach
             items.forEach { item ->
                 profileLiveFactsFromUsers(item.profile.name, users)?.let { next[item.id] = it }
             }

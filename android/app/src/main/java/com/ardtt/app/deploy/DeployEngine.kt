@@ -369,6 +369,9 @@ class DeployEngine(private val appContext: Context) {
             finishHopsSuccess()
             emit(1f, msg)
             val deployedAt = System.currentTimeMillis()
+            val adminToken = entryInstalled.adminToken.ifBlank {
+                runCatching { ProvisionAdminToken.read(ssh) }.getOrDefault("")
+            }
             val osInfo = runCatching {
                 ServerOsProbe.parse(ssh.exec("cat /etc/os-release", timeoutMs = 12_000L))
             }.getOrNull()
@@ -387,6 +390,7 @@ class DeployEngine(private val appContext: Context) {
                         cascadeTelemetryPort = exitTelemetry,
                         cascadeArch = exitArch.ifBlank { stored.cascadeArch },
                         osId = osInfo?.osId?.trim()?.ifBlank { stored.osId } ?: stored.osId,
+                        provisionAdminToken = adminToken.ifBlank { stored.provisionAdminToken },
                         osVersion = osInfo?.osVersionLabel?.trim()?.ifBlank { stored.osVersion }
                             ?: stored.osVersion,
                     ),
@@ -411,7 +415,7 @@ class DeployEngine(private val appContext: Context) {
                 TelemetryBridge.deploy(
                     "remote_install_log",
                     activeHost,
-                    JSONObject().put("log", remoteLog),
+                    JSONObject().put("log", DeployIssue.redactLog(remoteLog)),
                 )
             }
             val cancelled = _log.value.any { it.contains("Отменено") }
@@ -753,7 +757,7 @@ class DeployEngine(private val appContext: Context) {
         var sawDone = false
         var sawError = false
         val code = ssh.execStreaming(runCommand, timeoutMs = 45 * 60_000L) { line ->
-            append(line)
+            append(DeployIssue.redactLog(line))
             DeployInstallEnv.publicKeyFromLine(line)?.let { cascadePub = it }
             when {
                 line.startsWith("ARDTT_PROGRESS|") -> {
@@ -859,6 +863,7 @@ class DeployEngine(private val appContext: Context) {
             telemetryPort = DeployInstallEnv.intField(doneFields, "telemetry_port"),
             instanceId = doneFields["instance"].orEmpty(),
             containerName = doneFields["container"].orEmpty(),
+            adminToken = ProvisionAdminToken.normalize(doneFields["admin_token"].orEmpty()).orEmpty(),
         )
     }
 

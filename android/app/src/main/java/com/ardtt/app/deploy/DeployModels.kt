@@ -40,6 +40,11 @@ data class DeployTarget(
     val osVersion: String = "",
     /** Epoch ms of last successful deploy from this app; 0 = unknown. */
     val lastDeployedAtMs: Long = 0L,
+    /**
+     * Bearer for provision admin routes (`/v1/users*`). Empty until a deploy
+     * or an SSH read of `data/admin.token` stores it. Not printed in the UI.
+     */
+    val provisionAdminToken: String = "",
 )
 
 sealed class DeployAuth {
@@ -81,4 +86,5 @@ data class DeployInstallResult(
     val telemetryPort: Int? = null,
     val instanceId: String = "",
     val containerName: String = "",
+    val adminToken: String = "",
 )
