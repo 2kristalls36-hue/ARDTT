@@ -4101,6 +4101,12 @@ class ConnectionManager(
             return
         }
         val ext = EgressIpProbe.current().orEmpty()
+        val adminToken = runCatching {
+            com.ardtt.app.deploy.ProvisionAdminToken.forBase(
+                com.ardtt.app.deploy.ServersRepository.get(appContext).snapshot(),
+                base,
+            )
+        }.getOrDefault("")
         val result = com.ardtt.app.deploy.ProvisionAdminApi.reportPresence(
             baseUrl = base,
             deviceId = p.deviceId,
@@ -4109,6 +4115,7 @@ class ConnectionManager(
             deviceModel = PhoneModelLabel.current(),
             appVersion = com.ardtt.app.BuildConfig.VERSION_NAME,
             appVersionCode = com.ardtt.app.BuildConfig.VERSION_CODE,
+            adminToken = adminToken,
         )
         result.onSuccess {
             lastPresenceKey = key

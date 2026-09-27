@@ -179,7 +179,10 @@ data class DeployIssue(
 
         fun redactLog(text: String): String {
             var out = text
-            out = out.replace(Regex("(?i)(password|passwd|token|secret|passphrase)=\\S+"), "$1=***")
+            out = out.replace(
+                Regex("(?i)(password|passwd|token|secret|passphrase)=[^|\\s]+"),
+                "$1=***",
+            )
             out = out.replace(
                 Regex("-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\\s\\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----"),
                 "[redacted-key]",
