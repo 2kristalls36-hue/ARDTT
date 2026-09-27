@@ -8,6 +8,10 @@ _cleanup_lib_dir() {
   printf '%s' "$d"
 }
 
+_image_gc_py() {
+  printf '%s' "$(_cleanup_lib_dir)/image-gc.py"
+}
+
 ardtt_safe_rm_rf() {
   local root="${INSTALL_DIR:-/opt/ardtt}" p
   [ -n "$root" ] || return 1
@@ -200,6 +204,49 @@ ardtt_gc_releases() {
   fi
 }
 
+# Drop ardtt/server and stack-ardtt tags that are neither the running release
+# nor previous (rollback) and that no container still uses. Same idea as qwdtt
+# replacing one binary: keep current + previous. Never a global image sweep,
+# so foreign images (telemt and the rest) stay.
+ardtt_gc_owned_images() {
+  command -v docker >/dev/null 2>&1 || return 0
+  docker info >/dev/null 2>&1 || return 0
+  local py images keep removes line cid cfg_image
+  py="$(_image_gc_py)"
+  [ -f "$py" ] || return 0
+  images="$(mktemp)"
+  keep="$(mktemp)"
+  docker images --format '{{.Repository}}	{{.Tag}}	{{.ID}}' >"$images" 2>/dev/null || true
+  {
+    if [ -n "${ARDTT_IMAGE:-}" ]; then
+      printf 'ref\t%s\n' "$ARDTT_IMAGE"
+    fi
+    local f v root
+    root="${INSTALL_DIR:-/opt/ardtt}"
+    for f in "$root/current/.env" "$root/previous/.env" "$root/.env"; do
+      v="$(env_file_val "$f" ARDTT_IMAGE)"
+      [ -n "$v" ] && printf 'ref\t%s\n' "$v"
+    done
+    while IFS= read -r cid; do
+      [ -n "$cid" ] || continue
+      docker inspect -f '{{.Image}}' "$cid" 2>/dev/null | awk 'NF { print "id\t" $0 }' || true
+      cfg_image="$(docker inspect -f '{{.Config.Image}}' "$cid" 2>/dev/null || true)"
+      [ -n "$cfg_image" ] && printf 'ref\t%s\n' "$cfg_image"
+    done < <(docker ps -aq 2>/dev/null || true)
+  } >"$keep"
+  removes="$(python3 "$py" plan "$images" "$keep" 2>/dev/null || true)"
+  rm -f "$images" "$keep"
+  [ -n "$removes" ] || return 0
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    if docker image rm "$line" >/dev/null 2>&1; then
+      echo "ARDTT_INFO|снят старый образ ${line}; оставлены текущий и предыдущий для отката"
+    else
+      echo "ARDTT_WARN|не удалось снять образ ${line} (возможно, его ещё использует контейнер)"
+    fi
+  done <<<"$removes"
+}
+
 ardtt_gc_logs() {
   local root="${INSTALL_DIR:-/opt/ardtt}/logs"
   [ -d "$root" ] || return 0
@@ -211,15 +258,16 @@ ardtt_gc_logs() {
 }
 
 ardtt_disk_cleanup_hint() {
-  echo "ARDTT_INFO|рекомендация (не выполняется автоматически): при нехватке места на хосте можно вручную сократить логи Docker, apt-кэш и journal. ARDTT чистит только свои incoming/staging/releases/cache/logs."
+  echo "ARDTT_INFO|старые образы ardtt/server и stack-ardtt снимаются сами (текущий и предыдущий остаются). Чужие контейнеры и их логи не трогаются."
 }
 
 # Safe opt-in reclaim. Caller must set ARDTT_DISK_CLEANUP=1 intentionally.
 ardtt_disk_cleanup() {
   local before after
   before="$(disk_avail_mb "${INSTALL_DIR:-/}")"
-  echo "ARDTT_INFO|очистка диска ARDTT: incoming/staging-хвосты; свободно было ${before:-?} МБ"
+  echo "ARDTT_INFO|очистка диска ARDTT: incoming/staging-хвосты и старые свои образы; свободно было ${before:-?} МБ"
   ardtt_cleanup_ardtt_leftovers
+  ardtt_gc_owned_images || true
   ardtt_disk_cleanup_hint
   after="$(disk_avail_mb "${INSTALL_DIR:-/}")"
   echo "ARDTT_INFO|очистка ARDTT завершена: свободно ${after:-?} МБ (было ${before:-?} МБ)"
