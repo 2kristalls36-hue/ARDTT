@@ -44,6 +44,31 @@ internal fun clientEnableAction(deactivated: Boolean) = ClientEnableAction(
 internal fun clientEnableActionLabel(deactivated: Boolean): String =
     clientEnableAction(deactivated).label
 
+/**
+ * A client-list snapshot that started before «Выключить» / «Включить»,
+ * or that finishes while that request is still in flight, must not paint
+ * over the row the toggle already wrote. [currentEpoch] moves when the
+ * toggle starts and again when it finishes.
+ */
+internal fun clientsListApplyAllowed(
+    startedEpoch: Int,
+    currentEpoch: Int,
+    mutationInFlight: Boolean = false,
+): Boolean = startedEpoch == currentEpoch && !mutationInFlight
+
+/** Null when the server applied the requested on/off state. */
+internal fun clientDeactivateMismatchMessage(
+    requestedDeactivated: Boolean,
+    appliedDeactivated: Boolean,
+): String? {
+    if (requestedDeactivated == appliedDeactivated) return null
+    return if (requestedDeactivated) {
+        "Сервер не отключил пользователя"
+    } else {
+        "Сервер не включил пользователя"
+    }
+}
+
 /** Stroke for Limit / enable so the default action never drops the outline. */
 internal fun clientActionButtonStroke(
     accent: Color?,

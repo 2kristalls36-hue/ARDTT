@@ -26,6 +26,12 @@ type user struct {
 	Name            string `json:"name"`
 	HostID          int    `json:"hostId"`
 	DirectPublicKey string `json:"directPublicKey"`
+	Deactivated     bool   `json:"deactivated"`
+}
+
+type peer struct {
+	PublicKey  string
+	AllowedIPs string
 }
 
 const confTmpl = `[Interface]
@@ -73,20 +79,7 @@ func main() {
 		base = "10.8.0"
 	}
 
-	type peer struct {
-		PublicKey  string
-		AllowedIPs string
-	}
-	var peers []peer
-	for _, u := range s.Users {
-		if u.DirectPublicKey == "" || u.HostID < 2 {
-			continue
-		}
-		peers = append(peers, peer{
-			PublicKey:  u.DirectPublicKey,
-			AllowedIPs: fmt.Sprintf("%s.%d/32", base, u.HostID),
-		})
-	}
+	peers := collectPeers(s.Users, base)
 
 	data := struct {
 		PrivateKey string
@@ -117,6 +110,26 @@ func main() {
 		fatalf("write address: %v", err)
 	}
 	fmt.Printf("[direct-sync] wrote %s (%d peers) addr=%s\n", *outPath, len(peers), data.Address)
+}
+
+// directPeerAllowed reports whether this user still gets a WireGuard peer.
+// A turned-off user must disappear from awg0 so the next syncconf drops them.
+func directPeerAllowed(u user) bool {
+	return !u.Deactivated && u.DirectPublicKey != "" && u.HostID >= 2
+}
+
+func collectPeers(users []user, base string) []peer {
+	peers := make([]peer, 0, len(users))
+	for _, u := range users {
+		if !directPeerAllowed(u) {
+			continue
+		}
+		peers = append(peers, peer{
+			PublicKey:  u.DirectPublicKey,
+			AllowedIPs: fmt.Sprintf("%s.%d/32", base, u.HostID),
+		})
+	}
+	return peers
 }
 
 func subnetBase(cidr string) string {
