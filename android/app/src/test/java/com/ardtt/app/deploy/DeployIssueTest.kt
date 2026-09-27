@@ -141,6 +141,17 @@ class DeployIssueTest {
     }
 
     @Test
+    fun redactLogKeepsFieldsAfterAdminToken() {
+        val raw = "ARDTT_DONE|admin_token=0123456789abcdef|container=ardtt|telemetry_token=ghp_secret"
+        val redacted = DeployIssue.redactLog(raw)
+        assertFalse(redacted.contains("0123456789abcdef"))
+        assertFalse(redacted.contains("ghp_secret"))
+        assertTrue(redacted.contains("admin_token=***"))
+        assertTrue(redacted.contains("container=ardtt"))
+        assertTrue(redacted.contains("telemetry_token=***"))
+    }
+
+    @Test
     fun runtimeBundleIsIncludedInPackage() {
         assertTrue(DeployRuntimeBundle.INCLUDED)
         assertTrue(DeployRuntimeBundle.canPrepare("ubuntu", "26.04", "x86_64"))

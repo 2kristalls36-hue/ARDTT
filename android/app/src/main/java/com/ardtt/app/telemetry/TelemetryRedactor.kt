@@ -10,7 +10,7 @@ object TelemetryRedactor {
         setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
     )
     private val jsonSecret = Regex(
-        """(?i)("(?:privateKey|password|sudoPassword|keyPassphrase|passphrase|token|access_token|refresh_token|remixsid|cookie|authorization)"\s*:\s*")([^"]*)(")""",
+        """(?i)("(?:privateKey|password|sudoPassword|keyPassphrase|passphrase|token|provisionAdminToken|access_token|refresh_token|remixsid|cookie|authorization)"\s*:\s*")([^"]*)(")""",
     )
     private val querySecret = Regex(
         """(?i)((?:access_token|refresh_token|token|password|passphrase)=)[^&\s]+""",
