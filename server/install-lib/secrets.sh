@@ -39,6 +39,122 @@ host_publish_bind() {
   esac
 }
 
+# Host IP of the running container's published provision port.
+# Empty HostIp is Docker's all-interfaces publish. No container → empty.
+_running_provision_host_ip() {
+  local name="${ARDTT_CONTAINER_NAME:-ardtt}"
+  command -v docker >/dev/null 2>&1 || return 0
+  docker inspect "$name" >/dev/null 2>&1 || return 0
+  docker inspect -f '{{json .HostConfig.PortBindings}}' "$name" 2>/dev/null \
+    | python3 -c '
+import json, sys
+raw = sys.stdin.read()
+if not raw.strip():
+    raise SystemExit(0)
+try:
+    data = json.loads(raw)
+except Exception:
+    raise SystemExit(0)
+binds = (data or {}).get("9100/tcp") or []
+if not binds:
+    raise SystemExit(0)
+ip = (binds[0] or {}).get("HostIp")
+print("0.0.0.0" if ip is None or ip == "" else ip)
+' || true
+}
+
+# public / private / empty from ARDTT_PROVISION_BIND or ARDTT_PROVISION_PUBLIC.
+# ARDTT_PROVISION_LISTEN is the in-container address and is not a publish signal.
+_recorded_provision_publish() {
+  local f bind pub saw_private=0
+  for f in "${INSTALL_DIR}/.env" "${INSTALL_DIR}/current/.env"; do
+    [ -f "$f" ] || continue
+    bind="$(env_file_val "$f" ARDTT_PROVISION_BIND)"
+    if [ -n "$bind" ]; then
+      case "$bind" in
+        127.*|localhost|::1) saw_private=1 ;;
+        *) printf public; return 0 ;;
+      esac
+      continue
+    fi
+    pub="$(env_file_val "$f" ARDTT_PROVISION_PUBLIC)"
+    if [ -n "$pub" ]; then
+      case "$pub" in
+        1|true|yes|on|TRUE|YES|ON) printf public; return 0 ;;
+        *) saw_private=1 ;;
+      esac
+    fi
+  done
+  if [ "$saw_private" = 1 ]; then
+    printf private
+  fi
+}
+
+# Stacks before the host-bind default published "PORT:9100/tcp" with no host IP.
+_legacy_compose_publishes_all() {
+  local f
+  for f in "${INSTALL_DIR}/current/docker-compose.yml" "${INSTALL_DIR}/previous/docker-compose.yml"; do
+    [ -f "$f" ] || continue
+    if python3 - "$f" <<'PY'
+import re, sys
+text = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+for spec in re.findall(r"""["']([^"']*:9100/tcp)["']""", text):
+    # ${VAR:-default} contains a colon. A host IP or ARDTT_PROVISION_BIND
+    # means the publish address is chosen elsewhere; a bare PORT:9100/tcp
+    # is the pre-1.0.54 all-interfaces form.
+    if "ARDTT_PROVISION_BIND" in spec:
+        continue
+    if re.search(r"127(?:\.\d+){3}", spec):
+        continue
+    raise SystemExit(0)
+raise SystemExit(1)
+PY
+    then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# public or private. Caller flag is handled by inherit_provision_publish.
+resolve_inherited_provision_publish() {
+  local ip mode=""
+  ip="$(_running_provision_host_ip || true)"
+  if [ -n "$ip" ]; then
+    case "$ip" in
+      127.*|localhost|::1) ;;
+      *) printf public; return 0 ;;
+    esac
+  fi
+  mode="$(_recorded_provision_publish || true)"
+  if [ "$mode" = "public" ]; then
+    printf public
+    return 0
+  fi
+  if _legacy_compose_publishes_all; then
+    printf public
+    return 0
+  fi
+  printf private
+}
+
+# Phone deploy does not pass ARDTT_PROVISION_PUBLIC. Keep an already reachable
+# provision/telemetry publish; a fresh install stays on 127.0.0.1.
+inherit_provision_publish() {
+  if [ -n "${ARDTT_PROVISION_PUBLIC+x}" ]; then
+    return 0
+  fi
+  local mode
+  mode="$(resolve_inherited_provision_publish)"
+  if [ "$mode" = "public" ]; then
+    ARDTT_PROVISION_PUBLIC=1
+    echo "ARDTT_INFO|provision/telemetry остаются доступны снаружи: так порт был опубликован до обновления"
+  else
+    ARDTT_PROVISION_PUBLIC=0
+  fi
+  export ARDTT_PROVISION_PUBLIC
+}
+
 ensure_install_secrets() {
   local data="${1:-${INSTALL_DIR}/data}"
   ADMIN_TOKEN_NEW=0

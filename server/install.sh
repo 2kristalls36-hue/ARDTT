@@ -480,6 +480,7 @@ do_install() {
   preserve_previous_ports "${env_now:-/dev/null}"
   preserve_live_cascade
   ensure_instance
+  inherit_provision_publish
   load_our_published_ports
 
   if [ "${NETWORK_MODE:-isolated}" != "isolated" ] || [ "${ARDTT_NETWORK_MODE:-isolated}" = "hostnet" ]; then
