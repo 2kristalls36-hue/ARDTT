@@ -3,15 +3,22 @@ package com.ardtt.app.ui.admin
 import androidx.compose.ui.unit.dp
 import com.ardtt.app.ui.components.layout.ArdttHeaderDefaults
 import com.ardtt.app.ui.components.layout.ardttScrollChromeTopPadding
+import com.ardtt.app.ui.theme.ArdttChrome
 import com.ardtt.app.ui.theme.ArdttLayout
-import com.ardtt.app.ui.theme.ArdttSpacing
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DiagnosticsAccordionTest {
     private val tools = diagnosticsTools()
+
+    @Test
+    fun journalKeepsThePageTitleWhileNetworkStillDissolvesIt() {
+        assertTrue(diagnosticsPageTitleStaysWhileScrolling(DiagnosticsTool.Logs))
+        assertFalse(diagnosticsPageTitleStaysWhileScrolling(DiagnosticsTool.Network))
+    }
 
     @Test
     fun diagnosticsStartsWithNetworkExpanded() {
@@ -74,23 +81,14 @@ class DiagnosticsAccordionTest {
     }
 
     @Test
-    fun diagnosticsHeaderOmitsNetworkAndLogsSubtitle() {
-        assertTrue(diagnosticsHeaderSubtitle().isNullOrBlank())
-    }
-
-    @Test
-    fun diagnosticsPacksOpenToolAgainstHeaderAndTabPill() {
-        assertEquals(ArdttSpacing.None, diagnosticsChromeFade())
-        assertEquals(ArdttSpacing.None, diagnosticsHeaderBottomPadding())
-        assertEquals(ArdttSpacing.None, diagnosticsTitleRowMinHeight())
-        assertEquals(ArdttSpacing.Tiny, diagnosticsFeedSpacing())
-        assertEquals(ArdttSpacing.None, diagnosticsFeedBottomExtra())
-        assertEquals(ArdttSpacing.Small, diagnosticsNavReserveTrim())
-        assertTrue(diagnosticsFeedSpacing() < ArdttLayout.FeedSpacing)
-        assertTrue(diagnosticsFeedBottomExtra() < ArdttLayout.FeedBottomExtra)
-        assertTrue(diagnosticsHeaderBottomPadding() < ArdttHeaderDefaults.BottomPaddingBelowTitle)
+    fun diagnosticsUsesStandardTabInsets() {
+        assertEquals(ArdttChrome.FadeHeight, diagnosticsChromeFade())
+        assertEquals(ArdttHeaderDefaults.BottomPaddingBelowTitle, diagnosticsHeaderBottomPadding())
+        assertEquals(ArdttHeaderDefaults.TitleRowHeight, diagnosticsTitleRowMinHeight())
+        assertEquals(ArdttLayout.FeedSpacing, diagnosticsFeedSpacing())
+        assertEquals(ArdttLayout.FeedBottomExtra, diagnosticsFeedBottomExtra())
         assertEquals(
-            72.dp,
+            72.dp + ArdttChrome.FadeHeight,
             ardttScrollChromeTopPadding(72.dp, diagnosticsChromeFade()),
         )
     }

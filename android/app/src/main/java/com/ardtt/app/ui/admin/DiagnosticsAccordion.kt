@@ -26,6 +26,10 @@ data class DiagnosticsAccordionLayout(
     val showsTool: Boolean get() = expanded != null
 }
 
+/** Scrolling the journal must not dissolve the screen title. Network still does. */
+internal fun diagnosticsPageTitleStaysWhileScrolling(tool: DiagnosticsTool): Boolean =
+    tool == DiagnosticsTool.Logs
+
 fun diagnosticsTools(): List<DiagnosticsTool> = listOf(
     DiagnosticsTool.Network,
     DiagnosticsTool.Logs,

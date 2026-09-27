@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.Dp
 import com.ardtt.app.deploy.ProvisionAdminApi
 import com.ardtt.app.ui.components.surface.ArdttSectionCard
 import com.ardtt.app.ui.theme.ArdttAlpha
+import com.ardtt.app.ui.theme.ArdttLayout
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
 
@@ -97,7 +98,7 @@ private fun HostMetricCell(
             color = ringColor,
             label = formatHostPercent(percent),
         )
-        Column(verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Hairline)) {
+        Column(verticalArrangement = Arrangement.spacedBy(ArdttLayout.StackedLabelSpacing)) {
             Text(
                 title,
                 style = MaterialTheme.typography.labelLarge,

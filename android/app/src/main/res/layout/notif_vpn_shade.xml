@@ -4,9 +4,18 @@
     android:id="@+id/notif_root"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:paddingTop="2dp"
-    android:paddingBottom="2dp">
+    android:orientation="vertical">
+
+    <!-- Click target is this child, not the RemoteViews root. -->
+    <LinearLayout
+        android:id="@+id/notif_plate"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:clickable="true"
+        android:focusable="true"
+        android:orientation="vertical"
+        android:paddingTop="2dp"
+        android:paddingBottom="2dp">
 
     <TextView
         android:id="@+id/notif_title"
@@ -86,5 +95,6 @@
             android:maxLines="1"
             android:text="↓0 б/с  ↑0 б/с"
             android:textAppearance="@android:style/TextAppearance.Material.Notification.Line2" />
+    </LinearLayout>
     </LinearLayout>
 </LinearLayout>

@@ -31,6 +31,28 @@ internal fun quickLaunchOutcome(
     else -> QuickLaunchOutcome.ConnectInPlace
 }
 
+/**
+ * What a Quick Settings tap must do before onClick returns.
+ * SystemUI unbinds the tile as soon as onClick returns. A coroutine started
+ * after that is no longer allowed to start the foreground VPN service, so the
+ * connect path hands the work to VpnTunnelService while the tile is still
+ * bound. Consent is the only case that collapses the shade.
+ */
+internal enum class QsClickEffect {
+    Disconnect,
+    StartToggleService,
+    OpenVpnConsent,
+}
+
+internal fun qsClickEffect(sessionUp: Boolean, vpnConsentRequired: Boolean): QsClickEffect = when {
+    sessionUp -> QsClickEffect.Disconnect
+    vpnConsentRequired -> QsClickEffect.OpenVpnConsent
+    else -> QsClickEffect.StartToggleService
+}
+
+internal fun qsClickStartsForegroundService(effect: QsClickEffect): Boolean =
+    effect == QsClickEffect.StartToggleService
+
 /** Shade stays open unless the system VPN consent activity has to be shown. */
 internal fun qsToggleCollapsesShade(outcome: QuickLaunchOutcome): Boolean =
     outcome == QuickLaunchOutcome.NeedVpnConsent

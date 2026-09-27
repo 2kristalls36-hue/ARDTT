@@ -203,3 +203,12 @@ internal enum class StatusSignalPlacement {
 }
 
 internal fun statusSignalPlacement(): StatusSignalPlacement = StatusSignalPlacement.LabelStart
+
+internal enum class SignalMetricMark {
+    Plain,
+    Underline,
+}
+
+/** The live underlay gets a line under its reading. The other level stays plain. */
+internal fun signalMetricMark(emphasized: Boolean): SignalMetricMark =
+    if (emphasized) SignalMetricMark.Underline else SignalMetricMark.Plain

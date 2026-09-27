@@ -2,26 +2,28 @@ package com.ardtt.app.ui.tunnel
 
 import android.os.Build
 import android.telephony.SubscriptionManager
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.SignalCellularAlt
 import androidx.compose.material.icons.outlined.Wifi
@@ -82,8 +84,6 @@ import com.ardtt.app.ui.PathModeCopy
 import com.ardtt.app.ui.commitHideIp
 import com.ardtt.app.ui.commitPathMode
 import com.ardtt.app.ui.components.control.ArdttChoiceChip
-import com.ardtt.app.ui.components.control.ArdttButton
-import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.components.control.ArdttPrimaryButton
 import com.ardtt.app.ui.components.control.ArdttSettingBlock
 import com.ardtt.app.ui.components.control.ArdttSwitchRow
@@ -95,6 +95,7 @@ import com.ardtt.app.ui.components.feedback.ArdttInlineFactRow
 import com.ardtt.app.ui.components.layout.ArdttFeedScaffold
 import com.ardtt.app.ui.components.layout.ArdttTabHeader
 import com.ardtt.app.ui.components.layout.rememberPullRefresh
+import com.ardtt.app.ui.components.surface.ArdttMessageCard
 import com.ardtt.app.ui.components.surface.ArdttSectionCard
 import com.ardtt.app.ui.components.surface.ArdttSectionCardDefaults
 import com.ardtt.app.ui.performConnectionUiAction
@@ -340,15 +341,6 @@ fun TunnelScreen(
         refreshPublicIps(force = true)
     }
 
-    val buttonColor by animateColorAsState(
-        targetValue = when {
-            sessionUp -> MaterialTheme.colorScheme.error
-            else -> MaterialTheme.colorScheme.primary
-        },
-        animationSpec = tween(400),
-        label = "btn_color",
-    )
-
     val pull = rememberPullRefresh {
         refreshPublicIps(force = true)
         val skipProbe = connecting || connected || pausedTrusted || disconnecting
@@ -382,7 +374,7 @@ fun TunnelScreen(
                 enabled = tunnelStickyCtaEnabled(ui.state, ui.connectEnabled),
                 containerColor = when {
                     tunnelStickyCtaIsDestructive(ui.state) -> MaterialTheme.colorScheme.error
-                    else -> buttonColor
+                    else -> MaterialTheme.colorScheme.primary
                 },
                 icon = when {
                     ui.state == ConnState.Connecting -> Icons.Default.Stop
@@ -621,60 +613,27 @@ private fun TunnelConnectionHintBanner(
     quickSettingsHidden: Boolean,
     onDismiss: () -> Unit,
 ) {
-    ArdttSectionCard(
-        contentPadding = PaddingValues(horizontal = ArdttSpacing.MediumPlus, vertical = ArdttSpacing.Medium),
-        verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
-        shape = ArdttShapes.Control,
-        shadowElevation = ArdttElevation.None,
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.Info,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier
-                    .padding(end = ArdttSpacing.Small)
-                    .size(ArdttSize.IconCompact),
-            )
-            Text(
-                "Информация о подключении",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.weight(1f),
-            )
-            if (!missingCallHashHint) {
-                ArdttButton(
-                    onClick = onDismiss,
-                    variant = ArdttButtonVariant.Icon,
-                    icon = Icons.Outlined.Close,
-                    contentDescription = "Закрыть информационное сообщение",
-                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        Text(
-            when {
-                missingCallHashHint ->
-                    "Необходимо добавить код звонка для режима «Обход»: нажмите «Обход» в параметрах подключения " +
-                        "или откройте «Настройки» → «Метод обхода». До сохранения кода это сообщение остаётся закреплённым."
-                vpnLocked ->
-                    "Во время активного соединения параметры заблокированы. " +
-                        "Разблокировка доступна в «Настройках» → «Подключение»."
-                sessionSwitchingEnabled ->
-                    "Маршрут можно переключать без разрыва текущего соединения: «Прямое» и «Обход» применяются сразу."
-                quickSettingsHidden ->
-                    "Быстрые параметры скрыты. Для отображения откройте «Настройки» и отключите пункт «Скрыть быстрые настройки»."
-                else ->
-                    "Здесь вы управляете профилем, маршрутом, исходящим адресом и доверенной Wi‑Fi. " +
-                        "Код звонка для обхода настраивается на вкладке «Настройки»."
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
+    ArdttMessageCard(
+        title = "Информация о подключении",
+        body = when {
+            missingCallHashHint ->
+                "Необходимо добавить код звонка для режима «Обход»: нажмите «Обход» в параметрах подключения " +
+                    "или откройте «Настройки» → «Метод обхода». До сохранения кода это сообщение остаётся закреплённым."
+            vpnLocked ->
+                "Во время активного соединения параметры заблокированы. " +
+                    "Разблокировка доступна в «Настройках» → «Подключение»."
+            sessionSwitchingEnabled ->
+                "Маршрут можно переключать без разрыва текущего соединения: «Прямое» и «Обход» применяются сразу."
+            quickSettingsHidden ->
+                "Быстрые параметры скрыты. Для отображения откройте «Настройки» и отключите пункт «Скрыть быстрые настройки»."
+            else ->
+                "Здесь вы управляете профилем, маршрутом, исходящим адресом и доверенной Wi‑Fi. " +
+                    "Код звонка для обхода настраивается на вкладке «Настройки»."
+        },
+        icon = Icons.Outlined.Info,
+        onDismiss = if (missingCallHashHint) null else onDismiss,
+        dismissDescription = "Закрыть информационное сообщение",
+    )
 }
 
 @Composable
@@ -865,21 +824,34 @@ private fun SignalMetric(
         UnderlaySignalQuality.Good,
         UnderlaySignalQuality.Excellent -> connectedStatusColor()
     }
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Tiny),
+    val underlined = signalMetricMark(emphasized) == SignalMetricMark.Underline
+    Column(
+        modifier = Modifier.width(IntrinsicSize.Max),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = contentDescription,
-            tint = color,
-            modifier = Modifier.size(ArdttSize.IconSmall),
-        )
-        Text(
-            text,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = if (emphasized) FontWeight.SemiBold else FontWeight.Normal,
-            color = color,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Tiny),
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = color,
+                modifier = Modifier.size(ArdttSize.IconSmall),
+            )
+            Text(
+                text,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = if (emphasized) FontWeight.SemiBold else FontWeight.Normal,
+                color = color,
+            )
+        }
+        Box(
+            modifier = Modifier
+                .padding(top = ArdttSpacing.Hairline)
+                .fillMaxWidth()
+                .height(ArdttSize.Stroke)
+                .background(if (underlined) color else Color.Transparent),
         )
     }
 }

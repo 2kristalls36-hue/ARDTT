@@ -173,4 +173,10 @@ class TunnelStatusCopyTest {
         assertEquals("Уровень сигнала", TunnelPanelCopy.SIGNAL_LABEL)
         assertEquals(StatusSignalPlacement.LabelStart, statusSignalPlacement())
     }
+
+    @Test
+    fun activeSignalLevelIsUnderlined() {
+        assertEquals(SignalMetricMark.Underline, signalMetricMark(emphasized = true))
+        assertEquals(SignalMetricMark.Plain, signalMetricMark(emphasized = false))
+    }
 }

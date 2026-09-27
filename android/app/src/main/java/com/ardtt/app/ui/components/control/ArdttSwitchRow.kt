@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import com.ardtt.app.ui.theme.ArdttAlpha
+import com.ardtt.app.ui.theme.ArdttLayout
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
 
@@ -59,7 +60,7 @@ fun ArdttSwitchRow(
             modifier = Modifier
                 .weight(1f)
                 .padding(end = ArdttSpacing.Medium),
-            verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Hairline),
+            verticalArrangement = Arrangement.spacedBy(ArdttLayout.StackedLabelSpacing),
         ) {
             Text(
                 title,
@@ -130,7 +131,7 @@ fun ArdttSettingBlock(
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(
-            if (compact) ArdttSpacing.TinyPlus else ArdttSpacing.Small,
+            if (compact) ArdttLayout.StackedLabelSpacing else ArdttSpacing.Small,
         ),
     ) {
         Text(

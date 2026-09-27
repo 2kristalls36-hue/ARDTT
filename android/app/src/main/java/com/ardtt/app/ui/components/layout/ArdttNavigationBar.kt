@@ -1,13 +1,12 @@
 package com.ardtt.app.ui.components.layout
 
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,7 +19,6 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -32,13 +30,17 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
@@ -49,16 +51,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import com.ardtt.app.ui.components.surface.ArdttFloatingShell
 import com.ardtt.app.ui.theme.ArdttElevation
+import com.ardtt.app.ui.theme.ArdttSurface
 import com.ardtt.app.ui.theme.ArdttMotion
 import com.ardtt.app.ui.theme.ArdttNavigationLabelStyle
 import com.ardtt.app.ui.theme.ArdttShapes
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
-import com.ardtt.app.ui.theme.selectedControlContainer
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.sin
 
 data class ArdttNavItem(
     val route: String,
@@ -73,10 +77,8 @@ internal object ArdttNavChrome {
 }
 
 private object NavBarDefaults {
-    val Easing = CubicBezierEasing(0.2f, 0.9f, 0.24f, 1f)
     val OuterPadding = ArdttSpacing.SmallPlus
     val TrackPadding = ArdttSpacing.Small
-    val IndicatorInset = ArdttSpacing.TinyPlus
 
     const val BoldEmphasis = 0.55f
     const val OpaqueEmphasis = 0.4f
@@ -118,23 +120,139 @@ internal fun navTabPaint(
 internal fun navTabPendingRoute(currentRoute: String, clickedRoute: String): String? =
     clickedRoute.takeIf { it != currentRoute }
 
-/** Floating pill bottom bar with a sliding selection indicator. */
+/** One-second icon motion. Every pose is back at rest when progress is 0 or 1. */
+internal enum class TabIconMotion {
+    KeyTurn,
+    ServerLights,
+    Lift,
+    Slide,
+    Pulse,
+    Heartbeat,
+    GearHalfTurn,
+}
+
+internal data class TabIconPose(
+    val rotationX: Float = 0f,
+    val rotationZ: Float = 0f,
+    val translationXFraction: Float = 0f,
+    val translationYFraction: Float = 0f,
+    val scale: Float = 1f,
+)
+
+/**
+ * Full roll around the horizontal axis. Halfway the key is upside down;
+ * at the end it is home again. Not a spin in the plane of the icon.
+ *
+ * Drawn as a vector scale, not a 3D layer: a small glyph rotated in X is
+ * clipped by a near camera and looks like dropped frames. The gear stays
+ * smooth because it is a flat spin.
+ */
+internal const val KeyTurnDegrees = 360f
+
+internal fun tabIconMotionFor(route: String): TabIconMotion = when (route) {
+    "tunnel" -> TabIconMotion.KeyTurn
+    "servers" -> TabIconMotion.ServerLights
+    "profiles" -> TabIconMotion.Lift
+    "exceptions" -> TabIconMotion.Slide
+    "network" -> TabIconMotion.Pulse
+    "diagnostics" -> TabIconMotion.Heartbeat
+    "settings" -> TabIconMotion.GearHalfTurn
+    else -> TabIconMotion.Pulse
+}
+
+/**
+ * Smooth 0→1→0 weight. Velocity is zero at the start, the midpoint, and the end,
+ * so a there-and-back motion does not kick.
+ */
+internal fun tabIconSettle(progress: Float): Float {
+    val t = progress.coerceIn(0f, 1f)
+    val wave = sin(Math.PI * t).toFloat()
+    return wave * wave
+}
+
+/** Two beats inside the same second, also at rest at the ends and the middle. */
+internal fun tabIconHeartbeat(progress: Float): Float {
+    val t = progress.coerceIn(0f, 1f)
+    val wave = sin(2.0 * Math.PI * t).toFloat()
+    return wave * wave
+}
+
+/** One-way smoothstep, 0→1. Velocity is zero at the start and the end. */
+internal fun tabIconTurn(progress: Float): Float {
+    val t = progress.coerceIn(0f, 1f)
+    return t * t * (3f - 2f * t)
+}
+
+/**
+ * Orthographic height of the key. 1 upright, 0 edge-on, −1 upside down.
+ * Same turn as [KeyTurnDegrees], sampled so neighbouring frames stay close.
+ */
+internal fun tabIconKeyScaleY(rotationX: Float): Float =
+    cos(rotationX * (PI.toFloat() / 180f))
+
+/**
+ * Both server lamps, same curve as the diagnostic heartbeat: two soft blinks,
+ * fully lit at the start, the middle, and the end.
+ */
+internal fun tabIconServerLightAlpha(progress: Float): Float =
+    1f - tabIconHeartbeat(progress)
+
+internal fun tabIconPose(motion: TabIconMotion, progress: Float): TabIconPose {
+    val settle = tabIconSettle(progress)
+    return when (motion) {
+        TabIconMotion.GearHalfTurn -> TabIconPose(rotationZ = 180f * settle)
+        TabIconMotion.KeyTurn -> TabIconPose(
+            rotationX = KeyTurnDegrees * tabIconTurn(progress),
+        )
+        TabIconMotion.ServerLights -> TabIconPose()
+        TabIconMotion.Lift -> TabIconPose(
+            translationYFraction = -0.16f * settle,
+            rotationZ = -8f * settle,
+        )
+        TabIconMotion.Slide -> TabIconPose(translationXFraction = 0.16f * settle)
+        TabIconMotion.Pulse -> TabIconPose(scale = 1f + 0.12f * settle)
+        TabIconMotion.Heartbeat -> TabIconPose(scale = 1f + 0.14f * tabIconHeartbeat(progress))
+    }
+}
+
+/**
+ * Vector flip around the horizontal axis. The glyph is redrawn under the
+ * scale, so the edge stays a smooth hairline instead of a torn texture.
+ */
+private fun Modifier.tunnelKeyFlip(rotationX: Float): Modifier = drawWithContent {
+    val pivot = center
+    val sy = tabIconKeyScaleY(rotationX)
+    withTransform({
+        scale(scaleX = 1f, scaleY = sy, pivot = pivot)
+    }) {
+        this@drawWithContent.drawContent()
+    }
+}
+
+internal fun tabIconPoseAtRest(pose: TabIconPose): Boolean {
+    fun wrappedRest(degrees: Float): Boolean {
+        val wrapped = abs(degrees % 360f)
+        return wrapped < 0.05f || abs(wrapped - 360f) < 0.05f
+    }
+    return wrappedRest(pose.rotationX) &&
+        wrappedRest(pose.rotationZ) &&
+        abs(pose.translationXFraction) < 0.01f &&
+        abs(pose.translationYFraction) < 0.01f &&
+        abs(pose.scale - 1f) < 0.01f
+}
+
+/** Floating pill bottom bar. The current tab is the icon and label, with no fill behind it. */
 @Composable
 fun ArdttNavigationBar(
     items: List<ArdttNavItem>,
     selectedRoute: String,
     onSelect: (String) -> Unit,
-    dragTargetIndex: Int = -1,
-    dragProgress: Float = 0f,
     modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
+    val shell = ArdttFloatingShell.shellColor()
     val selectedColor = colors.primary
     val unselectedColor = colors.onSurfaceVariant
-    val indicatorColor = selectedControlContainer()
-
-    val indicatorIndex = remember { Animatable(0f) }
-    val selectedVisualIndex = items.indexOfFirst { it.route == selectedRoute }.coerceAtLeast(0)
     var pendingRoute by remember { mutableStateOf<String?>(null) }
     val selectTab = rememberUpdatedState(onSelect)
 
@@ -142,27 +260,14 @@ fun ArdttNavigationBar(
         pendingRoute = null
     }
 
-    LaunchedEffect(selectedVisualIndex, items) {
-        if (dragTargetIndex !in items.indices) {
-            indicatorIndex.animateTo(
-                targetValue = selectedVisualIndex.toFloat(),
-                animationSpec = tween(
-                    durationMillis = ArdttMotion.Indicator,
-                    easing = NavBarDefaults.Easing,
-                ),
-            )
-        }
-    }
-    LaunchedEffect(selectedVisualIndex, dragTargetIndex, dragProgress, items) {
-        if (dragTargetIndex in items.indices) {
-            val target = selectedVisualIndex.toFloat() +
-                (dragTargetIndex - selectedVisualIndex) * dragProgress
-            indicatorIndex.snapTo(target)
-        }
-    }
-    val dragVisualIndex = indicatorIndex.value
-
-    BoxWithConstraints(
+    Surface(
+        shape = ArdttShapes.Section,
+        color = shell,
+        contentColor = ArdttSurface.contentColorOn(shell),
+        border = ArdttFloatingShell.shellBorder(),
+        tonalElevation = ArdttElevation.None,
+        // A shadow graphics layer paints this translucent shell opaque for a frame.
+        shadowElevation = ArdttElevation.None,
         modifier = modifier
             .fillMaxWidth()
             .windowInsetsPadding(WindowInsets.navigationBars)
@@ -171,58 +276,34 @@ fun ArdttNavigationBar(
                 vertical = NavBarDefaults.TrackPadding,
             ),
     ) {
-        val itemWidth =
-            (maxWidth - NavBarDefaults.TrackPadding * 2) / items.size.coerceAtLeast(1)
-        val indicatorOffset = NavBarDefaults.TrackPadding + itemWidth * dragVisualIndex
-
-        Surface(
-            shape = ArdttShapes.Section,
-            color = ArdttFloatingShell.shellColor(),
-            border = ArdttFloatingShell.shellBorder(),
-            tonalElevation = ArdttElevation.None,
-            shadowElevation = ArdttFloatingShell.shadowElevation,
-            modifier = Modifier.fillMaxWidth(),
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(ArdttSize.NavTrack),
         ) {
-            Box(
+            Row(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(ArdttSize.NavTrack),
+                    .fillMaxSize()
+                    .selectableGroup()
+                    .padding(
+                        horizontal = NavBarDefaults.TrackPadding,
+                        vertical = ArdttSpacing.Tiny,
+                    ),
             ) {
-                Surface(
-                    shape = ArdttShapes.Control,
-                    color = indicatorColor,
-                    modifier = Modifier
-                        .offset { IntOffset(x = indicatorOffset.roundToPx(), y = 0) }
-                        .padding(vertical = NavBarDefaults.IndicatorInset)
-                        .width(itemWidth)
-                        .fillMaxHeight(),
-                ) {}
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .selectableGroup()
-                        .padding(
-                            horizontal = NavBarDefaults.TrackPadding,
-                            vertical = ArdttSpacing.Tiny,
-                        ),
-                ) {
-                    items.forEachIndexed { index, item ->
-                        val emphasis = (1f - abs(index - dragVisualIndex)).coerceIn(0f, 1f)
-                        NavBarTab(
-                            item = item,
-                            selected = item.route == selectedRoute,
-                            pending = item.route == pendingRoute,
-                            emphasis = emphasis,
-                            selectedColor = selectedColor,
-                            unselectedColor = unselectedColor,
-                            onSelect = {
-                                navTabPendingRoute(selectedRoute, item.route)?.let { pendingRoute = it }
-                                selectTab.value(item.route)
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
+                items.forEach { item ->
+                    NavBarTab(
+                        item = item,
+                        selected = item.route == selectedRoute,
+                        pending = item.route == pendingRoute,
+                        emphasis = 0f,
+                        selectedColor = selectedColor,
+                        unselectedColor = unselectedColor,
+                        onSelect = {
+                            navTabPendingRoute(selectedRoute, item.route)?.let { pendingRoute = it }
+                            selectTab.value(item.route)
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
                 }
             }
         }
@@ -242,6 +323,21 @@ private fun NavBarTab(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
+    val iconMotion = tabIconMotionFor(item.route)
+    val iconProgress = remember { Animatable(0f) }
+    var iconPlay by remember { mutableIntStateOf(0) }
+    LaunchedEffect(iconPlay) {
+        if (iconPlay == 0) return@LaunchedEffect
+        iconProgress.snapTo(0f)
+        iconProgress.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(
+                durationMillis = ArdttMotion.TabIcon,
+                easing = LinearEasing,
+            ),
+        )
+    }
+    val iconPose = tabIconPose(iconMotion, iconProgress.value)
     val paint = navTabPaint(
         selected = selected,
         pending = pending,
@@ -258,19 +354,41 @@ private fun NavBarTab(
                 interactionSource = interactionSource,
                 indication = null,
                 role = Role.Tab,
-                onClick = onSelect,
+                onClick = {
+                    if (!iconProgress.isRunning) iconPlay++
+                    onSelect()
+                },
             )
             .semantics { this.selected = selected },
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(contentAlignment = Alignment.TopEnd) {
-            Icon(
-                imageVector = item.icon,
-                contentDescription = null,
-                modifier = Modifier.size(ArdttSize.Icon),
-                tint = paint.color,
-            )
+            val glyph = Modifier.size(ArdttSize.Icon)
+            if (iconMotion == TabIconMotion.ServerLights) {
+                ArdttServersTabIcon(
+                    lightAlpha = tabIconServerLightAlpha(iconProgress.value),
+                    tint = paint.color,
+                    modifier = glyph,
+                )
+            } else {
+                Icon(
+                    imageVector = item.icon,
+                    contentDescription = null,
+                    modifier = if (iconMotion == TabIconMotion.KeyTurn) {
+                        glyph.tunnelKeyFlip(iconPose.rotationX)
+                    } else {
+                        glyph.graphicsLayer {
+                            rotationZ = iconPose.rotationZ
+                            translationX = iconPose.translationXFraction * size.width
+                            translationY = iconPose.translationYFraction * size.height
+                            scaleX = iconPose.scale
+                            scaleY = iconPose.scale
+                        }
+                    },
+                    tint = paint.color,
+                )
+            }
             if (item.badgeCount > 0) {
                 Badge(
                     modifier = Modifier.offset(

@@ -5,7 +5,9 @@ import com.ardtt.app.ui.components.control.ArdttButtonSize
 import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.components.control.ardttButtonMinHeight
 import com.ardtt.app.ui.components.control.ardttCompactIconUsesExactMinSize
+import com.ardtt.app.ui.theme.ArdttLayout
 import com.ardtt.app.ui.theme.ArdttSize
+import com.ardtt.app.ui.theme.ArdttSpacing
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -79,6 +81,8 @@ class LogsCatalogTest {
             listOf("Копировать", "Расшарить", "Удалить"),
             logsHeaderActionOrder(),
         )
+        assertEquals(ArdttLayout.ControlSpacing, logsHeaderActionSpacing())
+        assertTrue(logsHeaderActionSpacing() > ArdttSpacing.Hairline)
     }
 
     @Test
@@ -112,6 +116,11 @@ class LogsCatalogTest {
             ardttButtonMinHeight(ArdttButtonVariant.Icon, ArdttButtonSize.Compact) <
                 ArdttSize.TouchTarget,
         )
+    }
+
+    @Test
+    fun journalPageTitleStaysWhileTheFeedScrolls() {
+        assertTrue(logsPageTitleStaysWhileScrolling())
     }
 
     @Test

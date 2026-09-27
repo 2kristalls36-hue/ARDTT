@@ -23,9 +23,9 @@ class ArdttNavSizeTest {
     }
 
     @Test
-    fun headerGutterIsSixteenDpOnce() {
-        assertEquals(16, ArdttHeaderDefaults.HorizontalPadding.value.toInt())
-        assertEquals(ArdttSpacing.Large, ArdttHeaderDefaults.HorizontalPadding)
+    fun headerGutterMatchesScreenPadding() {
+        assertEquals(10, ArdttHeaderDefaults.HorizontalPadding.value.toInt())
+        assertEquals(ArdttLayout.ScreenPadding, ArdttHeaderDefaults.HorizontalPadding)
     }
 
     @Test

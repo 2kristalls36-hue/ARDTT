@@ -19,6 +19,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import com.ardtt.app.ui.components.control.ArdttButton
 import com.ardtt.app.ui.components.control.ArdttButtonVariant
+import com.ardtt.app.ui.theme.ArdttLayout
 import com.ardtt.app.ui.theme.ArdttSize
 import com.ardtt.app.ui.theme.ArdttSpacing
 import com.ardtt.app.ui.theme.ArdttPageTitleStyle
@@ -30,9 +31,9 @@ import com.ardtt.app.ui.theme.illustratedBackdropActive
 /** Single anchor for every bottom-tab title row in a scrolling feed. */
 object ArdttHeaderDefaults {
     val TitleRowHeight: Dp = ArdttSize.TitleRow
-    val TopPaddingAfterStatusBar: Dp = ArdttSpacing.Small
-    val HorizontalPadding: Dp = ArdttSpacing.Large
-    val BottomPaddingBelowTitle: Dp = ArdttSpacing.Medium
+    val TopPaddingAfterStatusBar: Dp = ArdttSpacing.Tiny
+    val HorizontalPadding: Dp = ArdttLayout.ScreenPadding
+    val BottomPaddingBelowTitle: Dp = ArdttSpacing.TinyPlus
 }
 
 /**

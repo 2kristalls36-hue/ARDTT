@@ -1,5 +1,6 @@
 package com.ardtt.app.core
 
+import com.ardtt.app.R
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -75,6 +76,19 @@ class VpnNotificationStabilityTest {
     fun channelIdsAreStable() {
         assertEquals("ardtt_vpn_shade_v6", VpnNotificationChannels.id(showInShade = true))
         assertEquals("ardtt_vpn_min_v6", VpnNotificationChannels.id(showInShade = false))
+    }
+
+    @Test
+    fun shadePlateClicksAreOnContentViewsNotTheRemoteViewsRoot() {
+        val ids = shadeOpenClickViewIds().toSet()
+        assertTrue(ids.contains(R.id.notif_plate))
+        assertTrue(ids.contains(R.id.notif_title))
+        assertTrue(ids.contains(R.id.notif_status))
+        assertTrue(ids.contains(R.id.notif_stats_row))
+        assertTrue(ids.contains(R.id.notif_ip))
+        assertTrue(ids.contains(R.id.notif_rates))
+        assertFalse(ids.contains(R.id.notif_root))
+        assertEquals(shadeOpenClickViewIds().size, ids.size)
     }
 
     @Test

@@ -44,6 +44,31 @@ internal fun clientEnableAction(deactivated: Boolean) = ClientEnableAction(
 internal fun clientEnableActionLabel(deactivated: Boolean): String =
     clientEnableAction(deactivated).label
 
+/**
+ * A client-list snapshot that started before «Выключить» / «Включить»,
+ * or that finishes while that request is still in flight, must not paint
+ * over the row the toggle already wrote. [currentEpoch] moves when the
+ * toggle starts and again when it finishes.
+ */
+internal fun clientsListApplyAllowed(
+    startedEpoch: Int,
+    currentEpoch: Int,
+    mutationInFlight: Boolean = false,
+): Boolean = startedEpoch == currentEpoch && !mutationInFlight
+
+/** Null when the server applied the requested on/off state. */
+internal fun clientDeactivateMismatchMessage(
+    requestedDeactivated: Boolean,
+    appliedDeactivated: Boolean,
+): String? {
+    if (requestedDeactivated == appliedDeactivated) return null
+    return if (requestedDeactivated) {
+        "Сервер не отключил пользователя"
+    } else {
+        "Сервер не включил пользователя"
+    }
+}
+
 /** Stroke for Limit / enable so the default action never drops the outline. */
 internal fun clientActionButtonStroke(
     accent: Color?,
@@ -83,6 +108,43 @@ internal fun userHasDevice(user: ProvisionAdminApi.UserSummary, deviceId: String
 
 internal fun addToPhoneBindMessage(bound: Boolean): String =
     if (bound) "Добавлен в профили" else "Профиль добавлен, устройство не привязалось"
+
+internal enum class TrafficUsageTone {
+    None,
+    Ok,
+    Warning,
+    Full,
+}
+
+internal const val TRAFFIC_USAGE_WARNING = 0.55f
+internal const val TRAFFIC_USAGE_FULL = 0.85f
+
+/** Share of a GB limit already spent. No limit stays at an empty track. */
+internal fun trafficUsageProgress(usedBytes: Long, limitBytes: Long): Float {
+    if (limitBytes <= 0L) return 0f
+    return (usedBytes.toFloat() / limitBytes.toFloat()).coerceIn(0f, 1f)
+}
+
+internal fun trafficUsageTone(usedBytes: Long, limitBytes: Long): TrafficUsageTone {
+    if (limitBytes <= 0L) return TrafficUsageTone.None
+    val progress = trafficUsageProgress(usedBytes, limitBytes)
+    return when {
+        progress >= TRAFFIC_USAGE_FULL -> TrafficUsageTone.Full
+        progress >= TRAFFIC_USAGE_WARNING -> TrafficUsageTone.Warning
+        else -> TrafficUsageTone.Ok
+    }
+}
+
+internal fun trafficUsageColor(
+    tone: TrafficUsageTone,
+    connected: Color,
+    warning: Color,
+    error: Color,
+): Color = when (tone) {
+    TrafficUsageTone.Full -> error
+    TrafficUsageTone.Warning -> warning
+    TrafficUsageTone.None, TrafficUsageTone.Ok -> connected
+}
 
 internal fun clientTrafficLabel(user: ProvisionAdminApi.UserSummary): String {
     val used = formatClientBytes(user.usedBytes)

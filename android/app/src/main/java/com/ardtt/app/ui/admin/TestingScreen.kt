@@ -451,7 +451,6 @@ fun TestingScreen(
                 ArdttTabHeader(
                     // Same word as the Settings link that leads here.
                     title = AppDestination.Testing.label,
-                    subtitle = "${BuildConfig.VERSION_NAME} · полная телеметрия и отправка на сервер",
                     onBack = onBack,
                 )
             },

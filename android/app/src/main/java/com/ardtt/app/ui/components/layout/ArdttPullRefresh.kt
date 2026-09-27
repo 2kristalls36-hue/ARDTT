@@ -62,13 +62,15 @@ fun ArdttPullRefresh(
     refreshing: Boolean,
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
+    /** False when the feed is only as tall as its cards and the parent scrolls. */
+    expand: Boolean = true,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val state = rememberPullToRefreshState()
     PullToRefreshBox(
         isRefreshing = refreshing,
         onRefresh = onRefresh,
-        modifier = modifier.fillMaxSize(),
+        modifier = if (expand) modifier.fillMaxSize() else modifier,
         state = state,
         indicator = {
             // Fixed circular shell while refreshing: the default indicator is
