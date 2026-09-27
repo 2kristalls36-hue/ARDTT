@@ -194,6 +194,9 @@ preflight_tun() {
 }
 
 preflight_space() {
+  # Before the disk budget: drop our old images so a small VPS is not blocked
+  # by tags left from earlier deploys. Current and previous stay for rollback.
+  ardtt_gc_owned_images || true
   preflight_space_budget
   local ram
   ram="$(mem_avail_mb)"
@@ -749,6 +752,7 @@ do_install() {
   write_instance
   clear_pending_instance
   ARDTT_ALLOW_RELEASE_GC=1 ardtt_gc_releases "$release"
+  ardtt_gc_owned_images || true
   ardtt_gc_logs
   if [ "$ROLE" = "entry" ] && [ "$CASCADE_ENABLED" = "1" ]; then
     prog 0.92 "Передача ключа каскада на выход"
