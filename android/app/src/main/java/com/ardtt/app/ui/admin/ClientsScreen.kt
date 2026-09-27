@@ -138,6 +138,7 @@ private fun ClientsScreen(
     var renameDraft by remember { mutableStateOf("") }
     var renaming by remember { mutableStateOf(false) }
     var busyUser by remember { mutableStateOf<String?>(null) }
+    var usersEpoch by remember { mutableIntStateOf(0) }
     var unbindCandidate by remember { mutableStateOf<Pair<String, String>?>(null) }
     var editUser by remember { mutableStateOf<ProvisionAdminApi.UserSummary?>(null) }
     var editMaxDevices by remember { mutableStateOf("1") }
@@ -164,24 +165,35 @@ private fun ClientsScreen(
         )
     }
 
+    fun applyListedUsers(
+        result: Result<List<ProvisionAdminApi.UserSummary>>,
+        startedEpoch: Int,
+    ) {
+        if (!clientsListApplyAllowed(startedEpoch, usersEpoch, busyUser != null)) return
+        applyUsersResult(result)
+    }
+
     fun refresh() {
         loading = true
         error = null
+        val started = usersEpoch
         scope.launch {
-            applyUsersResult(ProvisionAdminApi.listUsers(base))
+            applyListedUsers(ProvisionAdminApi.listUsers(base), started)
             loading = false
         }
     }
 
     fun refreshQuiet() {
+        val started = usersEpoch
         scope.launch {
-            applyUsersResult(ProvisionAdminApi.listUsers(base))
+            applyListedUsers(ProvisionAdminApi.listUsers(base), started)
         }
     }
 
     val pull = rememberPullRefresh {
         error = null
-        applyUsersResult(ProvisionAdminApi.listUsers(base))
+        val started = usersEpoch
+        applyListedUsers(ProvisionAdminApi.listUsers(base), started)
     }
 
     fun replaceUser(previousName: String, updated: ProvisionAdminApi.UserSummary) {
@@ -212,8 +224,11 @@ private fun ClientsScreen(
                 appVersionCode = BuildConfig.VERSION_CODE,
             )
             presence.getOrNull()?.let { replaceUser(toImport.name, it) }
+            val listedEpoch = usersEpoch
             val listed = ProvisionAdminApi.listUsers(base)
-            if (listed.isSuccess) applyUsersResult(listed)
+            if (listed.isSuccess && clientsListApplyAllowed(listedEpoch, usersEpoch)) {
+                applyUsersResult(listed)
+            }
             busyUser = null
             val latest = listed.getOrNull()?.find { it.name == toImport.name }
                 ?: presence.getOrNull()
@@ -255,7 +270,8 @@ private fun ClientsScreen(
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
             while (true) {
                 delay(CLIENTS_POLL_MS)
-                applyUsersResult(ProvisionAdminApi.listUsers(base))
+                val started = usersEpoch
+                applyListedUsers(ProvisionAdminApi.listUsers(base), started)
             }
         }
     }
@@ -338,17 +354,32 @@ private fun ClientsScreen(
                                     },
                                     onDelete = { deleteUser = user },
                                     onSetDeactivated = { deactivated ->
-                                        busyUser = user.name
+                                        val previous = user
+                                        usersEpoch++
+                                        busyUser = previous.name
+                                        applyUser(previous.copy(deactivated = deactivated))
                                         scope.launch {
                                             val result = ProvisionAdminApi.updateUser(
                                                 base,
-                                                user.name,
+                                                previous.name,
                                                 deactivated = deactivated,
                                             )
-                                            busyUser = null
                                             result.fold(
-                                                onSuccess = { applyUser(it) },
-                                                onFailure = { toast(it.message ?: "Ошибка") },
+                                                onSuccess = { updated ->
+                                                    usersEpoch++
+                                                    applyUser(updated)
+                                                    busyUser = null
+                                                    clientDeactivateMismatchMessage(
+                                                        requestedDeactivated = deactivated,
+                                                        appliedDeactivated = updated.deactivated,
+                                                    )?.let { toast(it) }
+                                                },
+                                                onFailure = {
+                                                    usersEpoch++
+                                                    applyUser(previous)
+                                                    busyUser = null
+                                                    toast(it.message ?: "Ошибка")
+                                                },
                                             )
                                         }
                                     },

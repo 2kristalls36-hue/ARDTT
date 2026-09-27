@@ -50,6 +50,31 @@ class ClientPresentationTest {
     }
 
     @Test
+    fun listRefreshDoesNotOverwriteATurnOff() {
+        assertFalse(clientsListApplyAllowed(startedEpoch = 0, currentEpoch = 1))
+        assertFalse(
+            clientsListApplyAllowed(
+                startedEpoch = 1,
+                currentEpoch = 1,
+                mutationInFlight = true,
+            ),
+        )
+        assertTrue(clientsListApplyAllowed(startedEpoch = 2, currentEpoch = 2))
+        assertEquals(
+            "Сервер не отключил пользователя",
+            clientDeactivateMismatchMessage(requestedDeactivated = true, appliedDeactivated = false),
+        )
+        assertEquals(
+            "Сервер не включил пользователя",
+            clientDeactivateMismatchMessage(requestedDeactivated = false, appliedDeactivated = true),
+        )
+        assertEquals(
+            null,
+            clientDeactivateMismatchMessage(requestedDeactivated = true, appliedDeactivated = true),
+        )
+    }
+
+    @Test
     fun actionButtonKeepsOutlineWhenAccentIsMissing() {
         val outline = Color(0xFFB2C2D7)
         val limit = clientActionButtonStroke(accent = null, outline = outline, busy = false)
