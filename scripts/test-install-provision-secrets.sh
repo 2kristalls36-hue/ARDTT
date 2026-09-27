@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Token files are 0600, not rotated, host bind defaults to 127.0.0.1,
 # ARDTT_DONE prints admin_token only on first create.
+# An upgrade keeps a publish that was already reachable from the network.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck disable=SC1091
+. "$ROOT/server/install-lib/common.sh"
 # shellcheck disable=SC1091
 . "$ROOT/server/install-lib/secrets.sh"
 TMP="$(mktemp -d)"
@@ -42,6 +45,8 @@ grep -q 'ARDTT_PROVISION_BIND:-127.0.0.1' "$ROOT/server/docker-compose.exit.yml"
   || err "exit compose must bind provision to 127.0.0.1 by default"
 grep -q 'host_publish_bind' "$ROOT/server/install.sh" \
   || err "install.sh must set host publish bind"
+grep -q 'inherit_provision_publish' "$ROOT/server/install.sh" \
+  || err "install.sh must inherit an already public provision publish"
 grep -q 'ensure_install_secrets' "$ROOT/server/install.sh" \
   || err "install.sh must generate secrets"
 grep -q 'INSTALL_LIB_DIR/secrets.sh' "$ROOT/server/install.sh" \
@@ -64,6 +69,56 @@ fi
 if grep -q 'ARDTT_ADMIN_TOKEN=\$ADMIN_TOKEN' "$ROOT/server/install.sh"; then
   err "admin token must not be interpolated into .env"
 fi
+
+# Upgrade must not hide a port the phone already probes.
+ARDTT_CONTAINER_NAME="ardtt-inherit-missing"
+unset ARDTT_PROVISION_PUBLIC || true
+
+INSTALL_DIR="$TMP/fresh"
+inherit_provision_publish
+[ "${ARDTT_PROVISION_PUBLIC:-}" = "0" ] || err "fresh install must stay private (got ${ARDTT_PROVISION_PUBLIC:-})"
+[ "$(host_publish_bind)" = "127.0.0.1" ] || err "fresh bind"
+
+unset ARDTT_PROVISION_PUBLIC
+INSTALL_DIR="$TMP/listen-only"
+mkdir -p "$INSTALL_DIR"
+printf 'ARDTT_PROVISION_LISTEN=0.0.0.0:9100\n' >"$INSTALL_DIR/.env"
+inherit_provision_publish
+[ "${ARDTT_PROVISION_PUBLIC:-}" = "0" ] || err "in-container listen must not imply a public host bind"
+
+unset ARDTT_PROVISION_PUBLIC
+INSTALL_DIR="$TMP/recorded-public"
+mkdir -p "$INSTALL_DIR"
+printf 'ARDTT_PROVISION_BIND=0.0.0.0\nARDTT_PROVISION_PUBLIC=1\n' >"$INSTALL_DIR/.env"
+inherit_provision_publish
+[ "${ARDTT_PROVISION_PUBLIC:-}" = "1" ] || err "recorded 0.0.0.0 bind must stay public"
+[ "$(host_publish_bind)" = "0.0.0.0" ] || err "recorded public bind"
+
+unset ARDTT_PROVISION_PUBLIC
+INSTALL_DIR="$TMP/legacy-upgrade"
+mkdir -p "$INSTALL_DIR/current" "$INSTALL_DIR/previous"
+printf 'ARDTT_PROVISION_BIND=127.0.0.1\nARDTT_PROVISION_PUBLIC=0\nARDTT_PROVISION_LISTEN=0.0.0.0:9100\n' >"$INSTALL_DIR/.env"
+printf '%s\n' '- "${ARDTT_PROVISION_BIND:-127.0.0.1}:${ARDTT_PROVISION_PORT:-9100}:9100/tcp"' \
+  >"$INSTALL_DIR/current/docker-compose.yml"
+printf '%s\n' '- "${ARDTT_PROVISION_PORT:-9100}:9100/tcp"' \
+  >"$INSTALL_DIR/previous/docker-compose.yml"
+inherit_provision_publish
+[ "${ARDTT_PROVISION_PUBLIC:-}" = "1" ] || err "legacy compose publish must stay public across upgrade"
+
+ARDTT_PROVISION_PUBLIC=0
+inherit_provision_publish
+[ "${ARDTT_PROVISION_PUBLIC:-}" = "0" ] || err "explicit ARDTT_PROVISION_PUBLIC=0 must win"
+[ "$(host_publish_bind)" = "127.0.0.1" ] || err "explicit private bind"
+unset ARDTT_PROVISION_PUBLIC
+
+INSTALL_DIR="$TMP/locked"
+mkdir -p "$INSTALL_DIR/current" "$INSTALL_DIR/previous"
+printf 'ARDTT_PROVISION_BIND=127.0.0.1\nARDTT_PROVISION_PUBLIC=0\n' >"$INSTALL_DIR/.env"
+printf '%s\n' '- "${ARDTT_PROVISION_BIND:-127.0.0.1}:${ARDTT_PROVISION_PORT:-9100}:9100/tcp"' \
+  >"$INSTALL_DIR/current/docker-compose.yml"
+cp "$INSTALL_DIR/current/docker-compose.yml" "$INSTALL_DIR/previous/docker-compose.yml"
+inherit_provision_publish
+[ "${ARDTT_PROVISION_PUBLIC:-}" = "0" ] || err "localhost install with new compose must stay private"
 
 [ "$fail" -eq 0 ] || { echo "provision secrets tests failed" >&2; exit 1; }
 echo "OK install secrets and localhost bind"
