@@ -185,6 +185,7 @@ fun DeployScreen(
         osId = osId.trim(),
         osVersion = osVersion.trim(),
         lastDeployedAtMs = deployedAt,
+        provisionAdminToken = initial?.provisionAdminToken.orEmpty(),
     )
 
     val context = LocalContext.current

@@ -10,7 +10,7 @@ class TelemetryRedactorTest {
         val raw = """
             Authorization: Bearer secret-token
             Cookie: session=secret-cookie
-            {"privateKey":"private-value","password":"password-value"}
+            {"privateKey":"private-value","password":"password-value","provisionAdminToken":"admin-hex-token"}
             https://example.test/?access_token=url-secret&ok=1
             -----BEGIN PRIVATE KEY-----
             pem-secret
@@ -24,6 +24,7 @@ class TelemetryRedactorTest {
             "secret-cookie",
             "private-value",
             "password-value",
+            "admin-hex-token",
             "url-secret",
             "pem-secret",
         ).forEach { secret -> assertFalse(result.contains(secret)) }

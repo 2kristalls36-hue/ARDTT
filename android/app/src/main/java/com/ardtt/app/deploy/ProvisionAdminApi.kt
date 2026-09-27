@@ -150,13 +150,14 @@ object ProvisionAdminApi {
 
     internal fun liveCascadeHost(info: HealthInfo): String? = liveCascadeInfo(info).host
 
-    suspend fun listUsers(baseUrl: String): Result<List<UserSummary>> = withContext(Dispatchers.IO) {
+    suspend fun listUsers(baseUrl: String, adminToken: String = ""): Result<List<UserSummary>> = withContext(Dispatchers.IO) {
         runCatching {
             val url = URL("${baseUrl.trimEnd('/')}/v1/users")
             val conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
                 connectTimeout = 5_000
                 readTimeout = 8_000
+                applyAdminToken(adminToken)
             }
             val code = conn.responseCode
             val body = runCatching {
@@ -174,6 +175,7 @@ object ProvisionAdminApi {
         name: String,
         days: Int = 0,
         maxDevices: Int = 1,
+        adminToken: String = "",
     ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             val url = URL("${baseUrl.trimEnd('/')}/v1/users")
@@ -188,6 +190,7 @@ object ProvisionAdminApi {
                 readTimeout = 15_000
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json")
+                applyAdminToken(adminToken)
             }
             conn.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
             val code = conn.responseCode
@@ -210,6 +213,7 @@ object ProvisionAdminApi {
         clearDevices: Boolean = false,
         trafficLimitGb: Int? = null,
         newName: String? = null,
+        adminToken: String = "",
     ): Result<UserSummary> = withContext(Dispatchers.IO) {
         runCatching {
             val url = URL("${baseUrl.trimEnd('/')}/v1/users/update")
@@ -220,7 +224,7 @@ object ProvisionAdminApi {
             if (clearDevices) payload.put("clearDevices", true)
             trafficLimitGb?.let { payload.put("trafficLimitGb", it.coerceAtLeast(0)) }
             newName?.trim()?.takeIf { it.isNotEmpty() }?.let { payload.put("newName", it) }
-            postJsonUser(url, payload)
+            postJsonUser(url, payload, adminToken)
         }
     }
 
@@ -228,19 +232,21 @@ object ProvisionAdminApi {
         baseUrl: String,
         name: String,
         deviceId: String,
+        adminToken: String = "",
     ): Result<UserSummary> = withContext(Dispatchers.IO) {
         runCatching {
             val url = URL("${baseUrl.trimEnd('/')}/v1/users/unbind-device")
             val payload = JSONObject()
                 .put("name", name.trim())
                 .put("deviceId", deviceId.trim())
-            postJsonUser(url, payload)
+            postJsonUser(url, payload, adminToken)
         }
     }
 
     suspend fun deleteUser(
         baseUrl: String,
         name: String,
+        adminToken: String = "",
     ): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             val url = URL("${baseUrl.trimEnd('/')}/v1/users/delete")
@@ -251,6 +257,7 @@ object ProvisionAdminApi {
                 readTimeout = 12_000
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json")
+                applyAdminToken(adminToken)
             }
             conn.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
             val code = conn.responseCode
@@ -272,6 +279,7 @@ object ProvisionAdminApi {
         deviceModel: String = "",
         appVersion: String = "",
         appVersionCode: Int = 0,
+        adminToken: String = "",
     ): Result<UserSummary?> = withContext(Dispatchers.IO) {
         runCatching {
             val url = URL("${baseUrl.trimEnd('/')}/v1/presence")
@@ -289,6 +297,7 @@ object ProvisionAdminApi {
                 readTimeout = 6_000
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json")
+                applyAdminToken(adminToken)
             }
             conn.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
             val code = conn.responseCode
@@ -303,7 +312,11 @@ object ProvisionAdminApi {
         }
     }
 
-    suspend fun profileJson(baseUrl: String, name: String): Result<String> = withContext(Dispatchers.IO) {
+    suspend fun profileJson(
+        baseUrl: String,
+        name: String,
+        adminToken: String = "",
+    ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             val enc = encodePathSegment(name.trim())
             val url = URL("${baseUrl.trimEnd('/')}/v1/profile/$enc")
@@ -311,6 +324,7 @@ object ProvisionAdminApi {
                 requestMethod = "GET"
                 connectTimeout = 5_000
                 readTimeout = 10_000
+                applyAdminToken(adminToken)
             }
             val code = conn.responseCode
             val body = runCatching {
@@ -323,13 +337,14 @@ object ProvisionAdminApi {
         }
     }
 
-    private fun postJsonUser(url: URL, payload: JSONObject): UserSummary {
+    private fun postJsonUser(url: URL, payload: JSONObject, adminToken: String): UserSummary {
         val conn = (url.openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = 5_000
             readTimeout = 12_000
             doOutput = true
             setRequestProperty("Content-Type", "application/json")
+            applyAdminToken(adminToken)
         }
         conn.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
         val code = conn.responseCode
@@ -413,6 +428,13 @@ object ProvisionAdminApi {
             deviceAppVersions = deviceAppVersions,
             deviceAppVersionCodes = deviceAppVersionCodes,
         )
+    }
+
+    private fun HttpURLConnection.applyAdminToken(token: String) {
+        val bearer = token.trim()
+        if (bearer.isNotEmpty()) {
+            setRequestProperty("Authorization", "Bearer $bearer")
+        }
     }
 
     private fun fail(code: Int, body: String, op: String): String {

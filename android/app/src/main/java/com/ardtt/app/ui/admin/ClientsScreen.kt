@@ -46,6 +46,8 @@ import com.ardtt.app.BuildConfig
 import com.ardtt.app.core.PhoneModelLabel
 import com.ardtt.app.deploy.DeployTarget
 import com.ardtt.app.deploy.ProvisionAdminApi
+import com.ardtt.app.deploy.ProvisionAdminToken
+import com.ardtt.app.deploy.ServersRepository
 import com.ardtt.app.deploy.deviceDisplayLabels
 import com.ardtt.app.profile.ProfileRepository
 import com.ardtt.app.profile.VpnProfile
@@ -152,6 +154,25 @@ private fun ClientsScreen(
         Toast.makeText(context, message, Toast.LENGTH_LONG).show()
     }
 
+    val serversRepo = remember { ServersRepository.get(context) }
+    var adminToken by remember(server.id, server.provisionAdminToken) {
+        mutableStateOf(server.provisionAdminToken)
+    }
+
+    suspend fun <T> adminCall(block: suspend (String) -> Result<T>): Result<T> {
+        val firstToken = runCatching {
+            ProvisionAdminToken.normalize(adminToken)
+                ?: ProvisionAdminToken.ensure(serversRepo, server).also { adminToken = it }
+        }.getOrElse { return Result.failure(it) }
+        val first = block(firstToken)
+        val denied = first.exceptionOrNull()?.message.equals("unauthorized", ignoreCase = true)
+        if (!denied) return first
+        val refreshed = runCatching {
+            ProvisionAdminToken.ensure(serversRepo, server, force = true).also { adminToken = it }
+        }.getOrElse { return first }
+        return block(refreshed)
+    }
+
     fun applyUsersResult(result: Result<List<ProvisionAdminApi.UserSummary>>) {
         result.fold(
             onSuccess = {
@@ -178,7 +199,7 @@ private fun ClientsScreen(
         error = null
         val started = usersEpoch
         scope.launch {
-            applyListedUsers(ProvisionAdminApi.listUsers(base), started)
+            applyListedUsers(adminCall { ProvisionAdminApi.listUsers(base, it) }, started)
             loading = false
         }
     }
@@ -186,14 +207,14 @@ private fun ClientsScreen(
     fun refreshQuiet() {
         val started = usersEpoch
         scope.launch {
-            applyListedUsers(ProvisionAdminApi.listUsers(base), started)
+            applyListedUsers(adminCall { ProvisionAdminApi.listUsers(base, it) }, started)
         }
     }
 
     val pull = rememberPullRefresh {
         error = null
         val started = usersEpoch
-        applyListedUsers(ProvisionAdminApi.listUsers(base), started)
+        applyListedUsers(adminCall { ProvisionAdminApi.listUsers(base, it) }, started)
     }
 
     fun replaceUser(previousName: String, updated: ProvisionAdminApi.UserSummary) {
@@ -215,17 +236,20 @@ private fun ClientsScreen(
                 toast(imported.exceptionOrNull()?.message ?: "Не удалось добавить")
                 return@launch
             }
-            val presence = ProvisionAdminApi.reportPresence(
-                baseUrl = base,
-                deviceId = toImport.deviceId,
-                name = toImport.name,
-                deviceModel = PhoneModelLabel.current(),
-                appVersion = BuildConfig.VERSION_NAME,
-                appVersionCode = BuildConfig.VERSION_CODE,
-            )
+            val presence = adminCall { token ->
+                ProvisionAdminApi.reportPresence(
+                    baseUrl = base,
+                    deviceId = toImport.deviceId,
+                    name = toImport.name,
+                    deviceModel = PhoneModelLabel.current(),
+                    appVersion = BuildConfig.VERSION_NAME,
+                    appVersionCode = BuildConfig.VERSION_CODE,
+                    adminToken = token,
+                )
+            }
             presence.getOrNull()?.let { replaceUser(toImport.name, it) }
             val listedEpoch = usersEpoch
-            val listed = ProvisionAdminApi.listUsers(base)
+            val listed = adminCall { ProvisionAdminApi.listUsers(base, it) }
             if (listed.isSuccess && clientsListApplyAllowed(listedEpoch, usersEpoch)) {
                 applyUsersResult(listed)
             }
@@ -240,7 +264,7 @@ private fun ClientsScreen(
     fun loadProfile(name: String, after: (String) -> Unit) {
         busyUser = name
         scope.launch {
-            val result = ProvisionAdminApi.profileJson(base, name)
+            val result = adminCall { ProvisionAdminApi.profileJson(base, name, it) }
             busyUser = null
             result.fold(
                 onSuccess = after,
@@ -271,7 +295,7 @@ private fun ClientsScreen(
             while (true) {
                 delay(CLIENTS_POLL_MS)
                 val started = usersEpoch
-                applyListedUsers(ProvisionAdminApi.listUsers(base), started)
+                applyListedUsers(adminCall { ProvisionAdminApi.listUsers(base, it) }, started)
             }
         }
     }
@@ -300,7 +324,14 @@ private fun ClientsScreen(
                     error != null -> ArdttErrorState(
                         title = "Provision недоступен",
                         description = error,
-                        hint = "Нужен установленный стек (HTTP /health на порте provision).",
+                        hint = when {
+                            error.equals("unauthorized", ignoreCase = true) ->
+                                "Сервер требует админ-токен. Повторите: приложение читает его по SSH."
+                            error?.contains("admin.token") == true ->
+                                "Нужен файл /opt/ardtt/data/admin.token и рабочий SSH к этому серверу."
+                            else ->
+                                "Нужен установленный стек (HTTP /health на порте provision)."
+                        },
                         onRetry = { refresh() },
                     )
                     else -> {
@@ -359,11 +390,14 @@ private fun ClientsScreen(
                                         busyUser = previous.name
                                         applyUser(previous.copy(deactivated = deactivated))
                                         scope.launch {
-                                            val result = ProvisionAdminApi.updateUser(
-                                                base,
-                                                previous.name,
-                                                deactivated = deactivated,
-                                            )
+                                            val result = adminCall { token ->
+                                                ProvisionAdminApi.updateUser(
+                                                    base,
+                                                    previous.name,
+                                                    deactivated = deactivated,
+                                                    adminToken = token,
+                                                )
+                                            }
                                             result.fold(
                                                 onSuccess = { updated ->
                                                     usersEpoch++
@@ -418,12 +452,15 @@ private fun ClientsScreen(
                     if (name.isBlank()) return@create
                     creating = true
                     scope.launch {
-                        val result = ProvisionAdminApi.createUser(
-                            base,
-                            name,
-                            days = createDays,
-                            maxDevices = createMaxDevices,
-                        )
+                        val result = adminCall { token ->
+                            ProvisionAdminApi.createUser(
+                                base,
+                                name,
+                                days = createDays,
+                                maxDevices = createMaxDevices,
+                                adminToken = token,
+                            )
+                        }
                         creating = false
                         result.fold(
                             onSuccess = { body ->
@@ -510,13 +547,16 @@ private fun ClientsScreen(
                 onClick = {
                     editing = true
                     scope.launch {
-                        val result = ProvisionAdminApi.updateUser(
-                            base,
-                            target.name,
-                            maxDevices = editMaxDevices.toIntOrNull()?.coerceAtLeast(1),
-                            days = editDays.toIntOrNull()?.takeIf { it > 0 },
-                            trafficLimitGb = editTrafficGb.toIntOrNull()?.coerceAtLeast(0),
-                        )
+                        val result = adminCall { token ->
+                            ProvisionAdminApi.updateUser(
+                                base,
+                                target.name,
+                                maxDevices = editMaxDevices.toIntOrNull()?.coerceAtLeast(1),
+                                days = editDays.toIntOrNull()?.takeIf { it > 0 },
+                                trafficLimitGb = editTrafficGb.toIntOrNull()?.coerceAtLeast(0),
+                                adminToken = token,
+                            )
+                        }
                         editing = false
                         result.fold(
                             onSuccess = {
@@ -571,7 +611,7 @@ private fun ClientsScreen(
                 onClick = {
                     deleting = true
                     scope.launch {
-                        val result = ProvisionAdminApi.deleteUser(base, target.name)
+                        val result = adminCall { ProvisionAdminApi.deleteUser(base, target.name, it) }
                         deleting = false
                         result.fold(
                             onSuccess = {
@@ -617,11 +657,14 @@ private fun ClientsScreen(
                     }
                     renaming = true
                     scope.launch {
-                        val result = ProvisionAdminApi.updateUser(
-                            base,
-                            target.name,
-                            newName = next,
-                        )
+                        val result = adminCall { token ->
+                            ProvisionAdminApi.updateUser(
+                                base,
+                                target.name,
+                                newName = next,
+                                adminToken = token,
+                            )
+                        }
                         renaming = false
                         result.fold(
                             onSuccess = { updated ->
@@ -695,7 +738,7 @@ private fun ClientsScreen(
             onConfirm = {
                 busyUser = userName
                 scope.launch {
-                    val result = ProvisionAdminApi.unbindDevice(base, userName, deviceId)
+                    val result = adminCall { ProvisionAdminApi.unbindDevice(base, userName, deviceId, it) }
                     busyUser = null
                     unbindCandidate = null
                     result.fold(

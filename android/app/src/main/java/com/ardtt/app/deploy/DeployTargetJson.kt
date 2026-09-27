@@ -36,6 +36,7 @@ object DeployTargetJson {
             .put("osId", target.osId)
             .put("osVersion", target.osVersion)
             .put("lastDeployedAtMs", target.lastDeployedAtMs)
+            .put("provisionAdminToken", target.provisionAdminToken)
 
     fun parse(o: JSONObject): DeployTarget =
         DeployTarget(
@@ -68,6 +69,7 @@ object DeployTargetJson {
             osId = o.optString("osId", ""),
             osVersion = o.optString("osVersion", ""),
             lastDeployedAtMs = o.optLong("lastDeployedAtMs", 0L),
+            provisionAdminToken = o.optString("provisionAdminToken", ""),
         )
 
     fun encodeList(targets: List<DeployTarget>): String {
