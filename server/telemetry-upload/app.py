@@ -37,6 +37,15 @@ def upload_token() -> str:
     return os.environ.get("TELEMETRY_UPLOAD_TOKEN", "").strip()
 
 
+def upload_public() -> bool:
+    """Central log server: uploads need no token (TELEMETRY_UPLOAD_PUBLIC=1).
+
+    Off by default, so a VPS stack keeps requiring a token. Review endpoints
+    are never opened by this flag.
+    """
+    return os.environ.get("TELEMETRY_UPLOAD_PUBLIC", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def bearer() -> str:
     header = request.headers.get("Authorization", "")
     if header.lower().startswith("bearer "):
@@ -80,6 +89,31 @@ def quota_bytes() -> int:
     return max(1, mb) * 1024 * 1024
 
 
+def total_quota_bytes() -> int:
+    """Cap for all clients together; 0 (default) means no cap."""
+    try:
+        mb = int(os.environ.get("TELEMETRY_TOTAL_QUOTA_MB", "0"))
+    except ValueError:
+        return 0
+    return max(0, mb) * 1024 * 1024
+
+
+def total_stored_bytes() -> int:
+    root = log_root()
+    if not root.is_dir():
+        return 0
+    total = 0
+    for path in root.glob("*/*.json"):
+        if path.name.startswith("."):
+            continue
+        try:
+            if path.is_file():
+                total += path.stat().st_size
+        except OSError:
+            continue
+    return total
+
+
 def client_stored_bytes(client_id: str) -> int:
     folder = log_root() / client_id
     if not folder.is_dir():
@@ -114,6 +148,8 @@ def review_authorized() -> bool:
 
 
 def upload_authorized() -> bool:
+    if upload_public():
+        return True
     supplied = bearer()
     if token_ok(supplied, upload_token()):
         return True
@@ -388,6 +424,9 @@ def upload_log():
         extra = max(0, size - dest_path.stat().st_size)
     if client_stored_bytes(client_id) + extra > quota_bytes():
         return jsonify({"error": "client quota exceeded"}), 429
+    total_cap = total_quota_bytes()
+    if total_cap and total_stored_bytes() + extra > total_cap:
+        return jsonify({"error": "server storage quota exceeded"}), 507
 
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest_path.write_bytes(incoming)
