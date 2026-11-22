@@ -718,7 +718,10 @@ fun ExceptionsScreen(
             .zIndex(2f)
             .padding(horizontal = ArdttLayout.ScreenPadding)
             .padding(bottom = maxOf(chromePad, imePad + ArdttSpacing.Small))
-        CompositionLocalProvider(LocalGlassBackdrop provides screenGlass) {
+        CompositionLocalProvider(
+            LocalGlassBackdrop provides screenGlass,
+            com.ardtt.app.ui.components.surface.LocalButtonGlass provides screenGlass,
+        ) {
         if (pane == ExceptionsPane.Apps) {
             ArdttSearchBar(
                 value = searchQuery,
@@ -770,6 +773,7 @@ fun ExceptionsScreen(
                         busy = busy,
                         variant = ArdttButtonVariant.Primary,
                         fillMaxWidth = false,
+                        floating = true,
                     )
                 }
             }

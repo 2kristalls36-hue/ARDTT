@@ -67,6 +67,15 @@ class GlassBackdrop(val layer: GraphicsLayer) {
 val LocalGlassBackdrop = compositionLocalOf<GlassBackdrop?> { null }
 
 /**
+ * Backdrop that floating controls (sticky buttons, the power button) may sample:
+ * a recording they are not part of. The root provides the wallpaper alone; a screen
+ * provides its own content for the chrome drawn over it. Null — glass is off.
+ * [LocalGlassBackdrop] inside a screen is the root recording, which contains the
+ * control itself, so sampling it would recurse.
+ */
+val LocalButtonGlass = compositionLocalOf<GlassBackdrop?> { null }
+
+/**
  * Records everything this node draws into [backdrop] and then draws it as usual.
  * [fill] is painted under the recording only (not on screen): a nested source that
  * does not contain the page background still gives the glass something opaque to bend.
@@ -233,7 +242,8 @@ private object GlassShader {
             // Iridescent fringe inside the bezel, hue travelling along the rim.
             // Guarded: at the very centre of a round panel the normal is zero and atan is undefined.
             float edgeAngle = atan(n.y, n.x + 0.00001) / 6.2831853;
-            half3 rainbow = 0.5 + 0.5 * cos(6.2831853 * (edgeAngle * 1.5 + time) + half3(0.0, 2.094, 4.188));
+            // Whole turns per lap, so the hue closes on itself where the angle wraps (no seam).
+            half3 rainbow = 0.5 + 0.5 * cos(6.2831853 * (edgeAngle * 2.0 + time) + half3(0.0, 2.094, 4.188));
             half3 iri = mix(rainbow, rimColor.rgb, rimMix);
             float fringe = smoothstep(bezel * 0.7, 0.0, inside) * (dark > 0.5 ? 0.30 : 0.38);
             col += iri * fringe * fringeK * (0.45 + 0.55 * (spec + spec2));

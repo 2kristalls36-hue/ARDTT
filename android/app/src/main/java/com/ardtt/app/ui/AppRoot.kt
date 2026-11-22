@@ -54,6 +54,7 @@ import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.platform.LocalHapticFeedback
 import com.ardtt.app.ui.components.surface.GlassBackdrop
 import com.ardtt.app.ui.components.surface.LiquidGlass
+import com.ardtt.app.ui.components.surface.LocalButtonGlass
 import com.ardtt.app.ui.components.surface.LocalGlassBackdrop
 import com.ardtt.app.ui.components.surface.glassBackdropSource
 import com.ardtt.app.ui.motion.LocalAppHaptics
@@ -417,9 +418,16 @@ fun AppRoot(
             // The glass rim takes the accent colour of the current palette.
             val rimColor by animateColorAsState(adaptedColorScheme.primary, label = "glassRim")
             backdrop?.rim = rimColor
+            // The wallpaper alone, for floating controls inside the screens (power button,
+            // sticky buttons): they cannot sample the root recording they are drawn into.
+            val wallLayer = rememberGraphicsLayer()
+            val wallGlass = remember(wallLayer) { GlassBackdrop(wallLayer) }.takeIf { backdrop != null }
+            wallGlass?.transparency = glassTransparency
+            wallGlass?.rim = rimColor
             CompositionLocalProvider(
                 LocalIllustratedBackdrop provides showUserWallpaper,
                 LocalGlassBackdrop provides backdrop,
+                LocalButtonGlass provides wallGlass,
                 LocalAppHaptics provides appHaptics,
                 LocalMagnetEnabled provides magnetOn,
                 LocalHapticFeedback provides remember(appHaptics) { SettingAwareHapticFeedback(appHaptics) },
@@ -429,15 +437,17 @@ fun AppRoot(
                     Box(modifier = Modifier.fillMaxSize().glassBackdropSource(backdrop)) {
                     // One scene × time-of-day for every user-mode tab, including Tunnel.
                     // Keep the Image composed so tab switches do not flash Field.
-                    if (showUserWallpaper) {
-                        key(tunnelWallpaper.scene) {
-                            TunnelWallpaperBackdrop(
-                                wallpaper = tunnelWallpaper,
-                                modifier = Modifier.fillMaxSize(),
-                            )
+                    Box(modifier = Modifier.fillMaxSize().glassBackdropSource(wallGlass)) {
+                        if (showUserWallpaper) {
+                            key(tunnelWallpaper.scene) {
+                                TunnelWallpaperBackdrop(
+                                    wallpaper = tunnelWallpaper,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
+                        } else {
+                            ArdttBackdrop(modifier = Modifier.fillMaxSize())
                         }
-                    } else {
-                        ArdttBackdrop(modifier = Modifier.fillMaxSize())
                     }
 
                     NavHost(

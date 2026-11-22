@@ -93,6 +93,7 @@ internal fun GlassScrollChrome(
     modifier: Modifier,
     backdrop: GlassBackdrop,
     header: @Composable () -> Unit,
+    overlay: (@Composable BoxScope.() -> Unit)? = null,
     content: @Composable (top: Dp) -> Unit,
 ) {
     var headerPx by remember { mutableStateOf(0) }
@@ -140,6 +141,12 @@ internal fun GlassScrollChrome(
         ) {
             if (plate > 0.01f) HeaderPlate(backdrop, plate)
             header()
+        }
+        if (overlay != null) {
+            // Sticky chrome refracts this screen's recording, which it is not part of.
+            androidx.compose.runtime.CompositionLocalProvider(
+                com.ardtt.app.ui.components.surface.LocalButtonGlass provides backdrop,
+            ) { overlay() }
         }
     }
 }

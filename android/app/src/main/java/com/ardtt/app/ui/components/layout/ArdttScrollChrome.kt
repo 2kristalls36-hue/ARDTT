@@ -3,6 +3,7 @@ package com.ardtt.app.ui.components.layout
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -75,13 +76,24 @@ fun ArdttScrollChrome(
     pinHeader: Boolean = false,
     /** Screen glass shared with floating chrome of the same screen (search bar); null — own. */
     screenGlass: GlassBackdrop? = null,
+    /**
+     * Floating chrome over the feed (sticky buttons). Drawn outside the feed recording,
+     * so with liquid glass it can refract the feed beneath it.
+     */
+    overlay: (@Composable BoxScope.() -> Unit)? = null,
     header: @Composable () -> Unit,
     content: @Composable (topContentPadding: Dp) -> Unit,
 ) {
     val ownGlass = rememberScreenGlass()
     val glass = screenGlass ?: ownGlass
     if (glass != null && LiquidGlass.supported) {
-        GlassScrollChrome(modifier = modifier, backdrop = glass, header = header, content = content)
+        GlassScrollChrome(
+            modifier = modifier,
+            backdrop = glass,
+            header = header,
+            overlay = overlay,
+            content = content,
+        )
         return
     }
     val density = LocalDensity.current
@@ -169,6 +181,7 @@ fun ArdttScrollChrome(
         ) {
             content(topPadding)
         }
+        overlay?.invoke(this)
 
         Column(
             modifier = Modifier
