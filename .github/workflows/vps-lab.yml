@@ -1,0 +1,41 @@
+# Deploy lab on a disposable test VPS registered as a self-hosted runner
+# (label ardtt-lab). Manual dispatch only: no push / pull_request trigger, so
+# fork pull requests never reach the runner.
+name: VPS lab
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: Lab scenario (scripts/vps-lab/run.sh <scenario>)
+        required: true
+        default: full
+        type: choice
+        options:
+          - full
+          - snapshot
+          - neighbors
+          - install-published
+          - install-tree
+          - uninstall
+          - cleanup
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vps-lab
+  cancel-in-progress: false
+
+jobs:
+  lab:
+    runs-on: [self-hosted, ardtt-lab]
+    timeout-minutes: 120
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Run scenario
+        env:
+          SCENARIO: ${{ inputs.scenario }}
+        run: bash scripts/vps-lab/run.sh "$SCENARIO"
