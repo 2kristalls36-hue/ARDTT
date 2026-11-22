@@ -42,11 +42,49 @@ if [ -w /proc/sys/net/ipv4/ip_forward ]; then
   echo 1 >/proc/sys/net/ipv4/ip_forward || true
 fi
 
+# Optional children (WARP egress, telemetry) restart on their own with backoff.
+# Their failure must not stop Direct/Bypass: WARP registration needs Cloudflare,
+# which may be unreachable from the VPS, and that used to crash-loop the whole
+# container (and fail the deploy) although the tunnels were fine.
+declare -A CHILD_CMD=()
+declare -A CHILD_OPTIONAL=()
+declare -A CHILD_NEXT_TRY=()
+declare -A CHILD_BACKOFF=()
+OPTIONAL_BACKOFF_MIN=10
+OPTIONAL_BACKOFF_MAX=300
+
 start_child() {
   local name="$1"
   shift
   echo "[ardtt] start ${name}"
+  CHILD_CMD[$name]="$(printf '%q ' "$@")"
   "$@" &
+  echo $! >"/var/run/ardtt-${name}.pid"
+}
+
+start_optional_child() {
+  local name="$1"
+  start_child "$@"
+  CHILD_OPTIONAL[$name]=1
+  CHILD_BACKOFF[$name]=$OPTIONAL_BACKOFF_MIN
+}
+
+restart_optional_child() {
+  local name="$1" now backoff
+  now="$(date +%s)"
+  backoff="${CHILD_BACKOFF[$name]:-$OPTIONAL_BACKOFF_MIN}"
+  if [ -z "${CHILD_NEXT_TRY[$name]:-}" ]; then
+    CHILD_NEXT_TRY[$name]=$((now + backoff))
+    echo "[ardtt] optional ${name} stopped — tunnels keep running; retry in ${backoff}s"
+    return 0
+  fi
+  [ "$now" -ge "${CHILD_NEXT_TRY[$name]}" ] || return 0
+  unset "CHILD_NEXT_TRY[$name]"
+  backoff=$((backoff * 2))
+  [ "$backoff" -le "$OPTIONAL_BACKOFF_MAX" ] || backoff=$OPTIONAL_BACKOFF_MAX
+  CHILD_BACKOFF[$name]=$backoff
+  echo "[ardtt] restart optional ${name}"
+  eval "${CHILD_CMD[$name]}" &
   echo $! >"/var/run/ardtt-${name}.pid"
 }
 
@@ -67,17 +105,17 @@ start_child provision /usr/local/bin/provision -cmd serve -data "$DATA"
 if [ "$ROLE" = "exit" ]; then
   start_child cascade /cascade-entrypoint.sh
   start_child dns /opt/ardtt/dns.sh
-  start_child warp /opt/ardtt/warp.sh
+  start_optional_child warp /opt/ardtt/warp.sh
 elif [ "$CASCADE_ENABLED" = "1" ]; then
   start_child direct /opt/ardtt/direct.sh
   start_child bypass /opt/ardtt/bypass.sh
-  start_child warp /opt/ardtt/warp.sh
+  start_optional_child warp /opt/ardtt/warp.sh
   start_child cascade /cascade-entrypoint.sh
 else
   start_child direct /opt/ardtt/direct.sh
   start_child bypass /opt/ardtt/bypass.sh
   start_child dns /opt/ardtt/dns.sh
-  start_child warp /opt/ardtt/warp.sh
+  start_optional_child warp /opt/ardtt/warp.sh
 fi
 
 if [ "$SKIP_TELEMETRY" = "1" ]; then
@@ -85,7 +123,7 @@ if [ "$SKIP_TELEMETRY" = "1" ]; then
 elif port_busy "$TELEMETRY_PORT"; then
   echo "[ardtt] WARN: :${TELEMETRY_PORT} already listening — skip telemetry"
 else
-  start_child telemetry python3 -m gunicorn \
+  start_optional_child telemetry python3 -m gunicorn \
     --chdir /opt/ardtt/telemetry \
     --bind "${TELEMETRY_LISTEN}" \
     --workers 2 \
@@ -135,6 +173,11 @@ while true; do
     [ -n "${pid:-}" ] || continue
     if ! kill -0 "$pid" 2>/dev/null; then
       name="$(basename "$pidfile" .pid)"
+      name="${name#ardtt-}"
+      if [ -n "${CHILD_OPTIONAL[$name]:-}" ]; then
+        restart_optional_child "$name"
+        continue
+      fi
       echo "[ardtt] child ${name} pid=${pid} died"
       exit 1
     fi

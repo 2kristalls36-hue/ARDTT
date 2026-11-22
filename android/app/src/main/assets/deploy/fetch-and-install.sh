@@ -77,19 +77,21 @@ die() {
       msg="${BASH_REMATCH[2]}"
     fi
   fi
+  # stderr: die can run inside $(...), where stdout is swallowed as a value and the
+  # phone got exit 1 with no ARDTT_ERROR. The phone reads both streams.
   local bin=""
   bin="$(ardtt_ctl_bin 2>/dev/null || true)"
   if [ -n "$bin" ]; then
     if [ -n "$code" ]; then
-      "$bin" emit error --code "$code" --message "$msg" && exit 1
+      "$bin" emit error --code "$code" --message "$msg" >&2 && exit 1
     else
-      "$bin" emit error --message "$msg" && exit 1
+      "$bin" emit error --message "$msg" >&2 && exit 1
     fi
   fi
   if [ -n "$code" ]; then
-    printf 'ARDTT_ERROR|code=%s|%s\n' "$code" "$msg"
+    printf 'ARDTT_ERROR|code=%s|%s\n' "$code" "$msg" >&2
   else
-    printf 'ARDTT_ERROR|%s\n' "$msg"
+    printf 'ARDTT_ERROR|%s\n' "$msg" >&2
   fi
   exit 1
 }

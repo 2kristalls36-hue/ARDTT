@@ -181,6 +181,11 @@ ensure_docker_engine() {
     || [ -f /lib/systemd/system/docker.socket ] || [ -f /usr/lib/systemd/system/docker.socket ]; then
     die --code DOCKER_NOT_RUNNING "На хосте есть unit docker.service, но нет рабочего CLI. Чужой Engine не трогаем."
   fi
+  # An admin-written unit in /etc would be overwritten by write_engine_units.
+  if { [ -f /etc/systemd/system/docker.service ] && ! engine_unit_is_ours; } \
+    || [ -f /etc/systemd/system/docker.socket ] || [ -f /etc/docker/daemon.json ]; then
+    die --code DOCKER_NOT_RUNNING "На хосте есть настройки Docker (/etc/systemd/system/docker.* или /etc/docker/daemon.json), но Engine не отвечает. Чужую конфигурацию не перезаписываем: запустите Docker и повторите."
+  fi
   # The one distro package the installer takes when Docker comes from the archive
   # (install-lib/hostdeps.sh); refused with IPTABLES_MISSING under ARDTT_INSTALL_IPTABLES=0.
   ensure_host_iptables
