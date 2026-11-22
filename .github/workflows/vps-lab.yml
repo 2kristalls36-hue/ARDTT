@@ -19,6 +19,7 @@ on:
           - install-tree
           - uninstall
           - cleanup
+          - diag
 
 permissions:
   contents: read

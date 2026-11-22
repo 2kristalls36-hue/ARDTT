@@ -195,6 +195,23 @@ cleanup() {
   pass "cleanup: соседи сняты"
 }
 
+diag() {
+  echo "## uptime"; uptime
+  echo "## memory"; free -m
+  echo "## disk"; df -h / /var/lib 2>/dev/null
+  echo "## oom / kills (dmesg)"; as_root dmesg -T 2>/dev/null | grep -i -E 'oom|killed process|out of memory' | tail -20
+  echo "## docker"; as_root systemctl status docker --no-pager 2>&1 | head -12
+  have_docker && as_root docker ps -a --format '{{.Names}} {{.Status}} {{.Image}}'
+  echo "## runner journal"; as_root journalctl -u 'actions.runner.*' --no-pager -n 40 2>/dev/null
+  echo "## /opt/ardtt"; ls -la /opt/ardtt 2>/dev/null; cat /opt/ardtt/install.log 2>/dev/null | tail -60
+  echo "## lab logs"; ls -la "$LAB" 2>/dev/null
+  local f
+  for f in "$LAB"/install-published.log "$LAB"/install-tree.log; do
+    [ -f "$f" ] || continue
+    echo "### $f"; grep -v '^{"protocol"' "$f" | tail -50
+  done
+}
+
 scenario="${1:-full}"
 case "$scenario" in
   snapshot) snapshot "$LAB/snap.txt"; cat "$LAB/snap.txt" ;;
@@ -203,6 +220,7 @@ case "$scenario" in
   install-tree) install_tree ;;
   uninstall) uninstall ;;
   cleanup) cleanup ;;
+  diag) diag ;;
   full)
     step "1. Чистый сервер"
     snapshot "$LAB/0-clean.txt"; cat "$LAB/0-clean.txt"
