@@ -360,10 +360,20 @@ fun ArdttNavigationBar(
                 dragging = false
             }
         }
+        // Cancelled by the system or another gesture: nothing is selected, the droplet
+        // goes back to the current tab.
+        fun cancel() {
+            hover = -1
+            val home = currentItems.indexOfFirst { it.route == currentSelected }.coerceAtLeast(0)
+            scope.launch {
+                selPos.magnetTo(home.toFloat(), fullRange = range, enabled = magnetOn)
+                dragging = false
+            }
+        }
         detectHorizontalDragGestures(
             onDragStart = { o -> dragging = true; hover = -1; follow(o.x) },
             onDragEnd = { release() },
-            onDragCancel = { release() },
+            onDragCancel = { cancel() },
         ) { change, _ ->
             change.consume()
             follow(change.position.x)
