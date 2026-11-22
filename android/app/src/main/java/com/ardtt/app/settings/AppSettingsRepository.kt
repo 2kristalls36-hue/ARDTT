@@ -5,6 +5,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -40,6 +41,9 @@ class AppSettingsRepository(private val context: Context) {
     private val classicAppearance = booleanPreferencesKey("classic_appearance")
     private val dynamicColors = booleanPreferencesKey("dynamic_colors")
     private val uiHapticsEnabled = booleanPreferencesKey("ui_haptics_enabled")
+    private val liquidGlass = booleanPreferencesKey("liquid_glass")
+    private val glassTransparency = floatPreferencesKey("glass_transparency")
+    private val magnet = booleanPreferencesKey("magnet")
     private val legacyWallpaper = stringPreferencesKey("app_wallpaper")
     private val donateBannerDismissed = booleanPreferencesKey("donate_banner_dismissed")
 
@@ -98,6 +102,15 @@ class AppSettingsRepository(private val context: Context) {
     /** Default true — short haptic feedback for key UI actions. */
     val uiHapticsEnabledFlow: Flow<Boolean> =
         context.dataStore.data.map { it[uiHapticsEnabled] != false }
+    /** Beta: liquid glass chrome (Android 13+); off by default. */
+    val liquidGlassFlow: Flow<Boolean> =
+        context.dataStore.data.map { it[liquidGlass] == true }
+    /** Glass transparency: 0 — frosted, 1 — almost clear. */
+    val glassTransparencyFlow: Flow<Float> =
+        context.dataStore.data.map { it[glassTransparency] ?: DEFAULT_GLASS_TRANSPARENCY }
+    /** Beta: magnet motion (accelerating pull to stops, snapping lists); on by default. */
+    val magnetFlow: Flow<Boolean> =
+        context.dataStore.data.map { it[magnet] != false }
     /** Default false — Tunnel donate banner stays until the user closes it. */
     val donateBannerDismissedFlow: Flow<Boolean> =
         context.dataStore.data.map { it[donateBannerDismissed] == true }
@@ -298,6 +311,18 @@ class AppSettingsRepository(private val context: Context) {
         context.dataStore.edit { it[uiHapticsEnabled] = enabled }
     }
 
+    suspend fun setLiquidGlass(enabled: Boolean) {
+        context.dataStore.edit { it[liquidGlass] = enabled }
+    }
+
+    suspend fun setGlassTransparency(value: Float) {
+        context.dataStore.edit { it[glassTransparency] = value.coerceIn(0f, 1f) }
+    }
+
+    suspend fun setMagnet(enabled: Boolean) {
+        context.dataStore.edit { it[magnet] = enabled }
+    }
+
     suspend fun setDonateBannerDismissed(dismissed: Boolean) {
         context.dataStore.edit { it[donateBannerDismissed] = dismissed }
     }
@@ -321,6 +346,7 @@ class AppSettingsRepository(private val context: Context) {
     }
 
     companion object {
+        const val DEFAULT_GLASS_TRANSPARENCY = 0.5f
         fun normalizeDialPath(raw: String?): String = when (raw?.lowercase()?.trim()) {
             "vkcalls" -> "vkcalls"
             "legacy" -> "legacy"

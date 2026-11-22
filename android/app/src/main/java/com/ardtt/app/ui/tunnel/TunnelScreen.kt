@@ -89,6 +89,7 @@ import com.ardtt.app.ui.components.control.ArdttSettingBlock
 import com.ardtt.app.ui.components.control.ArdttSwitchRow
 import com.ardtt.app.ui.components.control.HideIpChipRow
 import com.ardtt.app.ui.components.control.PathModeChipRow
+import com.ardtt.app.ui.components.control.RisingEdgeRejectHaptic
 import com.ardtt.app.ui.components.control.RisingEdgeSuccessHaptic
 import com.ardtt.app.ui.components.control.rememberArdttHaptics
 import com.ardtt.app.ui.components.feedback.ArdttInlineFactRow
@@ -207,6 +208,7 @@ fun TunnelScreen(
     var showConnectionHint by rememberSaveable { mutableStateOf(true) }
     RisingEdgeSuccessHaptic(haptics, ui.state == ConnState.Connected)
     RisingEdgeSuccessHaptic(haptics, ui.hasCallHash)
+    RisingEdgeRejectHaptic(haptics, ui.state == ConnState.Error)
 
     val connecting = ui.state == ConnState.Connecting
     val pausedTrusted = ui.state == ConnState.PausedTrustedWifi
@@ -476,7 +478,6 @@ fun TunnelScreen(
                         chipHeight = ArdttSize.ChipCompact,
                         coloredSelection = true,
                         onSelect = { mode ->
-                            haptics.tick()
                             scope.launch { commitPathMode(settings, conn, mode) }
                         },
                         onNeedCallHash = {
@@ -497,7 +498,6 @@ fun TunnelScreen(
                         enabled = !vpnLocked,
                         chipHeight = ArdttSize.ChipCompact,
                         onSelect = { enabled ->
-                            haptics.tick()
                             scope.launch { commitHideIp(settings, conn, enabled) }
                         },
                     )
@@ -514,7 +514,6 @@ fun TunnelScreen(
                     },
                     checked = trustedWifiEnabled,
                     onCheckedChange = { on ->
-                        haptics.tick()
                         scope.launch { settings.setTrustedWifiEnabled(on) }
                     },
                 )

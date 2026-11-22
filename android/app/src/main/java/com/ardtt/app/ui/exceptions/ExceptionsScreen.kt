@@ -1,5 +1,10 @@
 package com.ardtt.app.ui.exceptions
 
+import kotlinx.coroutines.delay
+import androidx.compose.animation.core.VisibilityThreshold
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.animateFloatAsState
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
@@ -67,6 +72,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
@@ -93,6 +100,10 @@ import com.ardtt.app.core.HostExclusion
 import com.ardtt.app.core.appIconDecodeSize
 import com.ardtt.app.settings.AppSettingsRepository
 import com.ardtt.app.ui.components.control.ArdttButton
+import com.ardtt.app.ui.components.control.ArdttSearchBar
+import com.ardtt.app.ui.components.surface.LocalGlassBackdrop
+import com.ardtt.app.ui.components.surface.rememberScreenGlass
+import androidx.compose.runtime.CompositionLocalProvider
 import com.ardtt.app.ui.components.control.ArdttButtonSize
 import com.ardtt.app.ui.components.control.ArdttButtonVariant
 import com.ardtt.app.ui.components.control.ArdttChoice
@@ -324,8 +335,13 @@ fun ExceptionsScreen(
         appsList = list
     }
 
+    // Order snapshot: a toggled row keeps its place until its switch has finished
+    // moving, then fades out upward and reappears in its new group.
+    var sortSelected by remember { mutableStateOf<Set<String>?>(null) }
+    var leaving by remember { mutableStateOf(emptySet<String>()) }
+    val sortSet = sortSelected ?: selectedPackages
     // Выбранные вверх, внутри групп — алфавит (как qWDTT).
-    val filteredApps = remember(appsList, showSystemApps, searchQuery, selectedPackages) {
+    val filteredApps = remember(appsList, showSystemApps, searchQuery, selectedPackages, sortSet) {
         val base = if (showSystemApps) {
             appsList
         } else {
@@ -340,14 +356,16 @@ fun ExceptionsScreen(
             }
         }
         matching.sortedWith(
-            compareByDescending<ExceptionAppItem> { it.packageName in selectedPackages }
+            compareByDescending<ExceptionAppItem> { it.packageName in sortSet }
                 .thenBy { it.name.lowercase(Locale.getDefault()) }
                 .thenBy { it.packageName },
         )
     }
 
+    val screenGlass = rememberScreenGlass()
     Box(modifier = Modifier.fillMaxSize()) {
         ArdttScrollChrome(
+            screenGlass = screenGlass,
             header = {
                 ArdttTabHeader(
                     title = "Исключения",
@@ -535,12 +553,36 @@ fun ExceptionsScreen(
                                     ),
                                 ),
                             ) {
-                                items(filteredApps, key = { it.packageName }) { app ->
+                                // The key carries the group, so a row that changes group fades
+                                // out and in instead of sliding across the whole list.
+                                items(filteredApps, key = { "${it.packageName}|${it.packageName in sortSet}" }) { app ->
                                     val isSelected = app.packageName in selectedPackages
                                     AppExceptionRow(
                                         app = app,
                                         isSelected = isSelected,
+                                        leaving = app.packageName in leaving,
+                                        modifier = Modifier.animateItem(
+                                            fadeInSpec = tween(220),
+                                            placementSpec = spring(
+                                                dampingRatio = 0.9f,
+                                                stiffness = 500f,
+                                                visibilityThreshold = IntOffset.VisibilityThreshold,
+                                            ),
+                                            fadeOutSpec = tween(120),
+                                        ),
                                         onClick = {
+                                            val pkg = app.packageName
+                                            val on = pkg !in selectedPackages
+                                            if (sortSelected == null) sortSelected = selectedPackages
+                                            scope.launch {
+                                                delay(330) // the switch finishes first
+                                                leaving = leaving + pkg
+                                                delay(170) // slight swipe up with a fade
+                                                val next = (sortSelected ?: selectedPackages).let { if (on) it + pkg else it - pkg }
+                                                sortSelected = next
+                                                leaving = leaving - pkg
+                                                if (leaving.isEmpty() && next == selectedPackages) sortSelected = null
+                                            }
                                             scope.launch {
                                                 val selected = settings.excludedAppsSnapshot()
                                                 if (app.packageName in selected) {
@@ -676,8 +718,9 @@ fun ExceptionsScreen(
             .zIndex(2f)
             .padding(horizontal = ArdttLayout.ScreenPadding)
             .padding(bottom = maxOf(chromePad, imePad + ArdttSpacing.Small))
+        CompositionLocalProvider(LocalGlassBackdrop provides screenGlass) {
         if (pane == ExceptionsPane.Apps) {
-            BypassSearchBar(
+            ArdttSearchBar(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
                 keyboardVisible = keyboardVisible,
@@ -712,13 +755,12 @@ fun ExceptionsScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
                 ) {
-                    BypassSearchBar(
+                    ArdttSearchBar(
                         value = newRule,
                         onValueChange = { newRule = it.filter { c -> c != '\n' && c != '\r' } },
                         keyboardVisible = keyboardVisible,
                         placeholder = "домен / *.домен / IP/CIDR",
-                        imeAction = ImeAction.Done,
-                        onImeAction = { if (!busy && newRule.isNotBlank()) addSite() },
+                        onSubmit = { if (!busy && newRule.isNotBlank()) addSite() },
                         modifier = Modifier.weight(1f),
                     )
                     ArdttButton(
@@ -731,6 +773,7 @@ fun ExceptionsScreen(
                     )
                 }
             }
+        }
         }
     }
 
@@ -788,8 +831,6 @@ private fun AppsLoadingAnimation(modifier: Modifier = Modifier) {
         ),
         label = "apps_loading_shift",
     )
-    val titleStyle = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
-    val subtitleStyle = MaterialTheme.typography.labelSmall
     val topPadding = ArdttSpacing.Small
 
     BoxWithConstraints(modifier = modifier) {
@@ -809,39 +850,44 @@ private fun AppsLoadingAnimation(modifier: Modifier = Modifier) {
                 startX = shift,
                 endX = shift + 380f,
             )
-            AppExceptionRowFrame(
-                icon = {
-                    Box(
-                        modifier = Modifier
-                            .size(ArdttSize.IconFeature)
-                            .clip(AppRowIconCorner)
-                            .background(shimmerBrush),
-                    )
-                },
-                title = {
-                    AppRowShimmerBar(
-                        brush = shimmerBrush,
-                        widthFraction = AppRowTitleBarWidth,
-                        textStyle = titleStyle,
-                    )
-                },
-                subtitle = {
-                    AppRowShimmerBar(
-                        brush = shimmerBrush,
-                        widthFraction = AppRowSubtitleBarWidth,
-                        textStyle = subtitleStyle,
-                    )
-                },
-                trailing = {
-                    Box(modifier = Modifier.clearAndSetSemantics {}) {
-                        Switch(checked = false, onCheckedChange = null)
-                    }
-                },
+            AppExceptionRowStub(
+                brush = shimmerBrush,
+                titleWidth = AppRowTitleBarWidth,
+                subtitleWidth = AppRowSubtitleBarWidth,
             )
             }
         }
     }
 }
+
+/** Loading stub on the same frame as [AppExceptionRow], so it is exactly as tall. */
+@Composable
+internal fun AppExceptionRowStub(brush: Brush, titleWidth: Float, subtitleWidth: Float) {
+    AppExceptionRowFrame(
+        icon = {
+            Box(
+                modifier = Modifier
+                    .size(ArdttSize.IconFeature)
+                    .clip(AppRowIconCorner)
+                    .background(brush),
+            )
+        },
+        title = { AppRowShimmerBar(brush, titleWidth, appRowTitleStyle()) },
+        subtitle = { AppRowShimmerBar(brush, subtitleWidth, appRowSubtitleStyle()) },
+        trailing = {
+            Box(modifier = Modifier.clearAndSetSemantics {}) {
+                com.ardtt.app.ui.components.control.LiteSwitch(checked = false, onCheckedChange = null, enabled = false)
+            }
+        },
+    )
+}
+
+@Composable
+private fun appRowTitleStyle(): TextStyle =
+    MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+
+@Composable
+private fun appRowSubtitleStyle(): TextStyle = MaterialTheme.typography.labelSmall
 
 @Composable
 private fun AppRowShimmerBar(
@@ -850,122 +896,16 @@ private fun AppRowShimmerBar(
     textStyle: TextStyle,
 ) {
     val density = LocalDensity.current
-    val slotHeight = with(density) { textStyle.lineHeight.toDp() }
-    val barHeight = with(density) { textStyle.fontSize.toDp() }
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(slotHeight),
-        contentAlignment = Alignment.CenterStart,
-    ) {
+    // An invisible one-line text takes exactly the height the real text would.
+    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
+        Text(" ", style = textStyle, maxLines = 1, modifier = Modifier.drawWithContent { })
         Box(
             modifier = Modifier
                 .fillMaxWidth(widthFraction)
-                .height(barHeight)
+                .height(with(density) { textStyle.fontSize.toDp() })
                 .clip(ArdttShapes.Pill)
                 .background(brush),
         )
-    }
-}
-
-@Composable
-private fun BypassSearchBar(
-    value: String,
-    onValueChange: (String) -> Unit,
-    keyboardVisible: Boolean,
-    modifier: Modifier = Modifier,
-    placeholder: String = "Поиск",
-    imeAction: ImeAction = ImeAction.Search,
-    onImeAction: (() -> Unit)? = null,
-) {
-    val colors = MaterialTheme.colorScheme
-    val focusRequester = remember { FocusRequester() }
-    val keyboard = LocalSoftwareKeyboardController.current
-    val fill = if (keyboardVisible) {
-        colors.surface
-    } else {
-        ArdttFloatingShell.shellColor()
-    }
-    Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(ArdttBottomChrome.ButtonHeight)
-            .semantics { contentDescription = "Поиск" }
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-            ) {
-                focusRequester.requestFocus()
-                keyboard?.show()
-            },
-        shape = ArdttShapes.Control,
-        color = fill,
-        border = ArdttFloatingShell.shellBorder(),
-        // Idle fill is the translucent shell; a shadow paints it opaque for a frame.
-        shadowElevation = ArdttElevation.None,
-        tonalElevation = ArdttElevation.None,
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = ArdttSpacing.Large),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                Icons.Outlined.Search,
-                contentDescription = null,
-                modifier = Modifier.size(ArdttSize.Icon),
-                tint = colors.onSurfaceVariant,
-            )
-            Spacer(modifier = Modifier.width(ArdttSpacing.Medium))
-            val fieldStyle = MaterialTheme.typography.titleMedium.copy(
-                color = colors.onSurface,
-                fontWeight = FontWeight.SemiBold,
-                background = Color.Transparent,
-            )
-            BasicTextField(
-                value = value,
-                onValueChange = onValueChange,
-                singleLine = true,
-                textStyle = fieldStyle,
-                cursorBrush = SolidColor(colors.primary),
-                keyboardOptions = KeyboardOptions(imeAction = imeAction),
-                keyboardActions = KeyboardActions(
-                    onSearch = { onImeAction?.invoke() ?: keyboard?.hide() },
-                    onDone = { onImeAction?.invoke() ?: keyboard?.hide() },
-                ),
-                modifier = Modifier
-                    .weight(1f)
-                    .background(Color.Transparent)
-                    .focusRequester(focusRequester),
-                decorationBox = { inner ->
-                    Box(
-                        modifier = Modifier.background(Color.Transparent),
-                        contentAlignment = Alignment.CenterStart,
-                    ) {
-                        if (value.isEmpty()) {
-                            Text(
-                                placeholder,
-                                style = fieldStyle.copy(
-                                    color = colors.onSurfaceVariant.copy(alpha = ArdttAlpha.Subtle),
-                                    background = Color.Transparent,
-                                ),
-                            )
-                        }
-                        inner()
-                    }
-                },
-            )
-            if (value.isNotEmpty()) {
-                ArdttButton(
-                    onClick = { onValueChange("") },
-                    variant = ArdttButtonVariant.Icon,
-                    icon = Icons.Filled.Close,
-                    contentDescription = "Очистить",
-                    contentColor = colors.onSurfaceVariant,
-                )
-            }
-        }
     }
 }
 
@@ -1003,13 +943,20 @@ private fun BypassRuleRow(
 }
 
 @Composable
-private fun AppExceptionRow(
+internal fun AppExceptionRow(
     app: ExceptionAppItem,
     isSelected: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    leaving: Boolean = false,
 ) {
     val colors = MaterialTheme.colorScheme
+    val out by animateFloatAsState(if (leaving) 1f else 0f, tween(170), label = "leave")
     AppExceptionRowFrame(
+        outer = modifier.graphicsLayer {
+            alpha = 1f - out
+            translationY = -10.dp.toPx() * out
+        },
         checked = isSelected,
         onCheckedChange = { onClick() },
         icon = {
@@ -1032,8 +979,7 @@ private fun AppExceptionRow(
         title = {
             Text(
                 text = app.name,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
+                style = appRowTitleStyle(),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -1041,7 +987,7 @@ private fun AppExceptionRow(
         subtitle = {
             Text(
                 text = app.packageName,
-                style = MaterialTheme.typography.labelSmall,
+                style = appRowSubtitleStyle(),
                 color = colors.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -1050,7 +996,7 @@ private fun AppExceptionRow(
         trailing = {
             // The row is the toggle; the switch only mirrors the state so
             // TalkBack announces one «переключатель» per app, not two targets.
-            Switch(checked = isSelected, onCheckedChange = null)
+            com.ardtt.app.ui.components.control.LiteSwitch(checked = isSelected, onCheckedChange = null)
         },
     )
 }
@@ -1063,10 +1009,12 @@ private fun AppExceptionRowFrame(
     trailing: @Composable () -> Unit,
     checked: Boolean? = null,
     onCheckedChange: ((Boolean) -> Unit)? = null,
+    outer: Modifier = Modifier,
 ) {
+    val haptics = com.ardtt.app.ui.motion.LocalAppHaptics.current
     val colors = MaterialTheme.colorScheme
     val interactive = checked != null && onCheckedChange != null
-    val modifier = Modifier
+    val modifier = outer
         .fillMaxWidth()
         .padding(
             horizontal = AppRowHorizontalPadding,
@@ -1079,7 +1027,7 @@ private fun AppExceptionRowFrame(
                     .toggleable(
                         value = checked == true,
                         role = Role.Switch,
-                        onValueChange = { onCheckedChange?.invoke(it) },
+                        onValueChange = { haptics.toggle(it); onCheckedChange?.invoke(it) },
                     )
             } else {
                 Modifier

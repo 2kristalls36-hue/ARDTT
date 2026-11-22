@@ -137,12 +137,7 @@ fun ArdttButton(
                 }
             }
             if (showsText) {
-                Text(
-                    text,
-                    style = ArdttButtonLabelStyle,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                FitText(text, style = ArdttButtonLabelStyle, maxLines = 2)
             } else if (variant == ArdttButtonVariant.Icon && icon != null) {
                 Icon(icon, contentDescription = null, modifier = Modifier.size(ArdttSize.Icon))
             }

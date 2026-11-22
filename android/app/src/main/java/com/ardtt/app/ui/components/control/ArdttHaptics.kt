@@ -30,6 +30,16 @@ class ArdttHaptics(
         }
         view.performHapticFeedback(constant)
     }
+
+    fun reject() {
+        if (!enabled) return
+        val constant = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            HapticFeedbackConstants.REJECT
+        } else {
+            HapticFeedbackConstants.LONG_PRESS
+        }
+        view.performHapticFeedback(constant)
+    }
 }
 
 @Composable
@@ -46,11 +56,20 @@ fun rememberArdttHaptics(enabled: Boolean): ArdttHaptics {
  * `previous` / `initialized` pair, once per signal.
  */
 @Composable
-fun RisingEdgeSuccessHaptic(haptics: ArdttHaptics, signal: Boolean) {
+fun RisingEdgeSuccessHaptic(haptics: ArdttHaptics, signal: Boolean) =
+    RisingEdgeHaptic(signal) { haptics.success() }
+
+/** Reject pulse when [signal] flips from false to true (a connection attempt failed). */
+@Composable
+fun RisingEdgeRejectHaptic(haptics: ArdttHaptics, signal: Boolean) =
+    RisingEdgeHaptic(signal) { haptics.reject() }
+
+@Composable
+private fun RisingEdgeHaptic(signal: Boolean, perform: () -> Unit) {
     var previous by remember { mutableStateOf(signal) }
     var initialized by remember { mutableStateOf(false) }
     LaunchedEffect(signal) {
-        if (initialized && !previous && signal) haptics.success()
+        if (initialized && !previous && signal) perform()
         previous = signal
         initialized = true
     }
