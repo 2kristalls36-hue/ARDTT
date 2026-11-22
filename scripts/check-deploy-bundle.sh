@@ -267,7 +267,7 @@ grep -q -- '--from-dir' "$ROOT/scripts/attach-server-packages-to-release.sh" \
 if grep -- '--clobber' "$ROOT/scripts/attach-server-packages-to-release.sh" | grep -vq 'sums_cmd'; then
   err "attach-to-release may clobber only the merged SHA256SUMS-server.txt"
 fi
-if grep -q "github.head_ref == 'cursor/server-bundle-ui-bad3'" "$ROOT/.github/workflows/server-package.yml"; then
+if grep -q "github.head_ref ==" "$ROOT/.github/workflows/server-package.yml"; then
   err "PR branch must not publish to GitHub Releases"
 fi
 if grep -q 'pull_request' "$ROOT/.github/workflows/server-package.yml" && \

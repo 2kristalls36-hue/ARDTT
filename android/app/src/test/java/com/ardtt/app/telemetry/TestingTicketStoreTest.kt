@@ -242,14 +242,14 @@ class TestingTicketStoreTest {
                     number = 4,
                     read = true,
                     processedAt = "2026-09-06T13:00:00Z",
-                    processedBy = "cursor-agent",
+                    processedBy = "claude-agent",
                 ),
             ),
         )
         val ticket = store.load().tickets.single()
         assertTrue(ticket.read)
         assertEquals("", ticket.reviewNote)
-        assertEquals("cursor-agent", ticket.processedBy)
+        assertEquals("claude-agent", ticket.processedBy)
         assertEquals("2026-09-06T13:00:00Z", ticket.processedAt)
     }
 

@@ -40,7 +40,7 @@ GitHub Release `v0.5.268`: APK (`versionCode` считается CI из ист�
 ## 0.5.268
 
 - **Сборка.** `versionCode` в CI считается из истории git (релиз: число коммитов × 10; preview: база × 10 плюс коммиты PR, не больше 9), чтобы каждый опубликованный APK ставился поверх предыдущего. Вручную бампается только `releaseVersionName`; `releaseVersionCode` 289 — нижняя граница локальной сборки. Страж CI не публикует повторно APK с тем же `versionCode`, что у latest.
-- **Скрипт.** `scripts/cloud-agent-install.sh` ставит Android SDK/NDK и Go для Cloud Agent и локальных сборок.
+- **Скрипт.** `scripts/cloud-agent-install.sh` ставит Android SDK/NDK и Go для облачных сессий Claude Code и локальных сборок.
 - **Документация.** `docs/DIAGNOSIS-TUNNEL-DROP.md` — почему туннель обрывается сам (клиент, Go-обход, сервер).
 
 # ARDTT v0.5.267
