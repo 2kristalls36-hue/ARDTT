@@ -5,6 +5,10 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SCENARIO="${1:-full}"
 LAB=/var/lib/ardtt-lab
+# The lab installs a system stack: re-run as root when the runner account is not.
+if [ "$(id -u)" -ne 0 ]; then
+  exec sudo -E bash "$0" "$@"
+fi
 mkdir -p "$LAB"
 
 if [ "$SCENARIO" = diag ] || ! command -v systemd-run >/dev/null 2>&1; then

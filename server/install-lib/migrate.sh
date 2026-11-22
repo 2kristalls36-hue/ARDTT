@@ -130,6 +130,9 @@ stop_legacy_owned() {
     [ -n "$proj" ] || proj=stack
     for cid in $(docker ps -aq --filter "label=com.docker.compose.project=${proj}" 2>/dev/null || true); do
       if object_owned_by_us container "$cid" || container_looks_like_legacy_ardtt "$cid"; then
+        # Graceful stop first: WARP/cascade EXIT traps clear their ip rules and
+        # iptables (on the host for a legacy hostnet install); rm -f is SIGKILL.
+        docker stop -t 30 "$cid" >/dev/null 2>&1 || true
         docker rm -f "$cid" >/dev/null 2>&1 || true
         echo "ARDTT_INFO|снят контейнер старой установки ${cid} (проект ${proj})"
       else
