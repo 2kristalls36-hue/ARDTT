@@ -18,6 +18,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.background
 import com.ardtt.app.ui.theme.ArdttAlpha
 import com.ardtt.app.ui.theme.ArdttLayout
 import com.ardtt.app.ui.theme.ArdttSize
@@ -38,7 +40,10 @@ fun ArdttSwitchRow(
     modifier: Modifier = Modifier,
     subtitle: String? = null,
     enabled: Boolean = true,
+    /** Small label after the title, e.g. «Бета». */
+    badge: String? = null,
 ) {
+    val haptics = com.ardtt.app.ui.motion.LocalAppHaptics.current
     // One toggleable node: the label and the switch are announced together and
     // the whole row (≥ 48 dp tall) is the hit target. The Switch itself gets no
     // click handler, so TalkBack does not see two controls for one setting.
@@ -50,7 +55,7 @@ fun ArdttSwitchRow(
                 value = checked,
                 enabled = enabled,
                 role = Role.Switch,
-                onValueChange = onCheckedChange,
+                onValueChange = { haptics.toggle(it); onCheckedChange(it) },
             ),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
@@ -62,12 +67,19 @@ fun ArdttSwitchRow(
                 .padding(end = ArdttSpacing.Medium),
             verticalArrangement = Arrangement.spacedBy(ArdttLayout.StackedLabelSpacing),
         ) {
-            Text(
-                title,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = LocalContentColor.current.copy(alpha = labelAlpha),
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(ArdttSpacing.Small),
+            ) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = LocalContentColor.current.copy(alpha = labelAlpha),
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (badge != null) ArdttBetaBadge(badge)
+            }
             if (!subtitle.isNullOrBlank()) {
                 Text(
                     subtitle,
@@ -76,7 +88,7 @@ fun ArdttSwitchRow(
                 )
             }
         }
-        Switch(checked = checked, onCheckedChange = null, enabled = enabled)
+        LiteSwitch(checked = checked, onCheckedChange = null, enabled = enabled)
     }
 }
 
@@ -148,4 +160,19 @@ fun ArdttSettingBlock(
         }
         content()
     }
+}
+
+/** Pill label next to a setting title («Бета»). */
+@Composable
+fun ArdttBetaBadge(text: String = "Бета") {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+        color = MaterialTheme.colorScheme.primary,
+        maxLines = 1,
+        modifier = Modifier
+            .clip(androidx.compose.foundation.shape.RoundedCornerShape(50))
+            .background(MaterialTheme.colorScheme.primaryContainer)
+            .padding(horizontal = ArdttSpacing.Small, vertical = ArdttSpacing.Hairline),
+    )
 }

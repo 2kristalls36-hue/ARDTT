@@ -49,7 +49,17 @@ import com.ardtt.app.ui.admin.LogsScreen
 import com.ardtt.app.ui.admin.NetworkScreen
 import com.ardtt.app.ui.admin.ServersScreen
 import com.ardtt.app.ui.admin.TestingScreen
-import com.ardtt.app.ui.components.control.rememberArdttHaptics
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.platform.LocalHapticFeedback
+import com.ardtt.app.ui.components.surface.GlassBackdrop
+import com.ardtt.app.ui.components.surface.LiquidGlass
+import com.ardtt.app.ui.components.surface.LocalGlassBackdrop
+import com.ardtt.app.ui.components.surface.glassBackdropSource
+import com.ardtt.app.ui.motion.LocalAppHaptics
+import com.ardtt.app.ui.motion.LocalMagnetEnabled
+import com.ardtt.app.ui.motion.SettingAwareHapticFeedback
+import com.ardtt.app.ui.motion.rememberAppHaptics
 import com.ardtt.app.ui.components.layout.ArdttBackdrop
 import com.ardtt.app.ui.components.layout.ArdttNavItem
 import com.ardtt.app.ui.components.layout.ArdttNavigationBar
@@ -116,7 +126,16 @@ fun AppRoot(
     val themeMode by settings.themeModeFlow.collectAsStateWithLifecycle(initialValue = "system")
     val dynamicColors by settings.dynamicColorsFlow.collectAsStateWithLifecycle(initialValue = true)
     val uiHapticsEnabled by settings.uiHapticsEnabledFlow.collectAsStateWithLifecycle(initialValue = true)
-    val haptics = rememberArdttHaptics(uiHapticsEnabled)
+    val glassOn by settings.liquidGlassFlow.collectAsStateWithLifecycle(initialValue = false)
+    val glassTransparency by settings.glassTransparencyFlow.collectAsStateWithLifecycle(
+        initialValue = AppSettingsRepository.DEFAULT_GLASS_TRANSPARENCY,
+    )
+    val magnetOn by settings.magnetFlow.collectAsStateWithLifecycle(initialValue = true)
+    val appHaptics = rememberAppHaptics(uiHapticsEnabled)
+    val glassLayer = rememberGraphicsLayer()
+    val glassBackdrop = remember(glassLayer) { GlassBackdrop(glassLayer) }
+    val backdrop = glassBackdrop.takeIf { glassOn && LiquidGlass.supported }
+    backdrop?.transparency = glassTransparency
     val testingMode by settings.testingModeEnabled.collectAsStateWithLifecycle(initialValue = false)
     val silent by settings.silentRecreateEnabled.collectAsStateWithLifecycle(initialValue = false)
     val dial by settings.dialPathName.collectAsStateWithLifecycle(initialValue = "auto")
@@ -265,7 +284,6 @@ fun AppRoot(
     }
 
     fun navigateTab(route: String) {
-        haptics.tick()
         if (route == currentRoute) {
             tabReselectSignal[route] = (tabReselectSignal[route] ?: 0) + 1
             navController.popBackStack(route, inclusive = false)
@@ -396,8 +414,19 @@ fun AppRoot(
             colorScheme = adaptedColorScheme,
             typography = MaterialTheme.typography,
         ) {
-            CompositionLocalProvider(LocalIllustratedBackdrop provides showUserWallpaper) {
+            // The glass rim takes the accent colour of the current palette.
+            val rimColor by animateColorAsState(adaptedColorScheme.primary, label = "glassRim")
+            backdrop?.rim = rimColor
+            CompositionLocalProvider(
+                LocalIllustratedBackdrop provides showUserWallpaper,
+                LocalGlassBackdrop provides backdrop,
+                LocalAppHaptics provides appHaptics,
+                LocalMagnetEnabled provides magnetOn,
+                LocalHapticFeedback provides remember(appHaptics) { SettingAwareHapticFeedback(appHaptics) },
+            ) {
                 Box(modifier = Modifier.fillMaxSize()) {
+                    // Everything under the tab bar is recorded once per frame for the glass to refract.
+                    Box(modifier = Modifier.fillMaxSize().glassBackdropSource(backdrop)) {
                     // One scene × time-of-day for every user-mode tab, including Tunnel.
                     // Keep the Image composed so tab switches do not flash Field.
                     if (showUserWallpaper) {
@@ -500,6 +529,7 @@ fun AppRoot(
                                 onBack = { navigateTab(AppDestination.Settings.route) },
                             )
                         }
+                    }
                     }
 
                     ArdttNavigationBar(

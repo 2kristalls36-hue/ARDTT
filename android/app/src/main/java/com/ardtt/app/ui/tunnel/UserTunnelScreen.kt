@@ -75,6 +75,7 @@ import com.ardtt.app.settings.AppSettingsRepository
 import com.ardtt.app.ui.components.control.ArdttButton
 import com.ardtt.app.ui.components.control.ArdttButtonSize
 import com.ardtt.app.ui.components.control.ArdttButtonVariant
+import com.ardtt.app.ui.components.control.RisingEdgeRejectHaptic
 import com.ardtt.app.ui.components.control.RisingEdgeSuccessHaptic
 import com.ardtt.app.ui.components.control.rememberArdttHaptics
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
@@ -131,6 +132,7 @@ fun UserTunnelScreen(
     }
     RisingEdgeSuccessHaptic(haptics, ui.state == ConnState.Connected)
     RisingEdgeSuccessHaptic(haptics, ui.hasCallHash)
+    RisingEdgeRejectHaptic(haptics, ui.state == ConnState.Error)
 
     val bypassActive = wallpaperBypassActive(
         pathMode = ConnPathMode.fromSetting(pathMode),

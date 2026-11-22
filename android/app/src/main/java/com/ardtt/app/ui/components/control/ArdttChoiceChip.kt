@@ -51,7 +51,7 @@ private object ChoiceChipDefaults {
     const val SelectedBorderAlphaLight = 0.25f
     const val UnselectedBorderAlpha = 0.45f
     const val DimmedBorderAlpha = ArdttAlpha.Outline
-    val ContentPadding = PaddingValues(horizontal = ArdttSpacing.XLarge)
+    val ContentPadding = PaddingValues(horizontal = ArdttSpacing.Medium)
 }
 
 /**
@@ -106,6 +106,8 @@ fun ArdttChoiceChip(
     height: Dp = ArdttSize.Chip,
 ) {
     val colors = MaterialTheme.colorScheme
+    val haptics = com.ardtt.app.ui.motion.LocalAppHaptics.current
+    val tapped = { if (!selected) haptics.perform(com.ardtt.app.ui.motion.Haptic.Tick); onClick() }
     // Announced as one option of a group («выбрано» / «не выбрано»), not as a
     // plain button whose state the user has to infer from the fill.
     val sizeModifier = modifier
@@ -118,7 +120,7 @@ fun ArdttChoiceChip(
 
     if (!selected) {
         OutlinedButton(
-            onClick = onClick,
+            onClick = tapped,
             enabled = enabled,
             modifier = sizeModifier,
             shape = ArdttShapes.Chip,
@@ -141,7 +143,7 @@ fun ArdttChoiceChip(
             ),
             contentPadding = ChoiceChipDefaults.ContentPadding,
         ) {
-            Text(label, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            FitText(label, fontWeight = FontWeight.Medium)
         }
         return
     }
@@ -186,11 +188,9 @@ fun ArdttChoiceChip(
         },
         contentPadding = ChoiceChipDefaults.ContentPadding,
     ) {
-        Text(
+        FitText(
             label,
             fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
             color = if (dimmed) {
                 (accentContent ?: colors.primary).copy(alpha = ArdttAlpha.Subtle)
             } else {
