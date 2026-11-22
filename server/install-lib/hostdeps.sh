@@ -24,7 +24,12 @@ hostdeps_install_iptables() {
   case "$1" in
     apt)
       export DEBIAN_FRONTEND=noninteractive
-      apt-get update -qq && apt-get install -y -qq --no-install-recommends iptables
+      # Ubuntu Server runs needrestart after apt and, non-interactively, restarts
+      # every service that maps an upgraded library — other people's services on
+      # this VPS included. Installing one binary must not restart anything.
+      export NEEDRESTART_SUSPEND=1 NEEDRESTART_MODE=l
+      apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+        -o Dpkg::Options::=--force-confold iptables
       ;;
     dnf) dnf install -y iptables-nft || dnf install -y iptables ;;
     yum) yum install -y iptables-nft || yum install -y iptables ;;
