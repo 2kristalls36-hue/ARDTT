@@ -36,7 +36,10 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
+      # The scenario runs as its own transient systemd unit, outside the runner's
+      # cgroup (like a real deploy over SSH). If the runner restarts mid-way, the
+      # scenario still finishes and its log stays in /var/lib/ardtt-lab for «diag».
       - name: Run scenario
         env:
           SCENARIO: ${{ inputs.scenario }}
-        run: bash scripts/vps-lab/run.sh "$SCENARIO"
+        run: bash scripts/vps-lab/detach.sh "$SCENARIO"

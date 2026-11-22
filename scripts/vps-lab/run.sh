@@ -205,6 +205,9 @@ diag() {
   echo "## runner journal"; as_root journalctl -u 'actions.runner.*' --no-pager -n 40 2>/dev/null
   echo "## /opt/ardtt"; ls -la /opt/ardtt 2>/dev/null; cat /opt/ardtt/install.log 2>/dev/null | tail -60
   echo "## lab logs"; ls -la "$LAB" 2>/dev/null
+  if [ -f "$LAB/last-run.log" ]; then
+    echo "### last detached run"; tail -120 "$LAB/last-run.log"
+  fi
   local f
   for f in "$LAB"/install-published.log "$LAB"/install-tree.log; do
     [ -f "$f" ] || continue
