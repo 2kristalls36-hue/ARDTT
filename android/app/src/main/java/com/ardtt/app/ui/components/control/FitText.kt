@@ -10,6 +10,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
@@ -41,9 +42,23 @@ fun FitText(
     val base: TextUnit = style.fontSize.takeIf { it.isSpecified } ?: LocalTextStyle.current.fontSize
     var scale by remember(text, base) { mutableFloatStateOf(1f) }
     var ready by remember(text, base) { mutableStateOf(false) }
+    // A new width starts the fit over, so a label that gains room grows back.
+    var fitWidth by remember(text, base) { androidx.compose.runtime.mutableIntStateOf(-1) }
     Text(
         text,
-        modifier = modifier.drawWithContent { if (ready) drawContent() },
+        modifier = modifier
+            .layout { measurable, constraints ->
+                if (constraints.maxWidth != fitWidth) {
+                    if (fitWidth >= 0) {
+                        scale = 1f
+                        ready = false
+                    }
+                    fitWidth = constraints.maxWidth
+                }
+                val placeable = measurable.measure(constraints)
+                layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+            }
+            .drawWithContent { if (ready) drawContent() },
         style = style.copy(fontSize = base * minOf(scale, scaleCap)),
         color = color,
         fontWeight = fontWeight,
