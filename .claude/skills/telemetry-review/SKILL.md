@@ -42,7 +42,7 @@ curl -s 'http://127.0.0.1:9200/api/logs/ticket/N'
 ```bash
 curl -s -X POST \
   -H 'Content-Type: application/json' \
-  -d '{"processed_by":"cursor-agent"}' \
+  -d '{"processed_by":"claude-agent"}' \
   "http://127.0.0.1:9200/api/logs/${CLIENT_ID}/${FILENAME}/read"
 ```
 
@@ -55,7 +55,7 @@ curl -s -X POST \
 ```bash
 curl -s -X POST \
   -H 'Content-Type: application/json' \
-  -d '{"processed_by":"cursor-agent","reply":"краткий вывод на русском"}' \
+  -d '{"processed_by":"claude-agent","reply":"краткий вывод на русском"}' \
   "http://127.0.0.1:9200/api/logs/${CLIENT_ID}/${FILENAME}/comment"
 ```
 

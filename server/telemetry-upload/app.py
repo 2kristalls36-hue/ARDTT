@@ -312,7 +312,7 @@ def upsert_review(
     payload = {
         "read": True,
         "processed_at": existing.get("processed_at") if already_read else now,
-        "processed_by": processed_by or existing.get("processed_by") or "cursor-agent",
+        "processed_by": processed_by or existing.get("processed_by") or "claude-agent",
         "note": current_reply,
         "reply": current_reply,
         "log": str(path),
@@ -482,7 +482,7 @@ def mark_log_read(client_id: str, filename: str):
         return jsonify({"error": "log not found"}), 404
 
     body = request.get_json(silent=True) or {}
-    processed_by = str(body.get("processed_by") or "cursor-agent").strip()[:128]
+    processed_by = str(body.get("processed_by") or "claude-agent").strip()[:128]
     reply = None
     set_reply = False
     if "reply" in body:
@@ -495,7 +495,7 @@ def mark_log_read(client_id: str, filename: str):
             set_reply = True
     payload = upsert_review(
         path,
-        processed_by=processed_by or "cursor-agent",
+        processed_by=processed_by or "claude-agent",
         reply=reply,
         set_reply=set_reply,
     )
@@ -512,13 +512,13 @@ def mark_log_comment(client_id: str, filename: str):
         return jsonify({"error": "log not found"}), 404
 
     body = request.get_json(silent=True) or {}
-    processed_by = str(body.get("processed_by") or "cursor-agent").strip()[:128]
+    processed_by = str(body.get("processed_by") or "claude-agent").strip()[:128]
     reply = str(body.get("reply") or body.get("note") or "").strip()[:2048]
     if not reply:
         return jsonify({"error": "reply is required"}), 400
     payload = upsert_review(
         path,
-        processed_by=processed_by or "cursor-agent",
+        processed_by=processed_by or "claude-agent",
         reply=reply,
         set_reply=True,
     )

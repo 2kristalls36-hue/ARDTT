@@ -28,9 +28,9 @@ Thumbs.db
 *~
 *.swp
 .vscode/
-.cursor/*
-!.cursor/skills/
-!.cursor/skills/**
+.claude/*
+!.claude/skills/
+!.claude/skills/**
 
 # Secrets (никогда не коммитить)
 .env

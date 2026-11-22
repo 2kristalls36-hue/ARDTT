@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Idempotent Android SDK/NDK + Go 1.25 setup for Cloud Agent and a fresh Linux host.
+# Idempotent Android SDK/NDK + Go 1.25 setup for a Claude Code cloud session and a fresh Linux host.
 # Safe to re-run: already-installed pieces are skipped.
 set -euo pipefail
 

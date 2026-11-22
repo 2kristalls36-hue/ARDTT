@@ -122,7 +122,7 @@ class TelemetryUploadTest(unittest.TestCase):
         self.upload("client_aaa", "a.json")
         marked = self.client.post(
             "/api/logs/client_aaa/a.json/read",
-            json={"processed_by": "cursor-agent"},
+            json={"processed_by": "claude-agent"},
             headers=self.review_headers(),
         )
         self.assertEqual(marked.status_code, 200)
@@ -132,13 +132,13 @@ class TelemetryUploadTest(unittest.TestCase):
         self.assertIsNone(item["reply"])
         again = self.client.post(
             "/api/logs/client_aaa/a.json/read",
-            json={"processed_by": "cursor-agent"},
+            json={"processed_by": "claude-agent"},
             headers=self.review_headers(),
         )
         self.assertEqual(again.status_code, 200)
         commented = self.client.post(
             "/api/logs/client_aaa/a.json/comment",
-            json={"processed_by": "cursor-agent", "reply": "обход падает на смене Wi‑Fi"},
+            json={"processed_by": "claude-agent", "reply": "обход падает на смене Wi‑Fi"},
             headers=self.review_headers(),
         )
         self.assertEqual(commented.status_code, 200)
@@ -149,7 +149,7 @@ class TelemetryUploadTest(unittest.TestCase):
         self.assertEqual(item["reply"], "обход падает на смене Wi‑Fi")
         blank = self.client.post(
             "/api/logs/client_aaa/a.json/comment",
-            json={"processed_by": "cursor-agent", "reply": "  "},
+            json={"processed_by": "claude-agent", "reply": "  "},
             headers=self.review_headers(),
         )
         self.assertEqual(blank.status_code, 400)
@@ -177,7 +177,7 @@ class TelemetryUploadTest(unittest.TestCase):
         )
         self.client.post(
             "/api/logs/client_aaa/a.json/read",
-            json={"processed_by": "cursor-agent"},
+            json={"processed_by": "claude-agent"},
             headers=self.review_headers(),
         )
         inbox = self.client.get("/api/logs/client_aaa/status").get_json()
@@ -185,7 +185,7 @@ class TelemetryUploadTest(unittest.TestCase):
         self.assertTrue(inbox["logs"][0]["read"])
         self.client.post(
             "/api/logs/client_aaa/a.json/read",
-            json={"processed_by": "cursor-agent", "note": "   "},
+            json={"processed_by": "claude-agent", "note": "   "},
             headers=self.review_headers(),
         )
         inbox = self.client.get("/api/logs/client_aaa/status").get_json()
