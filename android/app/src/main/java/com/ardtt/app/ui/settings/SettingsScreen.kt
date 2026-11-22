@@ -79,7 +79,6 @@ import com.ardtt.app.ui.components.control.DialPathChipRow
 import com.ardtt.app.ui.components.control.HideIpChipRow
 import com.ardtt.app.ui.components.control.PathModeChipRow
 import com.ardtt.app.ui.components.control.ThemeModeChipRow
-import com.ardtt.app.ui.components.control.rememberArdttHaptics
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
 import com.ardtt.app.ui.components.layout.ArdttDestinationRow
 import com.ardtt.app.ui.components.layout.ArdttFeedScaffold
@@ -196,7 +195,6 @@ fun SettingsScreen(
     )
     val magnet by settings.magnetFlow.collectAsStateWithLifecycle(initialValue = true)
     val connUi by conn.ui.collectAsStateWithLifecycle()
-    val haptics = rememberArdttHaptics(uiHapticsEnabled)
     val openCallHash by PendingUiAction.openCallHashSettings.collectAsStateWithLifecycle()
     val callHashBringIntoView = remember { BringIntoViewRequester() }
     val openUpdateDownload by PendingUiAction.openUpdateDownload.collectAsStateWithLifecycle()
@@ -325,7 +323,6 @@ fun SettingsScreen(
                     scope.launch { commitPathMode(settings, conn, mode) }
                 },
                 onNeedCallHash = {
-                    haptics.tick()
                     scope.launch { revealSection(SettingsSection.BypassMethod, callHashBringIntoView) }
                 },
             )
@@ -445,9 +442,9 @@ fun SettingsScreen(
                     title = "Магнит",
                     badge = "Бета",
                     subtitle = if (magnet) {
-                        "Вкладки, переключатели и списки притягиваются к ближайшему положению."
+                        "Вкладки и переключатели притягиваются к ближайшему положению."
                     } else {
-                        "Вкладки, переключатели и списки останавливаются без притягивания."
+                        "Вкладки и переключатели останавливаются без притягивания."
                     },
                     checked = magnet,
                     onCheckedChange = { scope.launch { settings.setMagnet(it) } },

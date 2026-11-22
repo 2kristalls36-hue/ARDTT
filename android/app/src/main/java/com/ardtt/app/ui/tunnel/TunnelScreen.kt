@@ -461,7 +461,6 @@ fun TunnelScreen(
                         activeId = profileCatalog.activeId,
                         enabled = !switchLocked,
                         onSelect = { item ->
-                            haptics.tick()
                             scope.launch { QsProfileSwitch.activate(context, item) }
                         },
                     )
@@ -481,7 +480,6 @@ fun TunnelScreen(
                             scope.launch { commitPathMode(settings, conn, mode) }
                         },
                         onNeedCallHash = {
-                            haptics.tick()
                             showBypassMethodDialog = true
                             highlightBypassDialog = true
                         },
