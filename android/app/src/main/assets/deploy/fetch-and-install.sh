@@ -395,6 +395,12 @@ fetch_disk_preflight() {
     die "DISK_MEASUREMENT_FAILED|не удалось измерить свободное место на ${install_dir} до загрузки"
   fi
   min_bytes=$(( ${MIN_DISK_MB:-1600} * 1024 * 1024 ))
+  # Same image already in Docker (same layers as the index): nothing to import,
+  # so neither the raw layer bytes nor the first-import floor apply.
+  if [ "${IMAGE_ALREADY_LOADED:-0}" = 1 ]; then
+    docker_raw=0
+    min_bytes=0
+  fi
   payload="$(python3 - <<PY
 import json
 print(json.dumps({
@@ -947,6 +953,23 @@ if [ -n "$COMPOSE_ASSET" ]; then
     NEED_COMPOSE=0
   else
     NEED_COMPOSE=1
+  fi
+fi
+
+# Redeploy of the image Docker already holds (same tag and the very layers of
+# this release): the disk check must not demand room for a second import.
+IMAGE_ALREADY_LOADED=0
+if [ -n "${IMAGE_TAG:-}" ] && command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 \
+   && docker image inspect "$IMAGE_TAG" >/dev/null 2>&1; then
+  if docker image inspect -f '{{json .RootFS.Layers}}' "$IMAGE_TAG" 2>/dev/null \
+     | python3 -c '
+import json, sys
+got = json.load(sys.stdin) or []
+want = [l["diffId"] for l in json.load(open(sys.argv[1], encoding="utf-8"))["image"]["layers"]]
+want = [w if w.startswith("sha256:") else "sha256:" + w for w in want]
+raise SystemExit(0 if got and got == want else 1)' "$INDEX_PATH"; then
+    IMAGE_ALREADY_LOADED=1
+    info "образ ${IMAGE_TAG} с этими слоями уже загружен — порог места для импорта не применяется"
   fi
 fi
 
