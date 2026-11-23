@@ -31,6 +31,7 @@ done
 ok "no host-wide operations"
 grep -q 'ARDTT_DONE|install_dir=' "$DEPLOY" && ok "DONE line" || err "no ARDTT_DONE"
 
+bash "$ROOT/scripts/test-publish-server-release.sh" || err "test-publish-server-release"
 bash "$ROOT/scripts/test-deploy-v2.sh" || err "test-deploy-v2"
 
 [ "$fail" -eq 0 ] || { echo "deploy bundle check failed" >&2; exit 1; }

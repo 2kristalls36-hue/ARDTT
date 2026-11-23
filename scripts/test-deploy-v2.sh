@@ -174,7 +174,30 @@ if [ "$(cat "$W/opt-entry2/data/cascade.secret" 2>/dev/null)" = exit-secret-123 
 else
   err "cascade secret file"; echo "$out" | tail -5
 fi
+# Turning cascade off in the app (ARDTT_CASCADE_ENABLED=0) must switch it off.
+env ARDTT_INSTALL_DIR="$W/opt-entry2" ARDTT_PUBLIC_HOST=203.0.113.7 ARDTT_ROLE=entry ARDTT_CASCADE_ENABLED=0 \
+  ARDTT_DEPLOY_VERSION=9.0.2 ARDTT_IMAGE_FILE="$(img 9.0.2)" ARDTT_AUTO_PORTS=1 bash "$DEPLOY" >/dev/null 2>&1
+if grep -q '^CASCADE_ENABLED=0$' "$W/opt-entry2/instance.env" && grep -q '^CASCADE_PEER_ENDPOINT=$' "$W/opt-entry2/instance.env"; then
+  ok "explicit cascade off is honoured"
+else
+  err "cascade off: $(grep CASCADE "$W/opt-entry2/instance.env" | tr '\n' ' ')"
+fi
 env ARDTT_INSTALL_DIR="$W/opt-entry2" ARDTT_ACTION=uninstall ARDTT_PURGE_DATA=1 bash "$DEPLOY" >/dev/null 2>&1
+
+# Published ports of other containers are busy even without a host socket
+# (userland-proxy=false): hide sockets with an empty ss.
+mkdir -p "$W/nobin"
+printf '#!/bin/sh\nexit 0\n' >"$W/nobin/ss"
+chmod 755 "$W/nobin/ss"
+out="$(env PATH="$W/nobin:$PATH" ARDTT_INSTALL_DIR="$W/opt-nosock" ARDTT_PUBLIC_HOST=203.0.113.8 ARDTT_ROLE=entry \
+  ARDTT_DEPLOY_VERSION=9.0.2 ARDTT_IMAGE_FILE="$(img 9.0.2)" ARDTT_AUTO_PORTS=1 bash "$DEPLOY" 2>&1)"
+dp="$(field direct_port <<<"$out")"
+if [ -n "$dp" ] && [ "$dp" != 51820 ] && [ "$dp" != 51821 ]; then
+  ok "ports published by other containers count as busy ($dp)"
+else
+  err "docker-published ports: direct_port=$dp"; echo "$out" | tail -4
+fi
+env ARDTT_INSTALL_DIR="$W/opt-nosock" ARDTT_ACTION=uninstall ARDTT_PURGE_DATA=1 bash "$DEPLOY" >/dev/null 2>&1
 
 [ "$(docker inspect -f '{{.State.Running}}' ardtt)" = true ] && ok "exit uninstall leaves entry" || err "exit uninstall touched entry"
 

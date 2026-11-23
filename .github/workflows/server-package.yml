@@ -109,11 +109,14 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  # Same rule as android-build.yml: a push to main with a non-test versionName
+  # publishes release v<versionName>, so the images go there too — an APK must
+  # never be released without the stack image it installs.
   publish:
     name: Attach to GitHub Release
     needs: package
     if: >-
-      (github.event_name == 'push' && github.ref_type == 'tag') ||
+      github.event_name == 'push' ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '')
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -121,7 +124,28 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag || '' }}
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then
+            tag="${GITHUB_REF_NAME}"
+          elif [ -n "$INPUT_TAG" ]; then
+            tag="$INPUT_TAG"
+          else
+            name="$(sed -n 's/.*releaseVersionName = "\([^"]*\)".*/\1/p' android/app/build.gradle.kts | head -n 1)"
+            case "$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')" in
+              *test*) tag="" ;;
+              *) tag="v${name}" ;;
+            esac
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "release tag: ${tag:-none (test build)}"
+
       - name: Download images
+        if: steps.tag.outputs.tag != ''
         uses: actions/download-artifact@v4
         with:
           path: dist
@@ -129,8 +153,9 @@ jobs:
           merge-multiple: true
 
       - name: Publish
+        if: steps.tag.outputs.tag != ''
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_type == 'tag' && github.ref_name || github.event.inputs.tag }}
+          TAG: ${{ steps.tag.outputs.tag }}
         run: bash scripts/publish-server-release.sh --tag "$TAG" --from-dir dist

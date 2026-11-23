@@ -26,7 +26,8 @@
 #   ARDTT_AUTO_PORTS=1         take the next free port when one is busy
 #   ARDTT_CASCADE_ENABLED ARDTT_CASCADE_LISTEN_PORT ARDTT_CASCADE_PEER_ENDPOINT
 #   ARDTT_CASCADE_PEER_PUBLIC_KEY ARDTT_CASCADE_PEER_PROVISION_PORT ARDTT_CASCADE_DNS
-#   ARDTT_CASCADE_SECRET ARDTT_CASCADE_FORCE_DISABLE=1
+#   ARDTT_CASCADE_SECRET ARDTT_CASCADE_FORCE_DISABLE=1 (ARDTT_CASCADE_ENABLED, when set, wins
+#                              over the stored value; unset keeps the stored cascade)
 #   ARDTT_CASCADE_SECRET_FILE  file with the exit's cascade secret (read, then deleted;
 #                              keeps the secret out of the process list)
 #   ARDTT_PROVISION_PUBLIC=1   publish provision/telemetry on 0.0.0.0 (default 127.0.0.1)
@@ -327,21 +328,38 @@ EOF
 # ----------------------------------------------------------------- ports ----
 OWN_PORTS=" "
 
-collect_own_ports() { # ports published by this instance's containers count as free
+OTHER_DOCKER_PORTS=" "
+
+port_bindings() { # container → lines «udp/51820»
+  docker container inspect -f '{{range $p, $b := .HostConfig.PortBindings}}{{range $b}}{{$p}}={{.HostPort}}{{"\n"}}{{end}}{{end}}' "$1" 2>/dev/null \
+    | sed -n 's#^[0-9]*/\(udp\|tcp\)=\([0-9][0-9]*\)$#\1/\2#p'
+}
+
+# Ports published by this instance count as free. Ports other containers
+# publish count as busy even without a host socket (dockerd with
+# userland-proxy=false publishes through NAT rules only).
+collect_own_ports() {
   local c line
   OWN_PORTS=" "
+  OTHER_DOCKER_PORTS=" "
   for c in $(docker ps -aq --filter "label=${INSTANCE_LABEL}=${INSTANCE_ID}" 2>/dev/null) "$CONTAINER" "${CONTAINER}-prev"; do
     container_is_ours "$c" 2>/dev/null || continue
     while IFS= read -r line; do
       [ -n "$line" ] && OWN_PORTS="${OWN_PORTS}${line} "
-    done < <(docker container inspect -f '{{range $p, $b := .HostConfig.PortBindings}}{{range $b}}{{$p}}={{.HostPort}}{{"\n"}}{{end}}{{end}}' "$c" 2>/dev/null \
-      | sed -n 's#^[0-9]*/\(udp\|tcp\)=\([0-9][0-9]*\)$#\1/\2#p')
+    done < <(port_bindings "$c")
+  done
+  for c in $(docker ps -q 2>/dev/null); do
+    [ "$(docker_label container "$c" "$INSTANCE_LABEL")" = "$INSTANCE_ID" ] && continue
+    while IFS= read -r line; do
+      [ -n "$line" ] && OTHER_DOCKER_PORTS="${OTHER_DOCKER_PORTS}${line} "
+    done < <(port_bindings "$c")
   done
 }
 
 port_busy() { # proto port
   local proto="$1" port="$2" flag
   case " $OWN_PORTS " in *" ${proto}/${port} "*) return 1 ;; esac
+  case " $OTHER_DOCKER_PORTS " in *" ${proto}/${port} "*) return 0 ;; esac
   have ss || return 1
   [ "$proto" = udp ] && flag=-lnu || flag=-lnt
   # No -H: old iproute2 lacks it; the header is the first line.
@@ -490,7 +508,7 @@ resolve_release_assets() { # sets IMAGE_URL, SUMS_URL
     page="$(http_get "${GH_API}/repos/${REPO}/releases?per_page=40" 2>/dev/null)" \
       || die DOWNLOAD_FAILED "VPS не получил список релизов GitHub (${GH_API}). Нужен исходящий HTTPS к github.com."
     url="$(printf '%s' "$page" | grep -o "\"browser_download_url\": *\"[^\"]*/${asset}\"" | head -n 1 | sed 's/.*"\(https[^"]*\)"$/\1/')"
-    [ -n "$url" ] || die DOWNLOAD_FAILED "В релизах ${REPO} нет ${asset}. Обновите приложение или выберите опубликованную версию стека."
+    [ -n "$url" ] || die DOWNLOAD_FAILED "В релизах ${REPO} пока нет ${asset}. Сразу после выхода версии образ публикуется до получаса — повторите позже."
     IMAGE_URL="$url"
     SUMS_URL="${url%/*}/SHA256SUMS-server.txt"
   else
@@ -619,16 +637,28 @@ resolve_params() {
   PROVISION_PUBLIC="${ARDTT_PROVISION_PUBLIC:-${s:-0}}"
   case "$PROVISION_PUBLIC" in 1|true|yes|on) PROVISION_PUBLIC=1 ;; *) PROVISION_PUBLIC=0 ;; esac
 
-  CASCADE_ENABLED="${ARDTT_CASCADE_ENABLED:-0}"
+  # An explicit ARDTT_CASCADE_ENABLED (the app always sends it) wins, 0 included;
+  # a manual run without it keeps the stored cascade.
   s="$(stored CASCADE_ENABLED)"
-  if [ "$ROLE" = entry ] && [ "$CASCADE_ENABLED" != 1 ] && [ "$s" = 1 ] && [ "${ARDTT_CASCADE_FORCE_DISABLE:-0}" != 1 ]; then
-    CASCADE_ENABLED=1
-    warn "каскад сохранён с прошлого деплоя (ARDTT_CASCADE_FORCE_DISABLE=1 — снять)"
+  if [ -n "${ARDTT_CASCADE_ENABLED:-}" ]; then
+    CASCADE_ENABLED="$ARDTT_CASCADE_ENABLED"
+  else
+    CASCADE_ENABLED="${s:-0}"
+  fi
+  [ "${ARDTT_CASCADE_FORCE_DISABLE:-0}" = 1 ] && CASCADE_ENABLED=0
+  [ "$CASCADE_ENABLED" = 1 ] || CASCADE_ENABLED=0
+  if [ "$ROLE" = entry ] && [ "$CASCADE_ENABLED" = 0 ] && [ "$s" = 1 ]; then
+    info "каскад выключен — вход работает сам"
+    CASCADE_PEER_ENDPOINT_RESET=1
   fi
   [ "$ROLE" = exit ] && CASCADE_ENABLED=1
   CASCADE_LISTEN_PORT="${ARDTT_CASCADE_LISTEN_PORT:-$(stored CASCADE_LISTEN_PORT)}"; CASCADE_LISTEN_PORT="${CASCADE_LISTEN_PORT:-51820}"
   CASCADE_PEER_ENDPOINT="${ARDTT_CASCADE_PEER_ENDPOINT:-$(stored CASCADE_PEER_ENDPOINT)}"
   CASCADE_PEER_PUBLIC_KEY="${ARDTT_CASCADE_PEER_PUBLIC_KEY:-$(stored CASCADE_PEER_PUBLIC_KEY)}"
+  if [ "${CASCADE_PEER_ENDPOINT_RESET:-0}" = 1 ]; then
+    CASCADE_PEER_ENDPOINT=""
+    CASCADE_PEER_PUBLIC_KEY=""
+  fi
   CASCADE_PEER_PROVISION_PORT="${ARDTT_CASCADE_PEER_PROVISION_PORT:-$(stored CASCADE_PEER_PROVISION_PORT)}"
   CASCADE_PEER_PROVISION_PORT="${CASCADE_PEER_PROVISION_PORT:-9100}"
   CASCADE_DNS="${ARDTT_CASCADE_DNS:-$(stored CASCADE_DNS)}"
