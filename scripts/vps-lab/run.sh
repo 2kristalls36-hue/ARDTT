@@ -204,6 +204,18 @@ cleanup() {
   as_root docker rm -f lab-web lab-wg lab-db stack-app-1 >/dev/null 2>&1 || true
   as_root docker network rm lab-net >/dev/null 2>&1 || true
   pass "cleanup: соседи сняты"
+  # Lab leftovers on this dedicated test VPS (never part of an ARDTT deploy):
+  # BuildKit cache of the first run that built the image here, old tree copies.
+  as_root docker builder prune -af >/dev/null 2>&1 || true
+  rm -rf "$LAB/tree" "$LAB/stack" "$LAB/build.log" "$LAB/pack.log" 2>/dev/null || true
+  local keep
+  keep="$(cd "$ROOT" && pwd -P)"
+  for d in "$LAB"/src-*; do
+    [ -d "$d" ] || continue
+    [ "$(cd "$d" && pwd -P)" = "$keep" ] && continue
+    rm -rf "$d"
+  done
+  pass "cleanup: хвосты лабы убраны ($(df -h / | awk 'NR==2 {print $4}') свободно)"
 }
 
 diag() {
