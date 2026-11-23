@@ -163,10 +163,16 @@ reap() {
   done
 }
 
-trap reap EXIT INT TERM
+# TERM/INT must end the script: a trap that only reaps returns into the loop
+# below, and `docker stop` then waits its whole timeout before SIGKILL (every
+# update cost ~30 s of VPN downtime). The sleep runs in the background so the
+# signal is handled at once, not after it.
+trap reap EXIT
+trap 'reap; trap - EXIT; exit 0' INT TERM
 
 while true; do
-  sleep 2
+  sleep 2 &
+  wait $! || true
   for pidfile in /var/run/ardtt-*.pid; do
     [ -f "$pidfile" ] || continue
     pid="$(cat "$pidfile" 2>/dev/null || true)"
