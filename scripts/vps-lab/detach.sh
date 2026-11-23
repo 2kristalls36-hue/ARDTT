@@ -11,7 +11,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 mkdir -p "$LAB"
 
-if [ "$SCENARIO" = diag ] || ! command -v systemd-run >/dev/null 2>&1; then
+if [ "$SCENARIO" = diag ] || [ "$SCENARIO" = vpn-diag ] || ! command -v systemd-run >/dev/null 2>&1; then
   exec bash "$ROOT/scripts/vps-lab/run.sh" "$SCENARIO"
 fi
 

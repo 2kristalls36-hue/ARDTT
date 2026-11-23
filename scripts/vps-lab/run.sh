@@ -215,6 +215,51 @@ cleanup() {
   pass "cleanup: хвосты лабы убраны ($(df -h / | awk 'NR==2 {print $4}') свободно)"
 }
 
+# Read-only check of a live install (the log is public: no keys, tokens or
+# public addresses — only counters, states and private addresses).
+mask() {
+  redact | sed -E 's/\b([0-9]{1,3}\.){3}[0-9]{1,3}\b/<ip>/g; s#[A-Za-z0-9+/]{42,44}=#<key>#g'
+}
+keep_private() {
+  # Every IPv4 address outside 10/8, 172.16/12, 192.168/16, 127/8 becomes <ip>.
+  redact | perl -pe 's/\b(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b/
+    ($1==10 || $1==127 || ($1==172 && $2>=16 && $2<=31) || ($1==192 && $2==168) || ($1==0)) ? "$1.$2.$3.$4" : "<ip>"/gex;
+    s#[A-Za-z0-9+\/]{42,44}=#<key>#g'
+}
+vpn_diag() {
+  local c
+  c="$(sed -n 's/^CONTAINER=//p' "$INSTALL_DIR/instance.env" 2>/dev/null)"; c="${c:-ardtt}"
+  echo "## instance.env (ports/role)"; grep -E '^(VERSION|ROLE|DIRECT_PORT|BYPASS_PORT|PROVISION_PORT|PROVISION_PUBLIC|CASCADE_ENABLED|SUBNET)=' "$INSTALL_DIR/instance.env" 2>/dev/null
+  echo "## container"; as_root docker ps -a --filter "name=^${c}$" --format '{{.Names}} {{.Status}} {{.Image}} {{.Ports}}' | mask
+  echo "## ready.sh"; as_root docker exec "$c" bash /opt/ardtt/ready.sh 2>&1 | tail -3
+  echo "## awg0 (counts only)"
+  as_root docker exec "$c" sh -c '
+    awg show awg0 listen-port 2>&1 | sed "s/^/listen-port /"
+    echo "peers $(awg show awg0 peers 2>/dev/null | wc -l)"
+    awg show awg0 latest-handshakes 2>/dev/null | awk "{ if (\$2 > 0) h++ } END { print \"peers-with-handshake \" (h+0) }"
+    awg show awg0 transfer 2>/dev/null | awk "{ rx += \$2; tx += \$3 } END { print \"transfer rx=\" rx+0 \" tx=\" tx+0 }"
+    awg show awg0 2>/dev/null | grep -E "^ *(jc|jmin|jmax|s1|s2|h1|h2|h3|h4|i[0-9]?)" | sed "s/^ */param /"
+    ip -br addr show awg0 2>&1
+  ' 2>&1 | keep_private
+  echo "## users.json (counts only)"
+  as_root docker exec "$c" sh -c 'f=/data/users.json; [ -f "$f" ] && echo "users $(grep -o "\"name\"" "$f" | wc -l)"; ls -la /data | head -30' 2>&1 | keep_private
+  echo "## host: who listens on UDP"; as_root ss -ulnp 2>/dev/null | awk 'NR>1 {print $5, $7}' | keep_private | sort -u
+  echo "## host NAT for the published ports (packet counters)"
+  as_root iptables -t nat -L DOCKER -v -n 2>/dev/null | grep -E 'dpt:(51820|51821|56003|9100)' | keep_private
+  echo "## host filter DOCKER counters"
+  as_root iptables -L DOCKER -v -n 2>/dev/null | grep -E 'dpt:(51820|56003|9100)' | keep_private
+  echo "## host firewall"
+  as_root sh -c 'command -v ufw >/dev/null && ufw status 2>&1 | head -5; nft list ruleset 2>/dev/null | grep -c . | sed "s/^/nft-lines /"; iptables -S INPUT 2>/dev/null | head -10' | keep_private
+  echo "## capture 15 s of UDP to the Direct port on the host (counts)"
+  if command -v tcpdump >/dev/null 2>&1; then
+    local dp; dp="$(sed -n 's/^DIRECT_PORT=//p' "$INSTALL_DIR/instance.env")"
+    as_root timeout 15 tcpdump -ni any -c 50 "udp port ${dp:-51821}" 2>&1 | keep_private | tail -15
+  else
+    echo "no tcpdump"
+  fi
+  echo "## container log (last 120, masked)"; as_root docker logs --tail 120 "$c" 2>&1 | keep_private
+}
+
 diag() {
   echo "## uptime"; uptime
   echo "## memory"; free -m
@@ -253,6 +298,7 @@ case "$scenario" in
   uninstall) uninstall ;;
   cleanup) cleanup ;;
   diag) diag ;;
+  vpn-diag) vpn_diag ;;
   full)
     step "0. Снять ARDTT и соседей прошлого прогона"
     [ -e "$INSTALL_DIR" ] && uninstall >/dev/null 2>&1
