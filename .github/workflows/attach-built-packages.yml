@@ -1,6 +1,5 @@
-# Put the already-built APK and server packages (full archives plus the
-# partial-deploy index, host files, per-layer gzips, Engine and Compose) on
-# the existing GitHub Release. Does not rebuild the image or APK.
+# Put the already-built APK and server images (deploy v2: one .image.tar.gz per
+# arch + ardtt-deploy.sh) on the existing GitHub Release. Does not rebuild.
 # PRs never touch Releases.
 # v0.5.265: attach already-built 1.0.53 packages onto the new app tag.
 name: Attach built packages
@@ -11,7 +10,7 @@ on:
       - main
     paths:
       - ".github/workflows/attach-built-packages.yml"
-      - "scripts/attach-server-packages-to-release.sh"
+      - "scripts/publish-server-release.sh"
       - "scripts/rewrite-release-update-json.py"
   workflow_dispatch:
     inputs:
@@ -106,7 +105,7 @@ jobs:
         with:
           github-token: ${{ github.token }}
           run-id: ${{ steps.src.outputs.server_run }}
-          pattern: "ardtt-server-*"
+          pattern: "ardtt-server-image-*"
           merge-multiple: true
           path: server-dist
 
@@ -117,10 +116,10 @@ jobs:
           VERSION_NAME: ${{ steps.src.outputs.version_name }}
         run: bash scripts/ensure-release-apks.sh "$TAG" "$VERSION_NAME" apk-dist
 
-      - name: Attach server packages without clobber
+      - name: Attach server images without clobber
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           ls -lh server-dist/
-          bash scripts/attach-server-packages-to-release.sh --tag "${{ steps.src.outputs.tag }}" --from-dir server-dist
+          bash scripts/publish-server-release.sh --tag "${{ steps.src.outputs.tag }}" --from-dir server-dist

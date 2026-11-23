@@ -11,7 +11,7 @@ on:
       - "android/**"
       - "scripts/build-bypass-client.sh"
       - "scripts/build-release-apk.sh"
-      - "scripts/pack-stack.sh"
+      - "scripts/sync-deploy-assets.sh"
       - "server/**"
       - ".github/workflows/android-build.yml"
     tags:
@@ -187,7 +187,7 @@ jobs:
           ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
           ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/27.0.12077973
         run: |
-          bash scripts/pack-hostfiles-overlay.sh
+          bash scripts/sync-deploy-assets.sh
           bash scripts/build-bypass-client.sh
           cd android
           printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > local.properties
@@ -230,7 +230,6 @@ jobs:
           RELEASE_TAG: ${{ steps.version.outputs.release_tag }}
         run: |
           mkdir -p dist
-          bash scripts/pack-stack.sh
           found=0
           for apk in android/app/build/outputs/apk/release/*.apk; do
             test -f "$apk" || continue
@@ -302,10 +301,8 @@ jobs:
           gh release edit "$tag" --draft=false --latest
           echo "Published https://github.com/${{ github.repository }}/releases/tag/${tag}"
 
-      # Server packages are attached only by server-package.yml on an explicit
-      # v* tag (--from-dir, no clobber). This job must not call
-      # attach-server-packages-to-release.sh: the script requires a local
-      # --from-dir, and main must not mix a new installer with an older image.
+      # Server images and ardtt-deploy.sh are attached only by server-package.yml
+      # on the same v* tag (scripts/publish-server-release.sh, no clobber).
 
       - name: Write job summary
         if: always()

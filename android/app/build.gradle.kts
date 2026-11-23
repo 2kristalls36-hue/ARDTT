@@ -169,13 +169,14 @@ val buildBypassClient = tasks.register<Exec>("buildBypassClient") {
     commandLine("bash", "scripts/build-bypass-client.sh")
 }
 
-val packHostfilesOverlay = tasks.register<Exec>("packHostfilesOverlay") {
+// Deploy v2: the APK uploads server/deploy/ardtt-deploy.sh to the VPS.
+val syncDeployAssets = tasks.register<Exec>("syncDeployAssets") {
     workingDir = repoRoot
-    commandLine("bash", "scripts/pack-hostfiles-overlay.sh")
+    commandLine("bash", "scripts/sync-deploy-assets.sh")
 }
 
 tasks.named("preBuild") {
-    dependsOn(buildBypassClient, packHostfilesOverlay)
+    dependsOn(buildBypassClient, syncDeployAssets)
 }
 
 dependencies {

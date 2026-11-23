@@ -20,7 +20,7 @@
 #   ARDTT_DEPLOY_VERSION       stack version X → image ardtt/server:X (required)
 #   ARDTT_RELEASE_TAG          GitHub release holding the image (default: found via API)
 #   ARDTT_IMAGE_FILE           local image file instead of a download (lab, offline)
-#   ARDTT_IMAGE_SHA256         expected SHA-256 of the image file (default: release SHA256SUMS)
+#   ARDTT_IMAGE_SHA256         expected SHA-256 of the image file (default: release SHA256SUMS-server.txt)
 #   ARDTT_ROLE                 entry | exit
 #   ARDTT_DIRECT_PORT ARDTT_BYPASS_PORT ARDTT_PROVISION_PORT ARDTT_TELEMETRY_PORT
 #   ARDTT_AUTO_PORTS=1         take the next free port when one is busy
@@ -490,10 +490,10 @@ resolve_release_assets() { # sets IMAGE_URL, SUMS_URL
     url="$(printf '%s' "$page" | grep -o "\"browser_download_url\": *\"[^\"]*/${asset}\"" | head -n 1 | sed 's/.*"\(https[^"]*\)"$/\1/')"
     [ -n "$url" ] || die DOWNLOAD_FAILED "В релизах ${REPO} нет ${asset}. Обновите приложение или выберите опубликованную версию стека."
     IMAGE_URL="$url"
-    SUMS_URL="${url%/*}/SHA256SUMS"
+    SUMS_URL="${url%/*}/SHA256SUMS-server.txt"
   else
     IMAGE_URL="${GH_DL}/${REPO}/releases/download/${tag}/${asset}"
-    SUMS_URL="${GH_DL}/${REPO}/releases/download/${tag}/SHA256SUMS"
+    SUMS_URL="${GH_DL}/${REPO}/releases/download/${tag}/SHA256SUMS-server.txt"
   fi
 }
 
@@ -547,7 +547,7 @@ obtain_image() {
   want="${ARDTT_IMAGE_SHA256:-}"
   if [ -z "$want" ]; then
     want="$(http_get "$SUMS_URL" 2>/dev/null | awk -v f="${IMAGE_URL##*/}" '$2==f || $2=="*"f {print $1}' | head -n 1)"
-    [ -n "$want" ] || die SHA256_MISMATCH "В релизе нет SHA256SUMS для ${IMAGE_URL##*/} — образ не проверить, установка остановлена."
+    [ -n "$want" ] || die SHA256_MISMATCH "В релизе нет SHA256SUMS-server.txt для ${IMAGE_URL##*/} — образ не проверить, установка остановлена."
   fi
   rm -rf "$tmp"
   mkdir -p "$tmp"
