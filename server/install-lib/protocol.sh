@@ -91,12 +91,15 @@ die() {
     code="$2"
     shift 2
   fi
+  # stderr, not stdout: die often runs inside $(...) (port and subnet pickers), where
+  # stdout is the captured value — the error line vanished and install.sh exited 1
+  # with no ARDTT_ERROR for the phone to show. The top level merges 2>&1 anyway.
   if [ -n "$code" ]; then
-    if ! ardtt_emit error --code "$code" --message "$*"; then
+    if ! ardtt_emit error --code "$code" --message "$*" >&2; then
       echo "ARDTT_ERROR|code=${code}|$*" >&2
     fi
   else
-    if ! ardtt_emit error --message "$*"; then
+    if ! ardtt_emit error --message "$*" >&2; then
       echo "ARDTT_ERROR|$*" >&2
     fi
   fi

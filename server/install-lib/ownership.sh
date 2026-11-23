@@ -206,9 +206,17 @@ ensure_instance() {
 
 docker_object_label() {
   local kind="$1" name="$2" key="$3"
-  docker inspect -f "{{index .Config.Labels \"${key}\"}}" "$name" 2>/dev/null \
-    || docker inspect -f "{{index .Labels \"${key}\"}}" "$name" 2>/dev/null \
-    || true
+  # Labels live in .Config.Labels for containers/images and in .Labels for
+  # networks/volumes. Never chain the two templates: on a network the failed
+  # .Config attempt still prints an empty line, and "\nardtt" ≠ "ardtt".
+  case "$kind" in
+    network|volume)
+      docker "$kind" inspect -f "{{index .Labels \"${key}\"}}" "$name" 2>/dev/null || true ;;
+    image)
+      docker image inspect -f "{{index .Config.Labels \"${key}\"}}" "$name" 2>/dev/null || true ;;
+    *)
+      docker container inspect -f "{{index .Config.Labels \"${key}\"}}" "$name" 2>/dev/null || true ;;
+  esac
 }
 
 object_owned_by_us() {

@@ -24,6 +24,21 @@ got="$(pick_bridge_subnet 10.210.40.0/24)"
 [ "$got" = "10.210.40.0/24" ] || err "preferred 10.210.40.0/24 kept, got '$got'"
 ok "honours a free preferred subnet"
 
+# Redeploy: this instance's own bridge still exists (route, bridge address, IPAM).
+own_bridge_subnet() { echo 172.28.20.0/24; }
+list_host_cidrs() { printf '%s\n' '172.17.0.0/16' '172.28.20.0/24' '172.28.20.1/24' '172.28.20.0/24'; }
+got="$(pick_bridge_subnet 172.28.20.0/24)"
+[ "$got" = "172.28.20.0/24" ] || err "own bridge must not push the redeploy to a new subnet, got '$got'"
+ok "redeploy keeps its own bridge subnet"
+
+# A foreign network on the same subnet still conflicts.
+own_bridge_subnet() { echo 172.28.20.0/24; }
+list_host_cidrs() { printf '%s\n' '172.28.21.0/24'; }
+got="$(pick_bridge_subnet 172.28.21.0/24)"
+[ "$got" != "172.28.21.0/24" ] || err "foreign 172.28.21.0/24 must stay busy, got '$got'"
+ok "foreign subnet stays busy"
+own_bridge_subnet() { :; }
+
 if [ "$fail" -ne 0 ]; then
   echo "bridge subnet picker tests failed" >&2
   exit 1

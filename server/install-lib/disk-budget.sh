@@ -90,24 +90,31 @@ print(sum(int((x or {}).get("gzSize") or 0) for x in (d.get("layers") or [])))
 PY
 }
 
+# package_image_already_loaded: the package's image is in Docker already, with
+# the same config and layers (not just the same tag: a rebuilt image may reuse it).
+package_image_already_loaded() {
+  local images="${PKG_DIR:-}/images"
+  [ -n "${ARDTT_IMAGE:-}" ] || return 1
+  docker image inspect "$ARDTT_IMAGE" >/dev/null 2>&1 || return 1
+  if [ -f "$images/layout.json" ]; then
+    loaded_image_matches_layout "$images" "$ARDTT_IMAGE" 2>/dev/null
+  elif [ -f "$images/ardtt.tar" ]; then
+    loaded_image_matches_tar "$images/ardtt.tar" "$ARDTT_IMAGE" 2>/dev/null
+  else
+    return 1
+  fi
+}
+
+# Raw bytes Docker must import for the package image. Cached compressed blobs
+# save download/cache bytes only: Docker still needs rawSize.
 _missing_layer_bytes() {
   local layout_dir="${1:-}"
   local layout="${layout_dir}/layout.json"
   [ -f "$layout" ] || { echo 0; return 0; }
-  python3 - "$layout" "${ARDTT_IMAGE:-}" <<'PY'
-import json, sys, subprocess
-layout, image = sys.argv[1], sys.argv[2]
+  python3 - "$layout" <<'PY'
+import json, sys
+layout = sys.argv[1]
 d=json.load(open(layout,encoding="utf-8"))
-# Cached compressed blobs save download/cache bytes only. Docker still needs
-# rawSize unless the image is already loaded in DockerRootDir.
-if image:
-    try:
-        r = subprocess.run(["docker", "image", "inspect", image], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        if r.returncode == 0:
-            print(0)
-            raise SystemExit(0)
-    except OSError:
-        pass
 missing = 0
 for layer in d.get("layers") or []:
     raw = int((layer or {}).get("rawSize") or 0)
@@ -155,15 +162,28 @@ preflight_space_budget() {
     download="$(dir_bytes "${ARDTT_PACKAGE}" 2>/dev/null || echo 0)"
   fi
   extract=$(( 32 * 1024 * 1024 ))
-  missing="$(_missing_layer_bytes "${PKG_DIR:-}/images")"
-  if [ ! -f "${PKG_DIR:-}/images/layout.json" ] && [ -f "${PKG_DIR:-}/images/ardtt.tar" ]; then
-    missing="$(dir_bytes "${PKG_DIR}/images/ardtt.tar")"
+  local image_loaded=0
+  if package_image_already_loaded; then
+    image_loaded=1
+    missing=0
+  else
+    missing="$(_missing_layer_bytes "${PKG_DIR:-}/images")"
+    if [ ! -f "${PKG_DIR:-}/images/layout.json" ] && [ -f "${PKG_DIR:-}/images/ardtt.tar" ]; then
+      missing="$(dir_bytes "${PKG_DIR}/images/ardtt.tar")"
+    fi
   fi
   # Pointer model: previous is a symlink, not a tree copy.
   rollback=0
   reclaim="$(ardtt_predeploy_reclaimable_bytes)"
   local min_bytes
   min_bytes=$(( ${MIN_DISK_MB:-1600} * 1024 * 1024 ))
+  # Redeploy of the very image Docker already holds: nothing is imported, so the
+  # 1.6 GB floor (sized for a first import) does not apply. The computed need
+  # (release files, staging, logs, 256 MB margin) still does.
+  if [ "$image_loaded" = 1 ]; then
+    min_bytes=0
+    echo "ARDTT_INFO|образ ${ARDTT_IMAGE} уже загружен — порог ${MIN_DISK_MB:-1600} МБ для импорта не применяется"
+  fi
   local payload out rc
   local avail_i avail_d avail_t inodes_i
   avail_i="$(disk_avail_bytes "$install_dir")"

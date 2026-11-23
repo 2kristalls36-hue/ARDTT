@@ -29,9 +29,6 @@ if [ "$ROLE" = "exit" ]; then
   alive cascade || fail "cascade process"
   alive dns || fail "dns process"
   iface cascade0 || fail "cascade0"
-  if [ "$WARP_MODE" = "exit-hideip" ]; then
-    alive warp || fail "warp process"
-  fi
 elif [ "$CASCADE" = "1" ]; then
   alive direct || fail "direct process"
   alive bypass || fail "bypass process"
@@ -47,13 +44,16 @@ else
   iface wdttraw0 || fail "wdttraw0"
 fi
 
-if [ "$WARP_MODE" = "hideip" ]; then
-  alive warp || fail "warp process"
-fi
-
+# WARP (Hide IP egress) and telemetry are optional: the supervisor restarts them
+# with backoff, and the tunnels work without them. Reported, never fatal here —
+# Cloudflare being unreachable from the VPS used to fail the whole deploy.
+notes=""
+case "$WARP_MODE" in
+  hideip|exit-hideip) alive warp || notes="${notes} warp=down" ;;
+esac
 if [ "${ARDTT_SKIP_TELEMETRY:-0}" != "1" ]; then
-  curl -fsS --max-time 2 http://127.0.0.1:9200/health >/dev/null || fail "telemetry /health"
+  curl -fsS --max-time 2 http://127.0.0.1:9200/health >/dev/null || notes="${notes} telemetry=down"
 fi
 
-echo "ready"
+echo "ready${notes}"
 exit 0

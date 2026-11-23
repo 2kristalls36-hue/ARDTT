@@ -119,16 +119,26 @@ stop_legacy_owned() {
   if legacy_was_hostnet && [ -z "${LEGACY_CONTAINER:-}" ]; then
     die "Старая установка, похоже, была hostnet, но контейнер ARDTT не найден. Снимите leftover awg0/warp0/ip rule вручную, если они ваши, и повторите. Универсальная очистка хоста отключена."
   fi
+  # The legacy stack ran as Compose project «stack» (the directory name) unless .env
+  # said otherwise. Another service on the VPS may use the same project name, so no
+  # `compose down` here: it would stop and delete that project's containers (and
+  # --remove-orphans everything else in it). Only containers proven to be ours go.
   local stack="${INSTALL_DIR}/stack"
   if [ -f "$stack/docker-compose.yml" ]; then
-    local proj
+    local proj cid
     proj="$(env_file_val "$stack/.env" COMPOSE_PROJECT_NAME)"
     [ -n "$proj" ] || proj=stack
-    (
-      cd "$stack" || exit 0
-      COMPOSE_PROJECT_NAME="$proj" docker compose --profile isolated down --remove-orphans 2>/dev/null || true
-      COMPOSE_PROJECT_NAME="$proj" docker compose --profile hostnet down --remove-orphans 2>/dev/null || true
-    ) || true
+    for cid in $(docker ps -aq --filter "label=com.docker.compose.project=${proj}" 2>/dev/null || true); do
+      if object_owned_by_us container "$cid" || container_looks_like_legacy_ardtt "$cid"; then
+        # Graceful stop first: WARP/cascade EXIT traps clear their ip rules and
+        # iptables (on the host for a legacy hostnet install); rm -f is SIGKILL.
+        docker stop -t 30 "$cid" >/dev/null 2>&1 || true
+        docker rm -f "$cid" >/dev/null 2>&1 || true
+        echo "ARDTT_INFO|снят контейнер старой установки ${cid} (проект ${proj})"
+      else
+        echo "ARDTT_WARN|контейнер ${cid} проекта ${proj} не принадлежит ARDTT — не трогаем"
+      fi
+    done
   fi
   if [ -n "${LEGACY_CONTAINER:-}" ]; then
     # compose down above (or stop_owned_stack earlier) may already have removed it.
@@ -149,7 +159,9 @@ stop_legacy_owned() {
     for iface in $LEGACY_IFACES; do
       ip link show "$iface" >/dev/null 2>&1 || continue
       addr="$(ip -4 -o addr show "$iface" 2>/dev/null | awk '{print $4}')"
-      echo "$addr" | grep -Eq '10\.(8|9|10|99)\.' || {
+      # Exact ARDTT tunnel subnets only: AmneziaWG apps default to 10.8.1.0/24,
+      # which the old pattern 10.8.* would have taken for ours.
+      echo "$addr" | grep -Eq '^(10\.8\.0\.|10\.9\.0\.|10\.10\.0\.|10\.99\.99\.)' || {
         echo "ARDTT_WARN|интерфейс ${iface} на хосте не похож на ARDTT (${addr}) — не трогаем"
         continue
       }

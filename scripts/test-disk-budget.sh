@@ -103,6 +103,21 @@ missing="$(_missing_layer_bytes "$INSTALL_DIR/images")"
 [ "${missing:-0}" -gt 100000000 ] || err "cached gz 1MiB must not zero rawSize 1GiB docker budget (got $missing)"
 ok "cached gz does not zero docker raw budget"
 
+# Redeploy of the image Docker already holds: the first-import floor is skipped,
+# a new image keeps it.
+(
+  T2="$(mktemp -d)"; INSTALL_DIR="$T2/opt"; PKG_DIR="$T2/pkg"; mkdir -p "$INSTALL_DIR" "$PKG_DIR/images"
+  ARDTT_IMAGE=ardtt/server:test
+  MIN_DISK_MB=100000000
+  docker() { [ "$1" = info ] && echo "$T2"; }
+  package_image_already_loaded() { return 0; }
+  ( preflight_space_budget >/dev/null 2>&1 ) || { echo "FAIL: loaded image must skip the floor" >&2; exit 1; }
+  package_image_already_loaded() { return 1; }
+  ( preflight_space_budget >/dev/null 2>&1 ) && { echo "FAIL: new image must keep the floor" >&2; exit 1; }
+  rm -rf "$T2"
+) || err "floor exemption for an already loaded image"
+ok "floor skipped only for an already loaded image"
+
 # Same fs: cannot double-count
 out="$(run '{"installAvailableBytes": 3221225472, "dockerAvailableBytes": 3221225472, "minDiskBytes": 0, "installFsDev": "8", "dockerFsDev": "1", "candidateReleaseBytes": 100, "missingDockerLayerBytes": 50}')"
 echo "$out" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["sameInstallDockerFs"] is False, d' || err "different fs flag"

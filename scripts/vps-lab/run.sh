@@ -15,6 +15,10 @@ INSTALL_DIR=/opt/ardtt
 mkdir -p "$LAB"
 FAILS=0
 
+# The lab log is public (GitHub Actions of a public repo): hide tokens and secrets.
+redact() {
+  sed -u -E 's/((admin|telemetry|cascade|upload|review)_?(token|secret)[=:"]+ *)[A-Za-z0-9+\/=_-]{8,}/\1***/Ig'
+}
 pass() { echo "LAB PASS|$*"; }
 fail() { echo "LAB FAIL|$*"; FAILS=$((FAILS + 1)); }
 step() { echo; echo "===== $* ====="; }
@@ -46,8 +50,17 @@ snapshot() {
     echo "## host links (non-veth/br)"; ip -o link show | awk -F': ' '{print $2}' | grep -v -E '^(veth|br-)' | sed 's/@.*//' | sort
     echo "## sysctl"; sysctl -n net.ipv4.ip_forward 2>/dev/null
     echo "## iptables filter (non-ardtt)"
+    # Rules of ARDTT's own bridge (network labelled com.ardtt.owner=ardtt) are
+    # ARDTT's, not a change to the host: drop them before bridge names are masked.
+    local own_br="^$"
+    if have_docker; then
+      local ids
+      ids="$(as_root docker network ls -q --no-trunc --filter label=com.ardtt.owner=ardtt \
+        | cut -c1-12 | sed 's/^/br-/' | paste -sd'|' -)"
+      [ -n "$ids" ] && own_br="($ids)"
+    fi
     as_root iptables-save -t filter 2>/dev/null | grep -v -E '^#|^:' | grep -v -i ardtt \
-      | sed -E 's/br-[0-9a-f]+/br-X/g' | sort
+      | grep -v -E "$own_br" | sed -E 's/br-[0-9a-f]+/br-X/g' | sort
     echo "## docker daemon.json"; cat /etc/docker/daemon.json 2>/dev/null || echo none
     echo "## docker units"; ls /etc/systemd/system/ 2>/dev/null | grep -i -E 'docker|containerd' || echo none
   } >"$out" 2>/dev/null
@@ -56,7 +69,7 @@ snapshot() {
 # Neighbours: the kind of services a shared VPS already runs.
 neighbors() {
   have_docker || { fail "neighbors: Docker не работает"; return; }
-  as_root docker rm -f lab-web lab-wg lab-db >/dev/null 2>&1 || true
+  as_root docker rm -f lab-web lab-wg lab-db stack-app-1 >/dev/null 2>&1 || true
   as_root docker network rm lab-net >/dev/null 2>&1 || true
   as_root docker run -d --name lab-web -p 8080:80 --restart unless-stopped busybox:1.36 \
     sh -c 'mkdir -p /w && echo lab-ok > /w/index.html && httpd -f -p 80 -h /w' >/dev/null \
@@ -67,17 +80,13 @@ neighbors() {
   as_root docker network create --subnet 10.112.0.0/24 lab-net >/dev/null || fail "neighbors: lab-net"
   as_root docker run -d --name lab-db --network lab-net --restart unless-stopped busybox:1.36 \
     sleep 1000000 >/dev/null || fail "neighbors: lab-db"
-  # A foreign Compose project named «stack», like the legacy ARDTT layout.
-  mkdir -p "$LAB/stack"
-  cat >"$LAB/stack/docker-compose.yml" <<'EOF'
-services:
-  app:
-    image: busybox:1.36
-    command: sleep 1000000
-    restart: unless-stopped
-EOF
-  (cd "$LAB/stack" && as_root env COMPOSE_PROJECT_NAME=stack docker compose up -d >/dev/null 2>&1) \
-    || fail "neighbors: compose stack"
+  # A foreign Compose project named «stack», like the legacy ARDTT layout. The host
+  # has no Compose plugin (ARDTT keeps its Compose CLI private), so the container
+  # carries the labels Compose would set: that is all the installer looks at.
+  as_root docker run -d --name stack-app-1 --restart unless-stopped \
+    --label com.docker.compose.project=stack --label com.docker.compose.service=app \
+    --label com.docker.compose.container-number=1 --label com.docker.compose.oneoff=False \
+    busybox:1.36 sleep 1000000 >/dev/null || fail "neighbors: compose stack"
   sleep 3
   if curl -fsS -m 5 http://127.0.0.1:8080/ | grep -q lab-ok; then pass "neighbors: веб-сосед отвечает"; else fail "neighbors: веб-сосед не отвечает"; fi
 }
@@ -121,7 +130,7 @@ ardtt_ready() {
 
 run_logged() {
   local log="$1"; shift
-  "$@" 2>&1 | tee "$log" | grep -E --line-buffered 'ARDTT_(PROGRESS|WARN|ERROR|DONE)|^\{"protocol":2,"type":"error"'
+  "$@" 2>&1 | redact | tee "$log" | grep -E --line-buffered 'ARDTT_(PROGRESS|WARN|ERROR|DONE)|^\{"protocol":2,"type":"error"'
   return "${PIPESTATUS[0]}"
 }
 
@@ -149,29 +158,25 @@ ensure_buildx() {
 
 install_tree() {
   have_docker || { fail "install-tree: Docker не работает"; return; }
-  local ver ws pkg sha ip
+  local pkg="${ARDTT_LAB_PACKAGE:-}" sha ip tag="${1:-install-tree}"
   ip="$(public_ip)"
-  ws="$LAB/tree"
-  as_root rm -rf "$ws"; cp -a "$ROOT" "$ws"
-  ver="$(tr -d '[:space:]' <"$ws/server/DEPLOY_VERSION")-lab"
-  printf '%s\n' "$ver" >"$ws/server/DEPLOY_VERSION"
-  ensure_buildx || { fail "install-tree: нет buildx"; return; }
-  echo "build ${ver}…"
-  if ! as_root bash "$ws/scripts/build-server-image.sh" >"$LAB/build.log" 2>&1; then
-    fail "install-tree: сборка образа"; tail -40 "$LAB/build.log"; return
-  fi
-  pkg="$LAB/ardtt-server-${ver}.tar.gz"
-  if ! as_root bash "$ws/scripts/pack-server-package.sh" "$pkg" >"$LAB/pack.log" 2>&1; then
-    fail "install-tree: упаковка"; tail -40 "$LAB/pack.log"; return
+  if [ -z "$pkg" ] || [ ! -f "$pkg" ]; then
+    fail "${tag}: нет пакета из ветки (ARDTT_LAB_PACKAGE); образ собирается на GitHub, не на VPS"
+    return
   fi
   sha="$(sha256sum "$pkg" | awk '{print $1}')"
-  if run_logged "$LAB/install-tree.log" as_root env ARDTT_PUBLIC_HOST="$ip" ARDTT_AUTO_PORTS=1 \
+  local ws="$LAB/tree-pkg"
+  as_root rm -rf "$ws"; mkdir -p "$ws"
+  tar -xzf "$pkg" -C "$ws" install.sh install-lib scripts ready.sh 2>/dev/null || true
+  local sh="$ws/install.sh"
+  [ -f "$sh" ] || sh="$ROOT/server/install.sh"
+  if run_logged "$LAB/${tag}.log" as_root env ARDTT_PUBLIC_HOST="$ip" ARDTT_AUTO_PORTS=1 \
       ARDTT_ROLE=entry ARDTT_CASCADE_ENABLED=0 ARDTT_PACKAGE="$pkg" ARDTT_PACKAGE_SHA256="$sha" \
-      bash "$ws/server/install.sh"; then
-    pass "install-tree: стек из ветки установлен (${ver})"
-    ardtt_ready install-tree
+      bash "$sh"; then
+    pass "${tag}: стек из ветки установлен"
+    ardtt_ready "$tag"
   else
-    fail "install-tree: установка стека из ветки не прошла"
+    fail "${tag}: установка стека из ветки не прошла"
   fi
 }
 
@@ -188,11 +193,58 @@ uninstall() {
   [ "$left" = "0" ] && pass "uninstall: контейнеров ARDTT не осталось" || fail "uninstall: осталось контейнеров ARDTT: ${left}"
 }
 
+ardtt_subnet() {
+  local id
+  id="$(as_root docker network ls -q --filter label=com.ardtt.owner=ardtt | head -1)"
+  [ -n "$id" ] || return 0
+  as_root docker network inspect -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}' "$id" 2>/dev/null
+}
+
 cleanup() {
-  as_root docker rm -f lab-web lab-wg lab-db >/dev/null 2>&1 || true
-  (cd "$LAB/stack" 2>/dev/null && as_root env COMPOSE_PROJECT_NAME=stack docker compose down >/dev/null 2>&1) || true
+  as_root docker rm -f lab-web lab-wg lab-db stack-app-1 >/dev/null 2>&1 || true
   as_root docker network rm lab-net >/dev/null 2>&1 || true
   pass "cleanup: соседи сняты"
+  # Lab leftovers on this dedicated test VPS (never part of an ARDTT deploy):
+  # BuildKit cache of the first run that built the image here, old tree copies.
+  as_root docker builder prune -af >/dev/null 2>&1 || true
+  rm -rf "$LAB/tree" "$LAB/stack" "$LAB/build.log" "$LAB/pack.log" 2>/dev/null || true
+  local keep
+  keep="$(cd "$ROOT" && pwd -P)"
+  for d in "$LAB"/src-*; do
+    [ -d "$d" ] || continue
+    [ "$(cd "$d" && pwd -P)" = "$keep" ] && continue
+    rm -rf "$d"
+  done
+  pass "cleanup: хвосты лабы убраны ($(df -h / | awk 'NR==2 {print $4}') свободно)"
+}
+
+diag() {
+  echo "## uptime"; uptime
+  echo "## memory"; free -m
+  echo "## disk"; df -h / /var/lib 2>/dev/null
+  echo "## disk: biggest dirs"
+  as_root du -xsh /var/lib/docker /var/lib/containerd /var/lib/ardtt* /opt/ardtt* /opt/* \
+    /home/*/actions-runner /home/*/actions-runner/_work /root /var/log /var/cache/apt /tmp /usr /snap 2>/dev/null \
+    | sort -rh | head -25
+  if have_docker; then
+    echo "## docker system df"; as_root docker system df 2>/dev/null
+    echo "## docker images -a"; as_root docker images -a --format '{{.Repository}}:{{.Tag}} {{.ID}} {{.Size}} {{.CreatedSince}}' 2>/dev/null
+    echo "## docker root"; as_root docker info -f '{{.DockerRootDir}}' 2>/dev/null
+  fi
+  echo "## oom / kills (dmesg)"; as_root dmesg -T 2>/dev/null | grep -i -E 'oom|killed process|out of memory' | tail -20
+  echo "## docker"; as_root systemctl status docker --no-pager 2>&1 | head -12
+  have_docker && as_root docker ps -a --format '{{.Names}} {{.Status}} {{.Image}}'
+  echo "## runner journal"; as_root journalctl -u 'actions.runner.*' --no-pager -n 40 2>/dev/null
+  echo "## /opt/ardtt"; ls -la /opt/ardtt 2>/dev/null; redact </opt/ardtt/install.log 2>/dev/null | tail -60
+  echo "## lab logs"; ls -la "$LAB" 2>/dev/null
+  if [ -f "$LAB/last-run.log" ]; then
+    echo "### last detached run"; redact <"$LAB/last-run.log" | tail -120
+  fi
+  local f
+  for f in "$LAB"/install-published.log "$LAB"/install-tree.log "$LAB"/update.log; do
+    [ -f "$f" ] || continue
+    echo "### $f"; grep -v '^{"protocol"' "$f" | redact | tail -50
+  done
 }
 
 scenario="${1:-full}"
@@ -203,23 +255,40 @@ case "$scenario" in
   install-tree) install_tree ;;
   uninstall) uninstall ;;
   cleanup) cleanup ;;
+  diag) diag ;;
   full)
+    step "0. Снять соседей прошлого прогона"
+    cleanup
     step "1. Чистый сервер"
-    snapshot "$LAB/0-clean.txt"; cat "$LAB/0-clean.txt"
-    step "2. Установка опубликованного стека на чистый сервер"
+    snapshot "$LAB/0-clean.txt"; redact <"$LAB/0-clean.txt"
+    step "2. Опубликованный стек на чистый сервер (Docker из пакета)"
     install_published
-    step "3. Соседи"
+    step "3. Удаление опубликованного стека"
+    uninstall
+    step "4. Соседи (один держит UDP 51820)"
     neighbors
     snapshot "$LAB/1-before.txt"
-    step "4. Обновление стеком из ветки (порты заняты соседями)"
-    install_tree
-    snapshot "$LAB/2-after-update.txt"
-    compare update "$LAB/1-before.txt" "$LAB/2-after-update.txt"
+    step "5. Установка стеком из ветки при занятом порте"
+    install_tree install-tree
+    snapshot "$LAB/2-after-install.txt"
+    compare install "$LAB/1-before.txt" "$LAB/2-after-install.txt"
+    neighbors_alive install
+    net_before="$(ardtt_subnet)"
+    step "6. Повторное развёртывание (обновление)"
+    install_tree update
+    snapshot "$LAB/3-after-update.txt"
+    compare update "$LAB/1-before.txt" "$LAB/3-after-update.txt"
     neighbors_alive update
-    step "5. Удаление ARDTT"
+    net_after="$(ardtt_subnet)"
+    if [ -n "$net_before" ] && [ "$net_before" = "$net_after" ]; then
+      pass "update: подсеть ARDTT сохранена (${net_after})"
+    else
+      fail "update: подсеть ARDTT сменилась (${net_before:-?} → ${net_after:-?})"
+    fi
+    step "7. Удаление ARDTT"
     uninstall
-    snapshot "$LAB/3-after-uninstall.txt"
-    compare uninstall "$LAB/1-before.txt" "$LAB/3-after-uninstall.txt"
+    snapshot "$LAB/4-after-uninstall.txt"
+    compare uninstall "$LAB/1-before.txt" "$LAB/4-after-uninstall.txt"
     neighbors_alive uninstall
     ;;
   *) echo "unknown scenario ${scenario}" >&2; exit 2 ;;
