@@ -15,6 +15,10 @@ INSTALL_DIR=/opt/ardtt
 mkdir -p "$LAB"
 FAILS=0
 
+# The lab log is public (GitHub Actions of a public repo): hide tokens and secrets.
+redact() {
+  sed -u -E 's/((admin|telemetry|cascade|upload|review)_?(token|secret)[=:"]+ *)[A-Za-z0-9+\/=_-]{8,}/\1***/Ig'
+}
 pass() { echo "LAB PASS|$*"; }
 fail() { echo "LAB FAIL|$*"; FAILS=$((FAILS + 1)); }
 step() { echo; echo "===== $* ====="; }
@@ -121,7 +125,7 @@ ardtt_ready() {
 
 run_logged() {
   local log="$1"; shift
-  "$@" 2>&1 | tee "$log" | grep -E --line-buffered 'ARDTT_(PROGRESS|WARN|ERROR|DONE)|^\{"protocol":2,"type":"error"'
+  "$@" 2>&1 | redact | tee "$log" | grep -E --line-buffered 'ARDTT_(PROGRESS|WARN|ERROR|DONE)|^\{"protocol":2,"type":"error"'
   return "${PIPESTATUS[0]}"
 }
 
@@ -149,29 +153,25 @@ ensure_buildx() {
 
 install_tree() {
   have_docker || { fail "install-tree: Docker не работает"; return; }
-  local ver ws pkg sha ip
+  local pkg="${ARDTT_LAB_PACKAGE:-}" sha ip tag="${1:-install-tree}"
   ip="$(public_ip)"
-  ws="$LAB/tree"
-  as_root rm -rf "$ws"; cp -a "$ROOT" "$ws"
-  ver="$(tr -d '[:space:]' <"$ws/server/DEPLOY_VERSION")-lab"
-  printf '%s\n' "$ver" >"$ws/server/DEPLOY_VERSION"
-  ensure_buildx || { fail "install-tree: нет buildx"; return; }
-  echo "build ${ver}…"
-  if ! as_root bash "$ws/scripts/build-server-image.sh" >"$LAB/build.log" 2>&1; then
-    fail "install-tree: сборка образа"; tail -40 "$LAB/build.log"; return
-  fi
-  pkg="$LAB/ardtt-server-${ver}.tar.gz"
-  if ! as_root bash "$ws/scripts/pack-server-package.sh" "$pkg" >"$LAB/pack.log" 2>&1; then
-    fail "install-tree: упаковка"; tail -40 "$LAB/pack.log"; return
+  if [ -z "$pkg" ] || [ ! -f "$pkg" ]; then
+    fail "${tag}: нет пакета из ветки (ARDTT_LAB_PACKAGE); образ собирается на GitHub, не на VPS"
+    return
   fi
   sha="$(sha256sum "$pkg" | awk '{print $1}')"
-  if run_logged "$LAB/install-tree.log" as_root env ARDTT_PUBLIC_HOST="$ip" ARDTT_AUTO_PORTS=1 \
+  local ws="$LAB/tree-pkg"
+  as_root rm -rf "$ws"; mkdir -p "$ws"
+  tar -xzf "$pkg" -C "$ws" install.sh install-lib scripts ready.sh 2>/dev/null || true
+  local sh="$ws/install.sh"
+  [ -f "$sh" ] || sh="$ROOT/server/install.sh"
+  if run_logged "$LAB/${tag}.log" as_root env ARDTT_PUBLIC_HOST="$ip" ARDTT_AUTO_PORTS=1 \
       ARDTT_ROLE=entry ARDTT_CASCADE_ENABLED=0 ARDTT_PACKAGE="$pkg" ARDTT_PACKAGE_SHA256="$sha" \
-      bash "$ws/server/install.sh"; then
-    pass "install-tree: стек из ветки установлен (${ver})"
-    ardtt_ready install-tree
+      bash "$sh"; then
+    pass "${tag}: стек из ветки установлен"
+    ardtt_ready "$tag"
   else
-    fail "install-tree: установка стека из ветки не прошла"
+    fail "${tag}: установка стека из ветки не прошла"
   fi
 }
 
@@ -203,15 +203,15 @@ diag() {
   echo "## docker"; as_root systemctl status docker --no-pager 2>&1 | head -12
   have_docker && as_root docker ps -a --format '{{.Names}} {{.Status}} {{.Image}}'
   echo "## runner journal"; as_root journalctl -u 'actions.runner.*' --no-pager -n 40 2>/dev/null
-  echo "## /opt/ardtt"; ls -la /opt/ardtt 2>/dev/null; cat /opt/ardtt/install.log 2>/dev/null | tail -60
+  echo "## /opt/ardtt"; ls -la /opt/ardtt 2>/dev/null; redact </opt/ardtt/install.log 2>/dev/null | tail -60
   echo "## lab logs"; ls -la "$LAB" 2>/dev/null
   if [ -f "$LAB/last-run.log" ]; then
-    echo "### last detached run"; tail -120 "$LAB/last-run.log"
+    echo "### last detached run"; redact <"$LAB/last-run.log" | tail -120
   fi
   local f
-  for f in "$LAB"/install-published.log "$LAB"/install-tree.log; do
+  for f in "$LAB"/install-published.log "$LAB"/install-tree.log "$LAB"/update.log; do
     [ -f "$f" ] || continue
-    echo "### $f"; grep -v '^{"protocol"' "$f" | tail -50
+    echo "### $f"; grep -v '^{"protocol"' "$f" | redact | tail -50
   done
 }
 
@@ -225,22 +225,31 @@ case "$scenario" in
   cleanup) cleanup ;;
   diag) diag ;;
   full)
+    step "0. Снять соседей прошлого прогона"
+    cleanup
     step "1. Чистый сервер"
-    snapshot "$LAB/0-clean.txt"; cat "$LAB/0-clean.txt"
-    step "2. Установка опубликованного стека на чистый сервер"
+    snapshot "$LAB/0-clean.txt"; redact <"$LAB/0-clean.txt"
+    step "2. Опубликованный стек на чистый сервер (Docker из пакета)"
     install_published
-    step "3. Соседи"
+    step "3. Удаление опубликованного стека"
+    uninstall
+    step "4. Соседи (один держит UDP 51820)"
     neighbors
     snapshot "$LAB/1-before.txt"
-    step "4. Обновление стеком из ветки (порты заняты соседями)"
-    install_tree
-    snapshot "$LAB/2-after-update.txt"
-    compare update "$LAB/1-before.txt" "$LAB/2-after-update.txt"
+    step "5. Установка стеком из ветки при занятом порте"
+    install_tree install-tree
+    snapshot "$LAB/2-after-install.txt"
+    compare install "$LAB/1-before.txt" "$LAB/2-after-install.txt"
+    neighbors_alive install
+    step "6. Повторное развёртывание (обновление)"
+    install_tree update
+    snapshot "$LAB/3-after-update.txt"
+    compare update "$LAB/1-before.txt" "$LAB/3-after-update.txt"
     neighbors_alive update
-    step "5. Удаление ARDTT"
+    step "7. Удаление ARDTT"
     uninstall
-    snapshot "$LAB/3-after-uninstall.txt"
-    compare uninstall "$LAB/1-before.txt" "$LAB/3-after-uninstall.txt"
+    snapshot "$LAB/4-after-uninstall.txt"
+    compare uninstall "$LAB/1-before.txt" "$LAB/4-after-uninstall.txt"
     neighbors_alive uninstall
     ;;
   *) echo "unknown scenario ${scenario}" >&2; exit 2 ;;

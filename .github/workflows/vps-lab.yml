@@ -29,12 +29,45 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The server image is built on a GitHub-hosted runner: compiling it on a 1 GB
+  # test VPS ran the OOM killer. The VPS only installs the finished package.
+  build:
+    if: inputs.scenario == 'full' || inputs.scenario == 'install-tree'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Build lab package (amd64)
+        run: |
+          ver="$(tr -d '[:space:]' < server/DEPLOY_VERSION)-lab"
+          printf '%s\n' "$ver" > server/DEPLOY_VERSION
+          bash scripts/build-server-image.sh amd64
+          ARDTT_PACKAGE_ARCH=amd64 bash scripts/pack-server-package.sh dist/ardtt-server-lab.tar.gz
+
+      - name: Upload lab package
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab-package
+          path: dist/ardtt-server-lab.tar.gz
+          retention-days: 1
+
   lab:
+    needs: build
+    if: ${{ !cancelled() && (needs.build.result == 'success' || needs.build.result == 'skipped') }}
     runs-on: [self-hosted, ardtt-lab]
     timeout-minutes: 120
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+
+      - name: Download lab package
+        if: needs.build.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: lab-package
+          path: lab-package
 
       # The scenario runs as its own transient systemd unit, outside the runner's
       # cgroup (like a real deploy over SSH). If the runner restarts mid-way, the
@@ -42,4 +75,8 @@ jobs:
       - name: Run scenario
         env:
           SCENARIO: ${{ inputs.scenario }}
-        run: bash scripts/vps-lab/detach.sh "$SCENARIO"
+        run: |
+          if [ -f lab-package/ardtt-server-lab.tar.gz ]; then
+            export ARDTT_LAB_PACKAGE="$PWD/lab-package/ardtt-server-lab.tar.gz"
+          fi
+          bash scripts/vps-lab/detach.sh "$SCENARIO"

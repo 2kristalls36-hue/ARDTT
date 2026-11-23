@@ -25,13 +25,15 @@ ln -sfn "$LOG" "$LAB/last-run.log"
 UNIT="ardtt-lab-$STAMP"
 
 systemd-run --unit "$UNIT" --collect --quiet \
+  ${ARDTT_LAB_PACKAGE:+--setenv=ARDTT_LAB_PACKAGE="$ARDTT_LAB_PACKAGE"} \
   -p StandardOutput=append:"$LOG" -p StandardError=append:"$LOG" \
   /bin/bash -c "bash '$COPY/scripts/vps-lab/run.sh' '$SCENARIO'; echo \$? > '$RC'" \
   || { echo "systemd-run failed"; exit 1; }
 echo "scenario ${SCENARIO} → unit ${UNIT}, log ${LOG}"
 
 touch "$LOG"
-tail -n +1 -f "$LOG" &
+# Same masking as run.sh: this log is public.
+tail -n +1 -f "$LOG" | sed -u -E 's/((admin|telemetry|cascade|upload|review)_?(token|secret)[=:"]+ *)[A-Za-z0-9+\/=_-]{8,}/\1***/Ig' &
 TAIL=$!
 while [ ! -f "$RC" ]; do
   sleep 5
