@@ -68,7 +68,7 @@
 
 ```bash
 curl -fsSLO https://github.com/2kristalls36-hue/ARDTT/releases/latest/download/ardtt-deploy.sh
-sudo ARDTT_PUBLIC_HOST=203.0.113.10 ARDTT_DEPLOY_VERSION=2.0.0 ARDTT_AUTO_PORTS=1 bash ardtt-deploy.sh
+sudo ARDTT_PUBLIC_HOST=203.0.113.10 ARDTT_DEPLOY_VERSION=2.0.1 ARDTT_AUTO_PORTS=1 bash ardtt-deploy.sh
 ```
 
 Основные переменные:

@@ -22,7 +22,7 @@
 
 ```bash
 curl -fsSLO https://github.com/2kristalls36-hue/ARDTT/releases/latest/download/ardtt-deploy.sh
-sudo ARDTT_PUBLIC_HOST=IP_VPS ARDTT_DEPLOY_VERSION=2.0.0 ARDTT_AUTO_PORTS=1 bash ardtt-deploy.sh
+sudo ARDTT_PUBLIC_HOST=IP_VPS ARDTT_DEPLOY_VERSION=2.0.1 ARDTT_AUTO_PORTS=1 bash ardtt-deploy.sh
 curl -s http://127.0.0.1:9100/health
 curl -s -H "Authorization: Bearer $(tr -d '[:space:]' </opt/ardtt/data/admin.token)" http://127.0.0.1:9100/v1/users
 ```

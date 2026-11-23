@@ -97,7 +97,7 @@ ARDTT/
 
 ```bash
 curl -fsSLO https://github.com/2kristalls36-hue/ARDTT/releases/latest/download/ardtt-deploy.sh
-sudo ARDTT_PUBLIC_HOST=IP_этого_VPS ARDTT_DEPLOY_VERSION=2.0.0 ARDTT_AUTO_PORTS=1 bash ardtt-deploy.sh
+sudo ARDTT_PUBLIC_HOST=IP_этого_VPS ARDTT_DEPLOY_VERSION=2.0.1 ARDTT_AUTO_PORTS=1 bash ardtt-deploy.sh
 ```
 
 Разработчикам (образ из дерева): `scripts/build-server-image.sh` + `scripts/pack-server-image.sh`, затем `ARDTT_IMAGE_FILE=…` — см. [docs/DEPLOY.md](docs/DEPLOY.md).

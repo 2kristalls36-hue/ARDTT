@@ -32,7 +32,7 @@ wait_for_users() {
 }
 
 render_conf() {
-  /usr/local/bin/direct-sync -users "${USERS}" -out "${CONF}"
+  /usr/local/bin/direct-sync -users "${USERS}" -out "${CONF}" -listen-port "${PORT}"
 }
 
 apply_direct_mtu() {

@@ -123,6 +123,17 @@ ardtt_ready() {
   name="$(sed -n 's/^CONTAINER=//p' "$INSTALL_DIR/instance.env" 2>/dev/null)"
   [ -n "$name" ] || name="$(grep -s '^ARDTT_CONTAINER_NAME=' "$INSTALL_DIR/.env" | cut -d= -f2)"
   name="${name:-ardtt}"
+  # awg0 must listen on the container port Docker forwards to (51820), whatever
+  # host port was published: ready.sh does not see a client handshake.
+  local lp
+  lp="$(as_root docker exec "$name" awg show awg0 listen-port 2>/dev/null || true)"
+  if [ "$tag" = install-v1 ] && [ -n "$lp" ] && [ "$lp" != 51820 ]; then
+    echo "LAB NOTE|${tag}: 1.0.57 слушает ${lp} вместо 51820 — известная ошибка 1.0.x, исправлена в 2.0.1"
+  elif [ -z "$lp" ] || [ "$lp" = 51820 ]; then
+    pass "${tag}: awg0 слушает 51820 в контейнере${lp:+ (опубликован $(sed -n 's/^DIRECT_PORT=//p' "$INSTALL_DIR/instance.env" 2>/dev/null))}"
+  else
+    fail "${tag}: awg0 слушает ${lp}, а Docker пересылает на 51820 — рукопожатий не будет"
+  fi
   if as_root docker exec "$name" bash /opt/ardtt/ready.sh; then
     pass "${tag}: контейнер ${name} готов"
   else
