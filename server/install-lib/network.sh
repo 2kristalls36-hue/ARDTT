@@ -33,14 +33,38 @@ list_host_cidrs() {
   fi
 }
 
+# Subnet of this instance's own bridge network (proven by labels). On a
+# redeploy it still exists while the subnet is chosen: its route, bridge address
+# and IPAM entry must not count as «busy», or every update moves ARDTT to a new
+# subnet (172.28.20 → 172.30.0 → …).
+own_bridge_subnet() {
+  [ -n "${ARDTT_NETWORK_NAME:-}" ] || return 0
+  command -v docker >/dev/null 2>&1 || return 0
+  docker network inspect "$ARDTT_NETWORK_NAME" >/dev/null 2>&1 || return 0
+  object_owned_by_us network "$ARDTT_NETWORK_NAME" || return 0
+  docker network inspect -f '{{range .IPAM.Config}}{{printf "%s\n" .Subnet}}{{end}}' \
+    "$ARDTT_NETWORK_NAME" 2>/dev/null | head -1
+}
+
+same_network() {
+  python3 - "$1" "$2" <<'PY'
+import ipaddress,sys
+a=ipaddress.ip_network(sys.argv[1].strip(), strict=False)
+b=ipaddress.ip_network(sys.argv[2].strip(), strict=False)
+raise SystemExit(0 if a == b else 1)
+PY
+}
+
 cidr_conflicts() {
-  local want="$1" other
+  local want="$1" other own
   for other in $KNOWN_VPN_SUBNETS; do
     cidrs_overlap "$want" "$other" && return 0
   done
+  own="${OWN_BRIDGE_SUBNET-$(own_bridge_subnet)}"
   while IFS= read -r other; do
     [ -n "$other" ] || continue
     echo "$other" | grep -q '/' || continue
+    if [ -n "$own" ] && same_network "$other" "$own"; then continue; fi
     cidrs_overlap "$want" "$other" && return 0
   done <<< "$(list_host_cidrs)"
   return 1
@@ -63,6 +87,9 @@ pick_from_family() {
 
 pick_bridge_subnet() {
   local preferred="${1:-}"
+  # Resolved once: cidr_conflicts runs for every candidate.
+  local OWN_BRIDGE_SUBNET
+  OWN_BRIDGE_SUBNET="$(own_bridge_subnet)"
   if [ -n "$preferred" ] && ! cidr_conflicts "$preferred"; then
     printf '%s' "$preferred"
     return 0

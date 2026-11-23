@@ -50,8 +50,17 @@ snapshot() {
     echo "## host links (non-veth/br)"; ip -o link show | awk -F': ' '{print $2}' | grep -v -E '^(veth|br-)' | sed 's/@.*//' | sort
     echo "## sysctl"; sysctl -n net.ipv4.ip_forward 2>/dev/null
     echo "## iptables filter (non-ardtt)"
+    # Rules of ARDTT's own bridge (network labelled com.ardtt.owner=ardtt) are
+    # ARDTT's, not a change to the host: drop them before bridge names are masked.
+    local own_br="^$"
+    if have_docker; then
+      local ids
+      ids="$(as_root docker network ls -q --no-trunc --filter label=com.ardtt.owner=ardtt \
+        | cut -c1-12 | sed 's/^/br-/' | paste -sd'|' -)"
+      [ -n "$ids" ] && own_br="($ids)"
+    fi
     as_root iptables-save -t filter 2>/dev/null | grep -v -E '^#|^:' | grep -v -i ardtt \
-      | sed -E 's/br-[0-9a-f]+/br-X/g' | sort
+      | grep -v -E "$own_br" | sed -E 's/br-[0-9a-f]+/br-X/g' | sort
     echo "## docker daemon.json"; cat /etc/docker/daemon.json 2>/dev/null || echo none
     echo "## docker units"; ls /etc/systemd/system/ 2>/dev/null | grep -i -E 'docker|containerd' || echo none
   } >"$out" 2>/dev/null
@@ -60,7 +69,7 @@ snapshot() {
 # Neighbours: the kind of services a shared VPS already runs.
 neighbors() {
   have_docker || { fail "neighbors: Docker не работает"; return; }
-  as_root docker rm -f lab-web lab-wg lab-db >/dev/null 2>&1 || true
+  as_root docker rm -f lab-web lab-wg lab-db stack-app-1 >/dev/null 2>&1 || true
   as_root docker network rm lab-net >/dev/null 2>&1 || true
   as_root docker run -d --name lab-web -p 8080:80 --restart unless-stopped busybox:1.36 \
     sh -c 'mkdir -p /w && echo lab-ok > /w/index.html && httpd -f -p 80 -h /w' >/dev/null \
@@ -71,17 +80,13 @@ neighbors() {
   as_root docker network create --subnet 10.112.0.0/24 lab-net >/dev/null || fail "neighbors: lab-net"
   as_root docker run -d --name lab-db --network lab-net --restart unless-stopped busybox:1.36 \
     sleep 1000000 >/dev/null || fail "neighbors: lab-db"
-  # A foreign Compose project named «stack», like the legacy ARDTT layout.
-  mkdir -p "$LAB/stack"
-  cat >"$LAB/stack/docker-compose.yml" <<'EOF'
-services:
-  app:
-    image: busybox:1.36
-    command: sleep 1000000
-    restart: unless-stopped
-EOF
-  (cd "$LAB/stack" && as_root env COMPOSE_PROJECT_NAME=stack docker compose up -d >/dev/null 2>&1) \
-    || fail "neighbors: compose stack"
+  # A foreign Compose project named «stack», like the legacy ARDTT layout. The host
+  # has no Compose plugin (ARDTT keeps its Compose CLI private), so the container
+  # carries the labels Compose would set: that is all the installer looks at.
+  as_root docker run -d --name stack-app-1 --restart unless-stopped \
+    --label com.docker.compose.project=stack --label com.docker.compose.service=app \
+    --label com.docker.compose.container-number=1 --label com.docker.compose.oneoff=False \
+    busybox:1.36 sleep 1000000 >/dev/null || fail "neighbors: compose stack"
   sleep 3
   if curl -fsS -m 5 http://127.0.0.1:8080/ | grep -q lab-ok; then pass "neighbors: веб-сосед отвечает"; else fail "neighbors: веб-сосед не отвечает"; fi
 }
@@ -188,9 +193,15 @@ uninstall() {
   [ "$left" = "0" ] && pass "uninstall: контейнеров ARDTT не осталось" || fail "uninstall: осталось контейнеров ARDTT: ${left}"
 }
 
+ardtt_subnet() {
+  local id
+  id="$(as_root docker network ls -q --filter label=com.ardtt.owner=ardtt | head -1)"
+  [ -n "$id" ] || return 0
+  as_root docker network inspect -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}' "$id" 2>/dev/null
+}
+
 cleanup() {
-  as_root docker rm -f lab-web lab-wg lab-db >/dev/null 2>&1 || true
-  (cd "$LAB/stack" 2>/dev/null && as_root env COMPOSE_PROJECT_NAME=stack docker compose down >/dev/null 2>&1) || true
+  as_root docker rm -f lab-web lab-wg lab-db stack-app-1 >/dev/null 2>&1 || true
   as_root docker network rm lab-net >/dev/null 2>&1 || true
   pass "cleanup: соседи сняты"
 }
@@ -241,11 +252,18 @@ case "$scenario" in
     snapshot "$LAB/2-after-install.txt"
     compare install "$LAB/1-before.txt" "$LAB/2-after-install.txt"
     neighbors_alive install
+    net_before="$(ardtt_subnet)"
     step "6. Повторное развёртывание (обновление)"
     install_tree update
     snapshot "$LAB/3-after-update.txt"
     compare update "$LAB/1-before.txt" "$LAB/3-after-update.txt"
     neighbors_alive update
+    net_after="$(ardtt_subnet)"
+    if [ -n "$net_before" ] && [ "$net_before" = "$net_after" ]; then
+      pass "update: подсеть ARDTT сохранена (${net_after})"
+    else
+      fail "update: подсеть ARDTT сменилась (${net_before:-?} → ${net_after:-?})"
+    fi
     step "7. Удаление ARDTT"
     uninstall
     snapshot "$LAB/4-after-uninstall.txt"
