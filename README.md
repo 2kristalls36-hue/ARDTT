@@ -20,7 +20,7 @@
 
 **ARDTT** (Amnezia & Raw Dial over TURN Tunnel) — открытый Android-клиент и self-hosted стек **в этом репозитории**: туннель до **вашего** VPS. Прямой путь — AmneziaWG 2.0 по UDP. Обход поднимает локальный интерфейс на устройстве и несёт сырые IP-пакеты через TURN, маскируя транспорт под зашифрованный медиатрафик звонка (RAW Dial via TURN: WRAP).
 
-Клиент — `android/`, сервер — `server/`. Репозиторий **публичный**. Стек **не** вшит в APK: телефон по SSH запускает установку, а **VPS** сам качает пакет из GitHub Releases — по индексу `ardtt-server-<DEPLOY_VERSION>-linux-<amd64|arm64>.index.json` только недостающие компоненты (частичный деплой) либо целиком `ardtt-server-<DEPLOY_VERSION>-linux-<amd64|arm64>.tar.gz`. Архив содержит образ, Compose и Docker Engine (`vendor/docker.tgz`); установка делает `docker load`, без build/pull/git.
+Клиент — `android/`, сервер — `server/`. Репозиторий **публичный**. Стек **не** вшит в APK: телефон по SSH передаёт установщик `ardtt-deploy.sh`, а **VPS** сам скачивает из GitHub Releases один файл образа `ardtt-server-<DEPLOY_VERSION>-linux-<amd64|arm64>.image.tar.gz`, проверяет SHA-256 и делает `docker load`, без build/pull/git.
 
 > [!WARNING]
 > **Назначение проекта**
@@ -42,7 +42,7 @@
 | Клиент | **0.5.271** · minSdk 28 · APK `arm64-v8a` / `armeabi-v7a` / `x86_64` / universal · [Releases](https://github.com/2kristalls36-hue/ARDTT/releases/latest) |
 | Стек | **1.0.57** · `/opt/ardtt` · один контейнер, isolated netns, labels `com.ardtt.owner` · переменные `ARDTT_*` + JSONL protocol=2 |
 | Откуда стек | GitHub Releases: `ardtt-server-1.0.57-linux-<amd64\|arm64>.tar.gz` (docker save + Engine), рядом `…index.json` и ассеты по слоям — **частичный деплой: VPS качает только недостающее**. Не APK, не исходники |
-| Compose | production без `build:`; provision/direct/bypass/dns/warp/cascade/telemetry; host-порты на 51820/56003/9100/9200 внутри |
+| Контейнер | один `docker run`: provision/direct/bypass/dns/warp/cascade/telemetry; host-порты на 51820/56003/9100/9200 внутри |
 | Профиль | ссылка `ardtt://config` |
 | Обновления | публичные GitHub Releases [`2kristalls36-hue/ARDTT`](https://github.com/2kristalls36-hue/ARDTT/releases): APK, `ardtt-update.json`, пакеты сервера — без PAT. Только стабильные `versionName` (без `test`). Тестовые APK — [Actions → Artifacts](https://github.com/2kristalls36-hue/ARDTT/actions) |
 
@@ -83,14 +83,7 @@ ARDTT/
 
 Деплой в ранней бете: автор не обещает, что установка стека отработает, и не несёт за это ответственности. Ставите **на свой страх и риск**.
 
-Один и тот же стек ставится **из приложения** (VPS качает пакет с GitHub) или **архивом с Releases**. Сборка из исходников — [инструкция разработчика](docs/DEPLOY.md#путь-разработчика--сборка-из-исходников).
-
-| | Откуда пакет | Когда |
-|---|---|---|
-| **Приложение** | GitHub Releases → HTTPS с VPS (`fetch-and-install.sh`, частичный деплой по индексу); телефон только SSH | удобно с телефона |
-| **Архив** | тот же актив + `install.sh` из него | shell; Engine ставится из архива, если его ещё нет |
-
-Старые APK с `ardtt-stack-*.tar.gz` и fallback на `main` пакет 1.0.57 не ставят. Подробности: [docs/DEPLOY.md](docs/DEPLOY.md).
+Стек ставится **из приложения** или **одним скриптом** по SSH. В обоих случаях VPS скачивает с GitHub Releases один файл образа, сверяет SHA-256 и запускает один контейнер. Если новая версия не прошла проверку, возвращается предыдущая. Docker берётся тот, что уже есть, или ставится из репозитория дистрибутива. Подробности: [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ## Быстрый старт
 
@@ -100,19 +93,14 @@ ARDTT/
 # https://github.com/2kristalls36-hue/ARDTT/releases/latest
 ```
 
-Сервер с GitHub Releases (Engine из архива, если на VPS его ещё нет):
+Сервер:
 
 ```bash
-# https://github.com/2kristalls36-hue/ARDTT/releases/latest
-# актив ardtt-server-1.0.57-linux-amd64.tar.gz (или arm64)
-# сверьте SHA-256 с digest / SHA256SUMS релиза, затем:
-export ARDTT_PUBLIC_HOST=IP_этого_VPS
-export ARDTT_PACKAGE=/opt/ardtt/incoming/ardtt-server-1.0.57-linux-amd64.tar.gz
-export ARDTT_PACKAGE_SHA256=...
-# см. docs/DEPLOY.md
+curl -fsSLO https://github.com/2kristalls36-hue/ARDTT/releases/latest/download/ardtt-deploy.sh
+sudo ARDTT_PUBLIC_HOST=IP_этого_VPS ARDTT_DEPLOY_VERSION=2.0.1 ARDTT_AUTO_PORTS=1 bash ardtt-deploy.sh
 ```
 
-Разработчикам (сборка образа из дерева): `docker compose -f server/docker-compose.dev.yml up -d --build`.
+Разработчикам (образ из дерева): `scripts/build-server-image.sh` + `scripts/pack-server-image.sh`, затем `ARDTT_IMAGE_FILE=…` — см. [docs/DEPLOY.md](docs/DEPLOY.md).
 
 Каноническая раскладка `/opt/ardtt` — [docs/DEPLOY.md](docs/DEPLOY.md).
 
@@ -133,12 +121,12 @@ cd android
 | [CHANGELOG.md](CHANGELOG.md) | Линейка 0.5.271 / стек 1.0.57 |
 | [docs/LEGEND.md](docs/LEGEND.md) | Имя: Amnezia & Raw Dial over TURN Tunnel |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Схемы, probe, каскад, Hide-IP WARP |
-| [docs/DEPLOY.md](docs/DEPLOY.md) | Пакет `ardtt-server-*-linux-<arch>.tar.gz`: приложение или архив; Engine в `vendor/docker.tgz` |
+| [docs/DEPLOY.md](docs/DEPLOY.md) | Деплой v2: один образ из Releases, один скрипт, один контейнер; миграция с 1.0.x |
 | [docs/TELEMETRY.md](docs/TELEMETRY.md) | Режим тестирования |
 | [docs/UI.md](docs/UI.md) | Дизайн-система клиента: реестр компонентов и токенов, карта экранов, режимы |
 | [docs/UI-AUDIT.md](docs/UI-AUDIT.md) | Аудит интерфейса: находки, исправления, отложенное |
 | [android/README.md](android/README.md) | Сборка клиента, keystore, релизы |
-| [server/README.md](server/README.md) | Compose: provision, direct, bypass, dns, warp, cascade, telemetry |
+| [server/README.md](server/README.md) | Контейнер: provision, direct, bypass, dns, warp, cascade, telemetry |
 
 ## Поддержать
 

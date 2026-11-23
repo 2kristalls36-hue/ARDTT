@@ -20,19 +20,16 @@ data class DeployIssue(
         const val DOCKER_MISSING = "DOCKER_MISSING"
         const val DOCKER_NOT_RUNNING = "DOCKER_NOT_RUNNING"
         const val DOCKER_ACCESS_DENIED = "DOCKER_ACCESS_DENIED"
-        const val PYTHON_MISSING = "PYTHON_MISSING"
-        const val IPTABLES_MISSING = "IPTABLES_MISSING"
         const val UNSUPPORTED_RUNTIME = "UNSUPPORTED_RUNTIME"
         const val PREFLIGHT_FAILED = "PREFLIGHT_FAILED"
         const val DISK_FULL = "DISK_FULL"
         const val INSUFFICIENT_DISK = "INSUFFICIENT_DISK"
-        const val RECOVERY_REQUIRED = "RECOVERY_REQUIRED"
-        const val COMPOSE_UP_FAILED = "COMPOSE_UP_FAILED"
         const val INSTALL_FAILED = "INSTALL_FAILED"
         const val BUSY = "BUSY"
         const val DEPLOY_IN_PROGRESS = "DEPLOY_IN_PROGRESS"
-        const val STATE_WRITE_FAILED = "STATE_WRITE_FAILED"
         const val DISK_MEASUREMENT_FAILED = "DISK_MEASUREMENT_FAILED"
+        const val READINESS_FAILED = "READINESS_FAILED"
+        const val ROLLBACK_FAILED = "ROLLBACK_FAILED"
 
         fun parseArdttError(raw: String): Pair<String?, String> {
             val line = raw.trim()
@@ -79,17 +76,12 @@ data class DeployIssue(
             )
         }
 
-        /** True when the operator can opt into safe VPS disk reclaim and retry. */
-        fun offersDiskCleanup(issue: DeployIssue?): Boolean {
-            if (issue == null) return false
-            if (issue.code == DISK_FULL || issue.code == INSUFFICIENT_DISK ||
-                issue.code == DISK_MEASUREMENT_FAILED) return true
-            val text = "${issue.summary} ${issue.detail}"
-            return text.contains("Мало места") ||
-                text.contains("DISK_FULL") ||
-                text.contains("INSUFFICIENT_DISK") ||
-                text.contains("no space", ignoreCase = true)
-        }
+        /**
+         * Deploy v2 never cleans the host (other services share its disk), so
+         * there is no «retry with cleanup»: the error says how much to free.
+         */
+        @Suppress("UNUSED_PARAMETER")
+        fun offersDiskCleanup(issue: DeployIssue?): Boolean = false
 
         fun of(
             code: String,
@@ -131,38 +123,42 @@ data class DeployIssue(
             } else {
                 ""
             }
+            val said = installerSentence(message)
             return when (code) {
                 CANCELLED -> "Отменено"
                 BUSY, DEPLOY_IN_PROGRESS -> "Деплой уже идёт"
-                STATE_WRITE_FAILED ->
-                    "$hop: не удалось записать состояние деплоя.$entryNote"
                 DOCKER_MISSING ->
-                    "$hop: не удалось поставить Docker Engine из архива.$entryNote"
+                    "$hop: в репозиториях этой системы нет Docker (RHEL/Alma/Rocky). " +
+                        "Установите Docker Engine вручную и повторите.$entryNote"
                 DOCKER_NOT_RUNNING ->
-                    "$hop: Docker установлен, но демон не отвечает.$entryNote"
+                    "$hop: Docker установлен, но демон не отвечает. Запустите его (systemctl start docker) и повторите.$entryNote"
                 DOCKER_ACCESS_DENIED ->
-                    "$hop: нет доступа к Docker. Запустите установку от root или в группе docker.$entryNote"
-                PYTHON_MISSING ->
-                    "$hop: нужен python3 на хосте. Пакет не ставит его из сети.$entryNote"
-                IPTABLES_MISSING ->
-                    "$hop: не удалось поставить iptables из репозитория дистрибутива " +
-                        "(нет доступа к репозиториям или он запрещён ARDTT_INSTALL_IPTABLES=0). " +
-                        "Без него Docker не поднимет сети: поставьте вручную — apt install iptables (Debian/Ubuntu) " +
-                        "или dnf install iptables-nft — и повторите.$entryNote"
+                    "$hop: нет доступа к Docker. Запустите установку от root или с sudo.$entryNote"
                 UNSUPPORTED_RUNTIME ->
-                    "$hop: обнаружен чужой контейнерный runtime. Это не чистый VPS.$entryNote"
+                    "$hop: на сервере другой контейнерный runtime (podman/kubelet) без Docker.$entryNote"
                 SSH_FAILED ->
                     "Не удалось открыть SSH${hopHostPart(hopRole, hop)}."
                 PREFLIGHT_FAILED ->
                     "$hop не прошёл предварительную проверку."
                 DISK_FULL, INSUFFICIENT_DISK ->
-                    "$hop: мало места на диске. Можно очистить кэш/логи и повторить.$entryNote"
-                RECOVERY_REQUIRED ->
-                    "$hop: состояние деплоя повреждено или неоднозначно. Новый деплой заблокирован.$entryNote"
-                COMPOSE_UP_FAILED ->
-                    "$hop: не удалось запустить контейнер (docker compose up).$entryNote"
-                else -> message.ifBlank { "$hop: установка не завершилась." }
+                    "$hop: ${said.ifBlank { "мало места на диске." }}$entryNote"
+                READINESS_FAILED, ROLLBACK_FAILED ->
+                    "$hop: ${said.ifBlank { "новая версия не запустилась." }}$entryNote"
+                else -> if (said.isNotBlank()) "$hop: $said$entryNote" else "$hop: установка не завершилась.$entryNote"
             }
+        }
+
+        /**
+         * The installer's messages are already written for people; drop the
+         * diagnostic tail (container state, log excerpt) that goes to details.
+         */
+        fun installerSentence(message: String): String {
+            var text = message.trim()
+            for (cut in listOf(" state=", " журнал:")) {
+                val i = text.indexOf(cut)
+                if (i > 0) text = text.substring(0, i).trim()
+            }
+            return text.take(300)
         }
 
         private fun hopHostPart(hopRole: String?, hop: String): String =

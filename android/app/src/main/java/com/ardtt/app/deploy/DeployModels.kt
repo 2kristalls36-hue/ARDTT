@@ -14,7 +14,7 @@ data class DeployTarget(
     /** sudo password when user is not root (often same as password). */
     val sudoPassword: String = "",
     val publicHost: String = "",
-    /** When true, install.sh picks free UDP ports on the VPS (defaults as preferred). */
+    /** When true, the installer picks free ports on the VPS (defaults as preferred). */
     val autoPorts: Boolean = true,
     val directPort: Int = 51820,
     val bypassPort: Int = 56003,
@@ -76,7 +76,7 @@ sealed class DeployEvent {
     data class Failure(val message: String) : DeployEvent()
 }
 
-/** Result of a single-hop install.sh run (cascade key + resolved host ports). */
+/** Result of a single-hop installer run (cascade key + resolved host ports). */
 data class DeployInstallResult(
     val cascadePublicKey: String = "",
     val directPort: Int? = null,
@@ -87,4 +87,6 @@ data class DeployInstallResult(
     val instanceId: String = "",
     val containerName: String = "",
     val adminToken: String = "",
+    /** Printed by the exit only when it created the secret; otherwise read over SSH. */
+    val cascadeSecret: String = "",
 )

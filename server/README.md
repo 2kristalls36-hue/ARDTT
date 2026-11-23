@@ -1,11 +1,8 @@
 # Сервер ARDTT
 
-Продуктовое имя — **ARDTT** (Amnezia & Raw Dial over TURN Tunnel). Стек: **1.0.54** (`DEPLOY_VERSION`).  
-Продуктовая установка — готовый архив `ardtt-server-<версия>-linux-<amd64|arm64>.tar.gz` из GitHub Releases: [DEPLOY.md](../docs/DEPLOY.md).  
-Обновление из приложения идёт частичным деплоем: `fetch-and-install.sh` на VPS читает индекс релиза `ardtt-server-<версия>-linux-<arch>.index.json` и качает только недостающие компоненты (host-файлы, изменившиеся слои образа, Engine/Compose — лишь если их нет на хосте).  
+Продуктовое имя — **ARDTT** (Amnezia & Raw Dial over TURN Tunnel). Стек: `DEPLOY_VERSION`.  
+Установка — деплой v2: `deploy/ardtt-deploy.sh` скачивает с GitHub Releases образ `ardtt-server-<версия>-linux-<arch>.image.tar.gz` и запускает один контейнер ([DEPLOY.md](../docs/DEPLOY.md), [ADR 0006](../docs/adr/0006-deploy-v2.md)).  
 Лендинг: [../README.md](../README.md). Текущий релиз: [../CHANGELOG.md](../CHANGELOG.md).
-
-На чистом VPS пакет ставит Docker Engine из `vendor/docker.tgz`. Пакет не вызывает сетевой установщик Engine, не делает `docker pull` и не собирает образ. Рабочий Docker не переустанавливается.
 
 Боевой контур — **один контейнер** (см. [архитектуру](../docs/ARCHITECTURE.md) и [легенду](../docs/LEGEND.md)):
 
@@ -21,25 +18,17 @@
 
 ## Установка (продукт)
 
-Нужны Linux amd64/arm64, `/dev/net/tun`, python3, iptables. Docker Engine — из архива, если его ещё нет.
+Нужны Linux amd64/arm64, `/dev/net/tun`, root. Docker — имеющийся или из репозитория дистрибутива.
 
 ```bash
-# Актив с https://github.com/2kristalls36-hue/ARDTT/releases
-# Сверьте внешнюю SHA-256 с digest / SHA256SUMS релиза.
-export ARDTT_PUBLIC_HOST=IP_VPS
-export ARDTT_PACKAGE=/opt/ardtt/incoming/ardtt-server-1.0.46-linux-amd64.tar.gz
-export ARDTT_PACKAGE_SHA256='…'
-# после safe-extract:
-bash /opt/ardtt/staging/install.sh
+curl -fsSLO https://github.com/2kristalls36-hue/ARDTT/releases/latest/download/ardtt-deploy.sh
+sudo ARDTT_PUBLIC_HOST=IP_VPS ARDTT_DEPLOY_VERSION=2.0.1 ARDTT_AUTO_PORTS=1 bash ardtt-deploy.sh
 curl -s http://127.0.0.1:9100/health
-curl -s http://127.0.0.1:9100/ready
 curl -s -H "Authorization: Bearer $(tr -d '[:space:]' </opt/ardtt/data/admin.token)" http://127.0.0.1:9100/v1/users
 ```
 
-Обновление — тот же путь. Откат: `ARDTT_ACTION=rollback`.  
+Обновление — тот же запуск с новой версией; при неудачной проверке готовности возвращается предыдущая.  
 Удаление только этого экземпляра: `ARDTT_ACTION=uninstall` (`ARDTT_PURGE_DATA=1` стирает data/).
-
-Host published порты (Direct, Bypass, provision, telemetry) задаются в `.env`; listen внутри контейнера: 51820 / 56003 / 9100 / 9200.
 
 ## Сборка из исходников (разработчик)
 
@@ -68,7 +57,7 @@ curl -s http://127.0.0.1:9100/health
 ## Данные
 
 ```
-/opt/ardtt/data/          # после install.sh
+/opt/ardtt/data/          # после установки
   users.json
   config.json
   warp/

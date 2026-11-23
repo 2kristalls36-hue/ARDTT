@@ -17,7 +17,7 @@ class DeployPreflightTest {
             ARDTT_PREFLIGHT|tun=1
             ARDTT_PREFLIGHT|iptables=1
             ARDTT_PREFLIGHT|docker=missing
-            ARDTT_PREFLIGHT_DONE|ok=1|code=OK|message=docker-from-package
+            ARDTT_PREFLIGHT_DONE|ok=1|code=OK|message=docker-from-distro
             """.trimIndent(),
         )
         assertTrue(parsed.ok)
@@ -83,35 +83,42 @@ class DeployPreflightTest {
     }
 
     @Test
-    fun remoteScriptDoesNotUseUnquotedPipeAsShell() {
-        assertTrue(DeployPreflight.REMOTE_SCRIPT.contains("echo \"ARDTT_PREFLIGHT|os_id="))
-        assertTrue(DeployPreflight.REMOTE_SCRIPT.contains("docker-from-package"))
-        assertTrue(DeployPreflight.REMOTE_SCRIPT.contains("systemctl"))
-        assertFalse(DeployPreflight.REMOTE_SCRIPT.contains("code=DOCKER_MISSING"))
-        assertTrue(DeployPreflight.REMOTE_SCRIPT.contains("docker-and-iptables-from-package"))
-        assertFalse(DeployPreflight.REMOTE_SCRIPT.contains("code=IPTABLES_MISSING"))
+    fun remoteScriptProbesDistroDockerNotPython() {
+        val script = DeployPreflight.REMOTE_SCRIPT
+        assertTrue(script.contains("echo \"ARDTT_PREFLIGHT|os_id="))
+        assertTrue(script.contains("docker-from-distro"))
+        assertTrue(script.contains("code=DOCKER_MISSING"))
+        assertFalse(script.contains("PYTHON_MISSING"))
+        assertFalse(script.contains("docker-from-package"))
     }
 
     @Test
-    fun parseMissingIptablesWithoutDockerIsOkInstallerTakesIt() {
-        // Minimal Debian 13 / Ubuntu 26.04 images: no Docker and no iptables;
-        // the installer takes iptables from the distro repository itself.
-        val parsed = DeployPreflight.parse(
-            "ARDTT_PREFLIGHT|python=1\nARDTT_PREFLIGHT|iptables=0\nARDTT_PREFLIGHT|docker=missing\n" +
-                "ARDTT_PREFLIGHT_DONE|ok=1|code=OK|message=docker-and-iptables-from-package",
-        )
-        assertTrue(parsed.ok)
-        assertEquals(null, parsed.code)
-        assertTrue(parsed.iptablesMissing)
-        assertEquals("missing", parsed.docker)
+    fun remoteScriptIsValidBash() {
+        val proc = ProcessBuilder("bash", "-n", "-c", DeployPreflight.REMOTE_SCRIPT)
+            .redirectErrorStream(true)
+            .start()
+        val out = proc.inputStream.bufferedReader().readText()
+        assertEquals("bash -n: $out", 0, proc.waitFor())
     }
 
     @Test
-    fun parseMissingSystemdWithoutDockerIsFailure() {
+    fun parseNoDistroDockerIsFailure() {
+        // RHEL/Alma/Rocky: dnf without a Docker package in the distribution.
         val parsed = DeployPreflight.parse(
-            "ARDTT_PREFLIGHT_DONE|ok=0|code=DOCKER_NOT_RUNNING|message=no-systemd",
+            "ARDTT_PREFLIGHT|os_id=almalinux\nARDTT_PREFLIGHT|docker=missing\n" +
+                "ARDTT_PREFLIGHT_DONE|ok=0|code=DOCKER_MISSING|message=no-distro-docker",
         )
         assertFalse(parsed.ok)
-        assertEquals(DeployIssue.DOCKER_NOT_RUNNING, parsed.code)
+        assertEquals(DeployIssue.DOCKER_MISSING, parsed.code)
+    }
+
+    @Test
+    fun parseDockerFromDistroIsOk() {
+        val parsed = DeployPreflight.parse(
+            "ARDTT_PREFLIGHT|docker=missing\nARDTT_PREFLIGHT|docker_pkg=docker.io\n" +
+                "ARDTT_PREFLIGHT_DONE|ok=1|code=OK|message=docker-from-distro",
+        )
+        assertTrue(parsed.ok)
+        assertEquals("docker.io", parsed.fields["docker_pkg"])
     }
 }

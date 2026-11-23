@@ -13,10 +13,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 
 /**
- * Admin deploy: SSH to the VPS and run fetch-and-install.sh there.
- * Image layers / Engine / Compose come from GitHub Releases. Installer
- * hostfiles (~100 KB) are SFTP'd from APK assets when newer than the
- * published stack, so a git bump does not wait for a Release package.
+ * Admin deploy (v2, docs/adr/0006-deploy-v2.md): SSH to the VPS, upload the
+ * APK's ardtt-deploy.sh and run it. The VPS downloads one image file from
+ * GitHub Releases and switches the container with readiness + rollback.
  * Cascade exit is reached only through the entry SSH session
  * (ProxyJump / direct-tcpip). Protocol: docs/DEPLOY.md.
  */
@@ -181,23 +180,20 @@ class DeployEngine(private val appContext: Context) {
             }.getOrElse { DeployBundle.expectedVersion(appContext) }
             val deployVersion = DeployVersionCatalog.installTargetVersion(appContext)
             val published = DeployVersionCatalog.publishedVersion(appContext)
-            val overlayHostfiles = overlayAssetAvailable()
             append("Целевая версия стека: $deployVersion")
-            if (overlayHostfiles && published.isNotBlank() && published != deployVersion) {
-                append("В Releases пока $published — слои с GitHub, установщик $deployVersion из APK overlay")
-            } else if (catalogExpected.isNotBlank() && catalogExpected != deployVersion) {
-                append("В git стек $catalogExpected, в Releases пока $deployVersion — ставим опубликованный пакет")
-            } else {
-                append("VPS скачает слои образа с GitHub Releases")
+            if (catalogExpected.isNotBlank() && catalogExpected != deployVersion) {
+                append("В приложении стек $catalogExpected, в Releases опубликован $deployVersion — ставим опубликованный")
             }
-            if (diskCleanup) {
-                append("Перед установкой: безопасная очистка места на VPS (ARDTT_DISK_CLEANUP=1)")
+            if (published.isBlank()) {
+                append("Опубликованная версия стека не получена — VPS сам найдёт образ $deployVersion в Releases")
             }
+            append("VPS скачает один файл образа с GitHub Releases (или возьмёт уже загруженный)")
             val publicHost = target.publicHost.ifBlank { target.host }.trim()
             val entryHost = target.host.trim()
             val verb = if (_isUpdate.value) "обновление" else if (preflightOnly) "проверка" else "установка"
 
             var exitPub = ""
+            var exitCascadeSecret = ""
             var exitCascadeListen = DeployInstallEnv.CASCADE_LISTEN_PORT
             var resolvedDirect = target.directPort
             var resolvedBypass = target.bypassPort
@@ -274,7 +270,7 @@ class DeployEngine(private val appContext: Context) {
                         progressEnd = 0.48f,
                         hopRole = "exit",
                     ) { scriptPath ->
-                        DeployInstallEnv.fetchAndInstallCommand(
+                        DeployInstallEnv.installCommand(
                             publicHost = exitHost,
                             directPort = target.directPort,
                             bypassPort = target.bypassPort,
@@ -284,15 +280,19 @@ class DeployEngine(private val appContext: Context) {
                             autoPorts = target.autoPorts,
                             provisionPort = target.cascadeProvisionPort,
                             telemetryPort = target.cascadeTelemetryPort,
-                            diskCleanup = diskCleanup,
                             hostCpus = exitCpus,
                             scriptPath = scriptPath,
-                            hostfilesOverlay = overlayHostfiles,
                         )
                     }
                     exitPub = installed.cascadePublicKey
                     if (exitPub.isBlank()) {
                         error("Выходной VPS не отдал ключ каскада (ARDTT_CASCADE_PUBLIC_KEY)")
+                    }
+                    // The entry needs it to hand its key to the exit (POST /v1/cascade/peer).
+                    exitCascadeSecret = installed.cascadeSecret.ifBlank {
+                        runCatching {
+                            exitSsh.exec("tr -d '[:space:]' < /opt/ardtt/data/cascade.secret", timeoutMs = 15_000L)
+                        }.getOrDefault("").trim()
                     }
                     installed.cascadeListenPort?.let { exitCascadeListen = it }
                         ?: installed.directPort?.let { exitCascadeListen = it }
@@ -312,6 +312,13 @@ class DeployEngine(private val appContext: Context) {
             val ssh = entrySsh
             val entryCpus = ServerOsProbe.probeHostCpus(ssh)
             append("CPU входа: $entryCpus")
+            val cascadeSecretFile = if (target.cascadeEnabled && exitCascadeSecret.isNotBlank()) {
+                ssh.uploadBytes((exitCascadeSecret + "\n").toByteArray(), DeployInstallEnv.CASCADE_SECRET_REMOTE, mode = 0x180)
+                DeployInstallEnv.CASCADE_SECRET_REMOTE
+            } else {
+                if (target.cascadeEnabled) append("Предупреждение: секрет каскада с выхода не получен — вход не сможет передать свой ключ")
+                ""
+            }
 
             val entryInstalled = triggerRemoteInstall(
                 ssh = ssh,
@@ -322,7 +329,7 @@ class DeployEngine(private val appContext: Context) {
                 progressEnd = if (target.cascadeEnabled) 0.92f else 0.96f,
                 hopRole = "entry",
             ) { scriptPath ->
-                DeployInstallEnv.fetchAndInstallCommand(
+                DeployInstallEnv.installCommand(
                     publicHost = publicHost,
                     directPort = target.directPort,
                     bypassPort = target.bypassPort,
@@ -339,10 +346,9 @@ class DeployEngine(private val appContext: Context) {
                     autoPorts = target.autoPorts,
                     provisionPort = target.provisionPort,
                     telemetryPort = target.telemetryPort,
-                    diskCleanup = diskCleanup,
                     hostCpus = entryCpus,
                     scriptPath = scriptPath,
-                    hostfilesOverlay = overlayHostfiles,
+                    cascadeSecretFile = cascadeSecretFile,
                 )
             }
             val entryPub = entryInstalled.cascadePublicKey
@@ -356,7 +362,7 @@ class DeployEngine(private val appContext: Context) {
                 if (entryPub.isNotBlank()) {
                     append("Ключ входа получен; VPS1 сам передаёт его на выход (без третьего SSH)")
                 } else {
-                    append("Предупреждение: вход не отдал ARDTT_CASCADE_PUBLIC_KEY — проверьте install.log")
+                    append("Предупреждение: вход не отдал ARDTT_CASCADE_PUBLIC_KEY — проверьте /opt/ardtt/deploy.log")
                 }
             }
 
@@ -409,7 +415,7 @@ class DeployEngine(private val appContext: Context) {
             AppLog.e(TAG, "deploy failed: ${t.message ?: t.javaClass.simpleName}")
             TelemetryBridge.handledError("deploy", t)
             val remoteLog = runCatching {
-                client?.exec("tail -c 50000 /opt/ardtt/install.log 2>/dev/null || true")
+                client?.exec("tail -c 50000 /opt/ardtt/deploy.log 2>/dev/null || true")
             }.getOrNull().orEmpty()
             if (remoteLog.isNotBlank()) {
                 TelemetryBridge.deploy(
@@ -575,7 +581,8 @@ class DeployEngine(private val appContext: Context) {
         progressEnd: Float,
     ) {
         throwIfCancelled()
-        emitOn(hostLabel, progressStart, "Снятие стека: контейнеры, /opt/ardtt, leftover…")
+        emitOn(hostLabel, progressStart, "Снятие стека: контейнер, сеть, /opt/ardtt…")
+        uploadInstaller(ssh)
         var sawDone = false
         var failed: String? = null
         val span = (progressEnd - progressStart).coerceAtLeast(0.05f)
@@ -690,10 +697,8 @@ class DeployEngine(private val appContext: Context) {
     }
 
     /**
-     * Ensure fetch-and-install.sh is on the VPS, then run it.
-     * When the APK ships overlay hostfiles, always SFTP the APK bootstrap
-     * (published `/opt/ardtt/current/fetch-and-install.sh` does not apply overlay).
-     * Otherwise prefer the copy from the last package.
+     * Upload the APK's ardtt-deploy.sh (deploy v2) and run it. The installer
+     * always matches this APK: the VPS never runs an older copy of itself.
      */
     private fun triggerRemoteInstall(
         ssh: SshClient,
@@ -705,41 +710,10 @@ class DeployEngine(private val appContext: Context) {
         hopRole: String? = null,
         commandFor: (scriptPath: String) -> String,
     ): DeployInstallResult {
-        emitOn(hostLabel, progressStart, "Подготовка fetch-and-install на VPS…")
-        ssh.exec(
-            "if [ -d /opt/nonamevpn ] && [ ! -e /opt/ardtt ]; then mv /opt/nonamevpn /opt/ardtt; fi; " +
-                "mkdir -p /opt/ardtt/bin /opt/ardtt/incoming && chmod 755 /opt/ardtt /opt/ardtt/bin /opt/ardtt/incoming",
-        )
         val span = (progressEnd - progressStart).coerceAtLeast(0.05f)
-        val overlay = overlayAssetAvailable()
-        val hasCurrent = ssh.exec(
-            "if [ -f ${SshClient.shellQuote(DeployInstallEnv.FETCH_SCRIPT_CURRENT)} ]; then echo yes; else echo no; fi",
-            timeoutMs = 15_000L,
-        ).trim() == "yes"
-        val scriptPath = if (!overlay && hasCurrent) {
-            append("На $hostLabel используем ${DeployInstallEnv.FETCH_SCRIPT_CURRENT}")
-            DeployInstallEnv.FETCH_SCRIPT_CURRENT
-        } else {
-            emitOn(hostLabel, progressStart + span * 0.05f, "SFTP bootstrap fetch-and-install.sh…")
-            uploadAsset(
-                ssh,
-                DeployInstallEnv.FETCH_ASSET,
-                DeployInstallEnv.FETCH_SCRIPT_REMOTE,
-                executable = true,
-            )
-            append("Bootstrap fetch-and-install.sh залит на $hostLabel")
-            DeployInstallEnv.FETCH_SCRIPT_REMOTE
-        }
-        if (overlay) {
-            emitOn(hostLabel, progressStart + span * 0.08f, "SFTP overlay hostfiles из APK…")
-            uploadAsset(
-                ssh,
-                DeployInstallEnv.HOSTFILES_OVERLAY_ASSET,
-                DeployInstallEnv.HOSTFILES_OVERLAY_REMOTE,
-                executable = false,
-            )
-            append("Overlay hostfiles залиты на $hostLabel (${DeployInstallEnv.HOSTFILES_OVERLAY_REMOTE})")
-        }
+        emitOn(hostLabel, progressStart, "Передача установщика на VPS…")
+        val scriptPath = uploadInstaller(ssh)
+        append("Установщик ardtt-deploy.sh передан на $hostLabel")
         val runCommand = commandFor(scriptPath)
         TelemetryBridge.deploy(
             "remote_fetch_started",
@@ -750,7 +724,7 @@ class DeployEngine(private val appContext: Context) {
                 .put("public_host", publicHost),
         )
 
-        emitOn(hostLabel, progressStart + span * 0.12f, "VPS загружает пакет с GitHub и ставит стек…")
+        emitOn(hostLabel, progressStart + span * 0.12f, "Установка на VPS…")
         var failed: String? = null
         var cascadePub = ""
         var doneFields = emptyMap<String, String>()
@@ -779,26 +753,6 @@ class DeployEngine(private val appContext: Context) {
                         doneFields = DeployInstallEnv.doneFields(line)
                         sawDone = true
                         emitOn(hostLabel, progressEnd, "установка на VPS завершилась")
-                    }
-                }
-                else -> {
-                    DeployInstallEnv.protocol2Progress(line)?.let { (frac, step) ->
-                        val mapped = (progressStart + span * (0.12f + 0.88f * frac.coerceIn(0f, 1f)))
-                            .coerceIn(0f, 1f)
-                        if (step.isNotBlank()) emitOn(hostLabel, mapped, step)
-                    }
-                    if (!sawError) {
-                        DeployInstallEnv.protocol2Error(line)?.let {
-                            failed = it
-                            sawError = true
-                        }
-                    }
-                    if (!sawDone) {
-                        DeployInstallEnv.protocol2DoneFields(line)?.let {
-                            doneFields = it
-                            sawDone = true
-                            emitOn(hostLabel, progressEnd, "установка на VPS завершилась")
-                        }
                     }
                 }
             }
@@ -836,7 +790,7 @@ class DeployEngine(private val appContext: Context) {
                 code == -1 ->
                     " — SSH-сессия оборвалась во время установки (Wi‑Fi/фон). " +
                         "Повторите деплой: предыдущий стек не переключается до readiness"
-                hint.contains("GITHUB_UNREACHABLE", ignoreCase = true) ||
+                hint.contains("DOWNLOAD_FAILED", ignoreCase = true) ||
                     hint.contains("api.github.com", ignoreCase = true) ->
                     " — VPS не достучался до GitHub Releases (нужен исходящий HTTPS)"
                 hint.contains("no space", ignoreCase = true) ||
@@ -852,7 +806,7 @@ class DeployEngine(private val appContext: Context) {
                     .put("exit_code", code)
                     .put("log_tail", hint),
             )
-            error("fetch-and-install exit=$code на $hostLabel$detail")
+            error("ardtt-deploy.sh exit=$code на $hostLabel$detail")
         }
         return DeployInstallResult(
             cascadePublicKey = cascadePub,
@@ -864,14 +818,15 @@ class DeployEngine(private val appContext: Context) {
             instanceId = doneFields["instance"].orEmpty(),
             containerName = doneFields["container"].orEmpty(),
             adminToken = ProvisionAdminToken.normalize(doneFields["admin_token"].orEmpty()).orEmpty(),
+            cascadeSecret = doneFields["cascade_secret"].orEmpty().trim(),
         )
     }
 
-    private fun overlayAssetAvailable(): Boolean =
-        runCatching {
-            appContext.assets.open(DeployInstallEnv.HOSTFILES_OVERLAY_ASSET).close()
-            true
-        }.getOrElse { false }
+    /** SFTP the APK installer into the SSH user's home; returns the remote path. */
+    private fun uploadInstaller(ssh: SshClient): String {
+        uploadAsset(ssh, DeployInstallEnv.DEPLOY_ASSET, DeployInstallEnv.DEPLOY_SCRIPT_REMOTE, executable = true)
+        return DeployInstallEnv.DEPLOY_SCRIPT_REMOTE
+    }
 
     private fun uploadAsset(ssh: SshClient, asset: String, remote: String, executable: Boolean) {
         val local = java.io.File(appContext.cacheDir, java.io.File(remote).name)
@@ -898,7 +853,7 @@ class DeployEngine(private val appContext: Context) {
             val dockerNote = if (result.dockerPresent) {
                 "Docker ${result.dockerVersion.ifBlank { "ok" }}"
             } else {
-                "Docker будет установлен из пакета"
+                "Docker поставится из репозитория дистрибутива (${result.fields["docker_pkg"].orEmpty()})"
             }
             append(
                 "Проверка $hostLabel: $dockerNote " +

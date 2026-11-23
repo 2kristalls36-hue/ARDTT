@@ -1,6 +1,7 @@
-# Build and pack self-contained ARDTT server packages (docker save).
-# CI may fetch base images and pinned GitHub releases. The VPS payload
-# does not: install is docker load + compose --no-build --pull never.
+# Deploy v2 (docs/adr/0006-deploy-v2.md): build the server image for both
+# architectures, save each as one .image.tar.gz and attach them, together with
+# the installer, to the GitHub Release of the tag. The VPS downloads exactly one
+# of these files; nothing else is published for the server.
 name: Server package
 
 on:
@@ -10,16 +11,10 @@ on:
     paths:
       - "server/**"
       - "scripts/build-server-image.sh"
-      - "scripts/pack-server-package.sh"
-      - "scripts/build-server-index.py"
-      - "scripts/split-docker-save.py"
-      - "scripts/assemble-docker-save.py"
-      - "scripts/layer-cache.py"
-      - "scripts/verify-server-package.sh"
-      - "scripts/verify-server-index.sh"
-      - "scripts/attach-server-packages-to-release.sh"
+      - "scripts/pack-server-image.sh"
+      - "scripts/publish-server-release.sh"
       - "scripts/check-deploy-bundle.sh"
-      - "scripts/safe-extract-package.py"
+      - "scripts/test-deploy-v2.sh"
       - ".github/workflows/server-package.yml"
     tags:
       - "v*"
@@ -27,9 +22,15 @@ on:
     paths:
       - "server/**"
       - "scripts/**"
+      - "android/app/src/main/assets/deploy/**"
       - "android/app/src/main/java/com/ardtt/app/deploy/**"
       - ".github/workflows/server-package.yml"
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Attach this commit's stack to an existing release tag (empty = build only)
+        required: false
+        default: ""
 
 concurrency:
   group: server-package-${{ github.ref }}
@@ -37,13 +38,12 @@ concurrency:
 
 permissions:
   contents: write
-  actions: read
 
 jobs:
   contract:
     name: Installer contract
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -54,58 +54,23 @@ jobs:
           go-version: "1.22.x"
           cache-dependency-path: server/provision/go.sum
 
-      - name: Contract tests (no Docker image build)
+      # The runner is a throwaway VM: the Docker scenarios of test-deploy-v2.sh
+      # (install, update, rollback, migration, neighbours) may run here.
+      - name: Installer contract and Docker scenarios
         shell: bash
         run: |
-          bash scripts/check-deploy-bundle.sh
-          bash scripts/test-overlay-dir-modes.sh
-          bash scripts/test-install-disk-guard.sh
-          bash scripts/test-install-buildkit-wipe.sh
-          bash scripts/test-verify-loaded-image.sh
-          bash scripts/test-instance-metadata-rollback.sh
-          bash scripts/test-install-live-isolation-guard.sh
-          (cd server/provision && go test ./...)
+          sudo -E env ARDTT_TEST_DOCKER=1 PATH="$PATH" bash scripts/check-deploy-bundle.sh
 
-  pr-artifacts:
-    name: PR host-file artifacts
-    needs: contract
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-
-      - name: Pack installer host files (no image)
+      - name: Provision unit tests
         shell: bash
-        run: |
-          set -euo pipefail
-          ver="$(tr -d '[:space:]' < server/DEPLOY_VERSION)"
-          mkdir -p dist
-          tar -C server -czf "dist/ardtt-server-hostfiles-${ver}.tar.gz" \
-            install.sh fetch-and-install.sh install-lib ready.sh docker-compose.yml docker-compose.exit.yml \
-            DEPLOY_VERSION manifest.json 2>/dev/null || \
-          tar -C server -czf "dist/ardtt-server-hostfiles-${ver}.tar.gz" \
-            install.sh fetch-and-install.sh install-lib ready.sh docker-compose.yml docker-compose.exit.yml \
-            DEPLOY_VERSION
-          sha256sum "dist/ardtt-server-hostfiles-${ver}.tar.gz" \
-            | awk '{print $1}' > "dist/ardtt-server-hostfiles-${ver}.tar.gz.sha256"
-          ls -lh dist/
-
-      - name: Upload host-file artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ardtt-server-hostfiles
-          path: dist/ardtt-server-hostfiles-*.tar.gz*
-          if-no-files-found: error
-          retention-days: 14
+        run: (cd server/provision && go test ./...)
 
   package:
-    name: Package linux-${{ matrix.arch }}
+    name: Image linux-${{ matrix.arch }}
     needs: contract
-    if: github.event_name != 'pull_request' || github.event_name == 'workflow_dispatch'
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -121,14 +86,9 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # Exposes ACTIONS_RUNTIME_TOKEN / ACTIONS_CACHE_URL to `docker buildx build`
-      # so type=gha cache works from a plain run step.
       - name: Expose GitHub runtime for BuildKit cache
         uses: crazy-max/ghaction-github-runtime@v4
 
-      # Persistent BuildKit cache: unchanged Dockerfile steps yield byte-identical
-      # layers across builds, so a VPS on partial deploy downloads only layers
-      # whose inputs really changed.
       - name: Build image
         shell: bash
         env:
@@ -137,91 +97,65 @@ jobs:
           ARDTT_BUILD_CACHE_TO: type=gha,scope=server-image-${{ matrix.arch }},mode=max
         run: bash scripts/build-server-image.sh "${{ matrix.arch }}"
 
-      - name: Pack release archive and partial-deploy assets
+      - name: Save image
         shell: bash
-        env:
-          ARDTT_PACKAGE_ARCH: ${{ matrix.arch }}
-          ARDTT_GIT_COMMIT: ${{ github.sha }}
-          ARDTT_RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
-        run: |
-          bash scripts/pack-server-package.sh
-          ls -lh dist/
+        run: bash scripts/pack-server-image.sh "${{ matrix.arch }}" dist
 
-      - name: Load package without pull
-        shell: bash
-        run: |
-          ver="$(tr -d '[:space:]' < server/DEPLOY_VERSION)"
-          pkg="dist/ardtt-server-${ver}-linux-${{ matrix.arch }}.tar.gz"
-          bash scripts/verify-server-package.sh "$pkg"
-          bash scripts/verify-server-index.sh "dist/ardtt-server-${ver}-linux-${{ matrix.arch }}.index.json"
-
-      # Upload before live isolation: install.sh used to delete ARDTT_PACKAGE
-      # (the dist tarball) after extract, so amd64 artifacts were only .sha256.
-      - name: Upload package artifact
+      - name: Upload image artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ardtt-server-${{ matrix.arch }}
-          path: |
-            dist/ardtt-server-*-linux-${{ matrix.arch }}.tar.gz
-            dist/ardtt-server-*-linux-${{ matrix.arch }}.tar.gz.sha256
-            dist/ardtt-server-*-linux-${{ matrix.arch }}.index.json
-            dist/ardtt-server-*-linux-${{ matrix.arch }}.index.json.sha256
-            dist/ardtt-server-*-linux-${{ matrix.arch }}-hostfiles.tar.gz
-            dist/ardtt-server-*-linux-${{ matrix.arch }}-layer-*.tar.gz
-            dist/ardtt-docker-engine-*-linux-${{ matrix.arch }}.tgz
-            dist/ardtt-docker-compose-*-linux-${{ matrix.arch }}
+          name: ardtt-server-image-${{ matrix.arch }}
+          path: dist/ardtt-server-*-linux-${{ matrix.arch }}.image.tar.gz*
           if-no-files-found: error
           retention-days: 30
 
-      - name: Require packed tarball in artifact paths
-        shell: bash
-        run: |
-          set -euo pipefail
-          ver="$(tr -d '[:space:]' < server/DEPLOY_VERSION)"
-          pkg="dist/ardtt-server-${ver}-linux-${{ matrix.arch }}.tar.gz"
-          test -f "$pkg"
-          test -s "$pkg"
-          sz="$(stat -c%s "$pkg")"
-          # Real packages are hundreds of MB; refuse empty/sha-only leftovers.
-          test "$sz" -gt 1048576
-          echo "package bytes=$sz"
-
-      - name: Live isolation without touching foreign containers
-        if: matrix.arch == 'amd64'
-        shell: bash
-        env:
-          ARDTT_REQUIRE_READY: "0"
-        run: |
-          ver="$(tr -d '[:space:]' < server/DEPLOY_VERSION)"
-          # Copy so a buggy installer cannot erase the uploaded source path.
-          src="dist/ardtt-server-${ver}-linux-${{ matrix.arch }}.tar.gz"
-          cp -f "$src" "${src}.live"
-          cp -f "${src}.sha256" "${src}.live.sha256"
-          bash scripts/test-install-live-isolation.sh "${src}.live"
-
+  # Same rule as android-build.yml: a push to main with a non-test versionName
+  # publishes release v<versionName>, so the images go there too — an APK must
+  # never be released without the stack image it installs.
   publish:
-    name: Attach packages to GitHub Release
-    needs: [contract, package]
-    # Only an explicit version tag publishes. PRs never touch Releases.
-    # Main does not clobber an existing tag. No mixing of a new installer
-    # with an older image under the same package version.
-    if: github.event_name == 'push' && github.ref_type == 'tag'
+    name: Attach to GitHub Release
+    needs: package
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '')
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Download packages
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag || '' }}
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then
+            tag="${GITHUB_REF_NAME}"
+          elif [ -n "$INPUT_TAG" ]; then
+            tag="$INPUT_TAG"
+          else
+            name="$(sed -n 's/.*releaseVersionName = "\([^"]*\)".*/\1/p' android/app/build.gradle.kts | head -n 1)"
+            case "$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')" in
+              *test*) tag="" ;;
+              *) tag="v${name}" ;;
+            esac
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "release tag: ${tag:-none (test build)}"
+
+      - name: Download images
+        if: steps.tag.outputs.tag != ''
         uses: actions/download-artifact@v4
         with:
           path: dist
+          pattern: ardtt-server-image-*
           merge-multiple: true
 
-      - name: Publish this tag without clobber
+      - name: Publish
+        if: steps.tag.outputs.tag != ''
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          bash scripts/attach-server-packages-to-release.sh --tag "${GITHUB_REF_NAME}" --from-dir dist
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: bash scripts/publish-server-release.sh --tag "$TAG" --from-dir dist

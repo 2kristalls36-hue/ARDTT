@@ -29,3 +29,23 @@ func TestDeactivatedUserIsNotADirectPeer(t *testing.T) {
 		t.Fatalf("peer: %+v", peers[0])
 	}
 }
+
+func TestListenPortIsTheContainerPortNotThePublishedOne(t *testing.T) {
+	// users.json may carry directPort=51821 (host port after 51820 was busy);
+	// awg0 must still listen on the container port Docker forwards to.
+	if got := listenPort(0, ""); got != 51820 {
+		t.Fatalf("default: got %d, want 51820", got)
+	}
+	if got := listenPort(0, "51820"); got != 51820 {
+		t.Fatalf("env: got %d", got)
+	}
+	if got := listenPort(0, " 40000 "); got != 40000 {
+		t.Fatalf("env trimmed: got %d", got)
+	}
+	if got := listenPort(51900, "51820"); got != 51900 {
+		t.Fatalf("flag wins: got %d", got)
+	}
+	if got := listenPort(0, "nope"); got != 51820 {
+		t.Fatalf("bad env: got %d", got)
+	}
+}

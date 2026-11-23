@@ -139,13 +139,32 @@ class SshClient(
         }
     }
 
-    fun uploadBytes(data: ByteArray, remotePath: String) {
-        val tmp = File.createTempFile("ardtt-up", ".bin")
+    /**
+     * With [mode] (e.g. 0x180 = 0600) the file is created empty, chmod'ed, and
+     * only then filled, so a secret is never readable by others, even briefly.
+     */
+    fun uploadBytes(data: ByteArray, remotePath: String, mode: Int? = null) {
+        if (mode == null) {
+            val tmp = File.createTempFile("ardtt-up", ".bin")
+            try {
+                tmp.writeBytes(data)
+                upload(tmp, remotePath)
+            } finally {
+                tmp.delete()
+            }
+            return
+        }
+        check(session.isConnected) { "SSH session down" }
+        var sftp: ChannelSftp? = null
         try {
-            tmp.writeBytes(data)
-            upload(tmp, remotePath)
+            sftp = session.openChannel("sftp") as ChannelSftp
+            sftp.connect(15_000)
+            runCatching { sftp.rm(remotePath) }
+            sftp.put(java.io.ByteArrayInputStream(ByteArray(0)), remotePath, ChannelSftp.OVERWRITE)
+            sftp.chmod(mode, remotePath)
+            sftp.put(java.io.ByteArrayInputStream(data), remotePath, ChannelSftp.OVERWRITE)
         } finally {
-            tmp.delete()
+            runCatching { sftp?.disconnect() }
         }
     }
 

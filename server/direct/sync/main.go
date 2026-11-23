@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"text/template"
 )
@@ -57,6 +58,7 @@ AllowedIPs = {{.AllowedIPs}}
 func main() {
 	usersPath := flag.String("users", "/data/users.json", "provision users.json")
 	outPath := flag.String("out", "/etc/amneziawg/awg0.conf", "output AWG conf")
+	listenFlag := flag.Int("listen-port", 0, "UDP port awg0 listens on inside the container (default ARDTT_DIRECT_LISTEN_PORT or 51820)")
 	flag.Parse()
 
 	raw, err := os.ReadFile(*usersPath)
@@ -70,10 +72,7 @@ func main() {
 	if s.Config.ServerPrivateKey == "" {
 		fatalf("serverPrivateKey missing — start provision first")
 	}
-	port := s.Config.DirectPort
-	if port == 0 {
-		port = 51820
-	}
+	port := listenPort(*listenFlag, os.Getenv("ARDTT_DIRECT_LISTEN_PORT"))
 	base := subnetBase(s.Config.DirectSubnet)
 	if base == "" {
 		base = "10.8.0"
@@ -110,6 +109,20 @@ func main() {
 		fatalf("write address: %v", err)
 	}
 	fmt.Printf("[direct-sync] wrote %s (%d peers) addr=%s\n", *outPath, len(peers), data.Address)
+}
+
+// listenPort is the port awg0 listens on inside the container. It is not
+// config.directPort: that one is the host port Docker publishes (it goes into
+// client profiles) and differs whenever 51820 was busy on the host — listening
+// on it inside made every handshake miss (Docker forwards to 51820).
+func listenPort(flagValue int, env string) int {
+	if flagValue > 0 && flagValue <= 65535 {
+		return flagValue
+	}
+	if v, err := strconv.Atoi(strings.TrimSpace(env)); err == nil && v > 0 && v <= 65535 {
+		return v
+	}
+	return 51820
 }
 
 // directPeerAllowed reports whether this user still gets a WireGuard peer.
