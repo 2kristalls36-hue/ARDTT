@@ -27,6 +27,8 @@
 #   ARDTT_CASCADE_ENABLED ARDTT_CASCADE_LISTEN_PORT ARDTT_CASCADE_PEER_ENDPOINT
 #   ARDTT_CASCADE_PEER_PUBLIC_KEY ARDTT_CASCADE_PEER_PROVISION_PORT ARDTT_CASCADE_DNS
 #   ARDTT_CASCADE_SECRET ARDTT_CASCADE_FORCE_DISABLE=1
+#   ARDTT_CASCADE_SECRET_FILE  file with the exit's cascade secret (read, then deleted;
+#                              keeps the secret out of the process list)
 #   ARDTT_PROVISION_PUBLIC=1   publish provision/telemetry on 0.0.0.0 (default 127.0.0.1)
 #   ARDTT_CPUS ARDTT_MEM_LIMIT ARDTT_PIDS_LIMIT
 # Uninstall: ARDTT_PURGE_DATA=1 also removes /opt/ardtt/data.
@@ -868,6 +870,10 @@ do_install() {
   ensure_secret "$DIR/data/admin.token" "${ARDTT_ADMIN_TOKEN:-}"; ADMIN_TOKEN="$SECRET_VALUE"; ADMIN_NEW="$SECRET_NEW"
   ensure_secret "$DIR/data/telemetry.token" "${ARDTT_TELEMETRY_TOKEN:-}"; TELEMETRY_TOKEN="$SECRET_VALUE"; TELEMETRY_NEW="$SECRET_NEW"
   CASCADE_SECRET=""; CASCADE_NEW=0
+  if [ -n "${ARDTT_CASCADE_SECRET_FILE:-}" ] && [ -f "$ARDTT_CASCADE_SECRET_FILE" ]; then
+    ARDTT_CASCADE_SECRET="$(tr -d '[:space:]' <"$ARDTT_CASCADE_SECRET_FILE")"
+    rm -f "$ARDTT_CASCADE_SECRET_FILE"
+  fi
   if [ "$CASCADE_ENABLED" = 1 ] || [ -n "${ARDTT_CASCADE_SECRET:-}" ]; then
     ensure_secret "$DIR/data/cascade.secret" "${ARDTT_CASCADE_SECRET:-}"; CASCADE_SECRET="$SECRET_VALUE"; CASCADE_NEW="$SECRET_NEW"
   fi
@@ -1002,7 +1008,7 @@ do_status() {
 }
 
 # ------------------------------------------------------------------- main ----
-main() {
+run_action() {
   case "$ACTION" in
     install|update|"") ;;
     uninstall) do_uninstall; return ;;
@@ -1015,6 +1021,51 @@ main() {
   : >"$log"
   chmod 600 "$log"
   do_install > >(tee -a "$log") 2> >(tee -a "$log" >&2)
+}
+
+# A phone loses SSH easily (screen off, network switch). Install and uninstall
+# therefore run in their own session: losing SSH only stops this follower, the
+# switch to the new version still completes (or rolls back) on the server.
+run_detached() {
+  local run rc waited=0 child
+  run="$(mktemp -d /tmp/ardtt-run.XXXXXX)"
+  chmod 700 "$run"
+  cp "$0" "$run/ardtt-deploy.sh"
+  : >"$run/out"
+  # The child records its own pid: setsid may fork and return at once.
+  ARDTT_DETACHED=1 setsid bash -c 'echo $$ >"$2/pid"; trap "" HUP; bash "$1" >>"$2/out" 2>&1 </dev/null; echo $? >"$2/rc"' \
+    _ "$run/ardtt-deploy.sh" "$run" </dev/null >/dev/null 2>&1 &
+  tail -n +1 -f "$run/out" &
+  local tail_pid=$!
+  while [ ! -s "$run/rc" ]; do
+    sleep 1
+    waited=$((waited + 1))
+    child="$(cat "$run/pid" 2>/dev/null || true)"
+    if { [ -n "$child" ] && ! kill -0 "$child" 2>/dev/null; } || { [ -z "$child" ] && [ "$waited" -gt 15 ]; }; then
+      sleep 1
+      if [ ! -s "$run/rc" ]; then
+        echo "ARDTT_ERROR|code=INSTALL_FAILED|установщик на VPS завершился без кода выхода" >>"$run/out"
+        echo 1 >"$run/rc"
+      fi
+    fi
+  done
+  sleep 1
+  kill "$tail_pid" 2>/dev/null || true
+  wait "$tail_pid" 2>/dev/null || true
+  rc="$(cat "$run/rc")"
+  rm -rf "$run"
+  return "$rc"
+}
+
+main() {
+  case "$ACTION" in
+    status) run_action; return ;;
+  esac
+  if [ "${ARDTT_DETACHED:-0}" != 1 ] && have setsid && [ "${ARDTT_NO_DETACH:-0}" != 1 ]; then
+    run_detached
+    return
+  fi
+  run_action
 }
 
 if [ "${ARDTT_DEPLOY_LIB:-0}" != 1 ]; then

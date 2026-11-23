@@ -1,7 +1,7 @@
 # ARDTT — архитектура
 
 Легенда имени и смыслов: [LEGEND.md](LEGEND.md).  
-Деплой VPS (приложение / Compose, `install.sh`, версии): [DEPLOY.md](DEPLOY.md).  
+Деплой VPS (деплой v2: один образ, один скрипт, один контейнер): [DEPLOY.md](DEPLOY.md).  
 **ARDTT** = Amnezia & Raw Dial over TURN Tunnel.  
 Path B RAW — линия **qWDTT / SpaceNeuroX**, не classic WDTT (WG/TURN/DTLS); см. [LEGEND.md](LEGEND.md).
 
@@ -20,7 +20,7 @@ Path B RAW — линия **qWDTT / SpaceNeuroX**, не classic WDTT (WG/TURN/DT
 |------|---------|
 | Платформа | Android; форк `amneziawg-android` + RAW bypass из qWDTT / SpaceNeuroX |
 | Path B | RAW: WRAP + TURN, **без DTLS** (осознанно: DTLS сильно мешает) |
-| Деплой | Compose: **один контейнер** (provision + direct + bypass + dns + warp + cascade + telemetry). Isolated netns + published ports. Продуктовый пакет — `ardtt-server-*-linux-<arch>.tar.gz` (docker save), **не** исходники и **не** APK. Из приложения: HTTPS GitHub → SSH + `install.sh` из архива — [DEPLOY.md](DEPLOY.md). Hostnet не используется |
+| Деплой | **Один контейнер** (provision + direct + bypass + dns + warp + cascade + telemetry), `docker run` с меткой экземпляра. Isolated netns + published ports. Артефакт — `ardtt-server-*-linux-<arch>.image.tar.gz` (docker save) в GitHub Releases; установщик `ardtt-deploy.sh` приходит из APK по SSH — [DEPLOY.md](DEPLOY.md). Hostnet не используется |
 | WARP | Не третий клиентский path. Галочка **«Скрыть свой IP»** → egress этого пользователя через `warp0`. **DNS (:53) не через WARP** — `ip rule` prio 100 → `main`, остальной трафик prio 300+ → table `51820` |
 
 | Call hash | **1 hash на устройство** (не на имя профиля): EncryptedSharedPreferences + файл в `noBackupFilesDir`, чтобы код переживал обновление APK |
@@ -82,7 +82,7 @@ Android
 
 На входе hop (`10.8.0.0/24` / `10.9.0.0/24` → `cascade0`) живёт в `ip rule` **220/221**, отдельно от Hide-IP (prio 300+ → table `51820`). Heartbeat WARP по `users.json` не должен сносить hop — иначе Path B на секунды уходит в `eth0` без MASQ.
 
-Деплой из приложения: карточка первого сервера + тумблер «Каскад» (SSH второго). «Установить» сначала ставит **exit** на втором, затем **entry** на первом, затем копирует ключ пира. Пароль второго VPS на первый **не** записывается. Тот же стек можно поставить клоном тега релиза на каждом VPS (`ARDTT_ROLE=entry|exit`) — [DEPLOY.md](DEPLOY.md).
+Деплой из приложения: карточка первого сервера + тумблер «Каскад» (SSH второго). «Установить» сначала ставит **exit** на втором, затем **entry** на первом, затем копирует ключ пира. Пароль второго VPS на первый **не** записывается. Тот же стек ставится вручную тем же `ardtt-deploy.sh` на каждом VPS (`ARDTT_ROLE=entry|exit`) — [DEPLOY.md](DEPLOY.md).
 
 ---
 
@@ -377,7 +377,7 @@ provision /data — host_id, keys, passwords
 `NET_ADMIN`, `/dev/net/tun`, по умолчанию **своя netns** (не host).  
 Create-user: адреса в `10.8` и `10.9` с одним octet; флаг hide-IP — клиентский/сессионный, применяется policy на сервере (mark по IP клиента).
 
-Боевой путь: админ в приложении → GitHub (`server/`) → SSH → каталог установки ARDTT + `install.sh` + Compose.  
+Боевой путь: админ в приложении → SSH → `ardtt-deploy.sh` → образ из GitHub Releases → один контейнер.  
 На диске путь по умолчанию `/opt/ardtt` оставлен для совместимости с уже развёрнутыми VPS (`ARDTT_INSTALL_DIR`).  
 Версия стека (`DEPLOY_VERSION`) сравнивается с APK через `GET /health`.
 

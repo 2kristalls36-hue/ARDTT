@@ -47,12 +47,13 @@ object DeployVersionCatalog {
         DeployBundle.maxVersion(catalogLatest.orEmpty(), bundled)
 
     /**
-     * Version the VPS should install. Git bump in the APK (overlay hostfiles)
-     * wins over an older published Release so fetch can overlay 1.0.54
-     * installer onto 1.0.53 layers. When Releases are ahead, use that stack.
+     * Version the VPS should install: the newest stack with a published v2
+     * image, because the VPS downloads that image from Releases. The APK's
+     * bundled version is only a fallback when the catalog is unknown (the
+     * installer then reports a clear DOWNLOAD_FAILED if it is not published).
      */
     fun installTarget(published: String?, bundled: String): String =
-        resolvedExpected(published, bundled)
+        published?.trim()?.takeIf { it.isNotEmpty() } ?: bundled
 
     fun publishedVersion(context: Context): String {
         publishedCached.get()?.takeIf { it.isNotBlank() }?.let { return it }

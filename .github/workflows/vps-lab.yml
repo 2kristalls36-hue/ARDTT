@@ -39,18 +39,19 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Build lab package (amd64)
+      # A unique version per run: an update in the lab is a real image change.
+      - name: Build lab image (amd64)
         run: |
-          ver="$(tr -d '[:space:]' < server/DEPLOY_VERSION)-lab"
+          ver="$(tr -d '[:space:]' < server/DEPLOY_VERSION)-lab.${GITHUB_RUN_NUMBER}"
           printf '%s\n' "$ver" > server/DEPLOY_VERSION
           bash scripts/build-server-image.sh amd64
-          ARDTT_PACKAGE_ARCH=amd64 bash scripts/pack-server-package.sh dist/ardtt-server-lab.tar.gz
+          bash scripts/pack-server-image.sh amd64 dist
 
-      - name: Upload lab package
+      - name: Upload lab image
         uses: actions/upload-artifact@v4
         with:
           name: lab-package
-          path: dist/ardtt-server-lab.tar.gz
+          path: dist/ardtt-server-*-linux-amd64.image.tar.gz
           retention-days: 1
 
   lab:
@@ -76,7 +77,8 @@ jobs:
         env:
           SCENARIO: ${{ inputs.scenario }}
         run: |
-          if [ -f lab-package/ardtt-server-lab.tar.gz ]; then
-            export ARDTT_LAB_PACKAGE="$PWD/lab-package/ardtt-server-lab.tar.gz"
+          pkg="$(ls "$PWD"/lab-package/ardtt-server-*-linux-amd64.image.tar.gz 2>/dev/null | head -n 1 || true)"
+          if [ -n "$pkg" ]; then
+            export ARDTT_LAB_PACKAGE="$pkg"
           fi
           bash scripts/vps-lab/detach.sh "$SCENARIO"

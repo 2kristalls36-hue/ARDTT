@@ -113,9 +113,15 @@ compare() {
   fi
 }
 
+DEPLOY="$ROOT/server/deploy/ardtt-deploy.sh"
+# Deploy 1.0.x as users have it today (the last published fetcher): the v2
+# installer must migrate this install in place.
+V1_FETCHER_URL="https://raw.githubusercontent.com/2kristalls36-hue/ARDTT/2d63079a7c766b679114ce0d0c90bbd24dac1585/server/fetch-and-install.sh"
+
 ardtt_ready() {
   local tag="$1" name
-  name="$(grep -s '^ARDTT_CONTAINER_NAME=' "$INSTALL_DIR/.env" | cut -d= -f2)"
+  name="$(sed -n 's/^CONTAINER=//p' "$INSTALL_DIR/instance.env" 2>/dev/null)"
+  [ -n "$name" ] || name="$(grep -s '^ARDTT_CONTAINER_NAME=' "$INSTALL_DIR/.env" | cut -d= -f2)"
   name="${name:-ardtt}"
   if as_root docker exec "$name" bash /opt/ardtt/ready.sh; then
     pass "${tag}: контейнер ${name} готов"
@@ -130,60 +136,50 @@ ardtt_ready() {
 
 run_logged() {
   local log="$1"; shift
-  "$@" 2>&1 | redact | tee "$log" | grep -E --line-buffered 'ARDTT_(PROGRESS|WARN|ERROR|DONE)|^\{"protocol":2,"type":"error"'
+  "$@" 2>&1 | redact | tee "$log" | grep -E --line-buffered 'ARDTT_(PROGRESS|WARN|ERROR|DONE|UNINSTALLED)|^\{"protocol":2,"type":"error"'
   return "${PIPESTATUS[0]}"
 }
 
-install_published() {
+done_field() { sed -n "s/^ARDTT_DONE|.*|$2=\([^|]*\).*/\1/p" "$1" | head -n 1; }
+
+install_published_v1() {
   local ip; ip="$(public_ip)"
-  cp "$ROOT/server/fetch-and-install.sh" "$LAB/fetch-and-install.sh"
-  if run_logged "$LAB/install-published.log" as_root env ARDTT_PUBLIC_HOST="$ip" ARDTT_AUTO_PORTS=1 \
-      ARDTT_ROLE=entry ARDTT_CASCADE_ENABLED=0 bash "$LAB/fetch-and-install.sh"; then
-    pass "install-published: опубликованный стек установлен"
-    ardtt_ready install-published
+  curl -fsSL -o "$LAB/fetch-and-install.sh" "$V1_FETCHER_URL" || { fail "install-v1: нет установщика 1.0.x"; return; }
+  if run_logged "$LAB/install-v1.log" as_root env ARDTT_PUBLIC_HOST="$ip" ARDTT_AUTO_PORTS=1 \
+      ARDTT_ROLE=entry ARDTT_CASCADE_ENABLED=0 ARDTT_DEPLOY_VERSION=1.0.57 bash "$LAB/fetch-and-install.sh"; then
+    pass "install-v1: опубликованный стек 1.0.57 установлен"
+    ardtt_ready install-v1
   else
-    fail "install-published: установка опубликованного стека не прошла"
+    fail "install-v1: установка 1.0.57 не прошла"
   fi
 }
 
-ensure_buildx() {
-  as_root docker buildx version >/dev/null 2>&1 && return 0
-  local arch=amd64 v=v0.19.3
-  [ "$(uname -m)" = aarch64 ] && arch=arm64
-  as_root mkdir -p /usr/local/lib/docker/cli-plugins
-  as_root curl -fsSL -o /usr/local/lib/docker/cli-plugins/docker-buildx \
-    "https://github.com/docker/buildx/releases/download/${v}/buildx-${v}.linux-${arch}" \
-    && as_root chmod 755 /usr/local/lib/docker/cli-plugins/docker-buildx
+lab_image() {
+  local pkg="${ARDTT_LAB_PACKAGE:-}"
+  [ -n "$pkg" ] && [ -f "$pkg" ] || return 1
+  printf '%s' "$pkg"
 }
 
-install_tree() {
-  have_docker || { fail "install-tree: Docker не работает"; return; }
-  local pkg="${ARDTT_LAB_PACKAGE:-}" sha ip tag="${1:-install-tree}"
+lab_version() { basename "$1" | sed -n 's/^ardtt-server-\(.*\)-linux-[a-z0-9]*\.image\.tar\.gz$/\1/p'; }
+
+# install_v2 <tag>: the branch image file with this tree's ardtt-deploy.sh.
+install_v2() {
+  have_docker || { fail "${1}: Docker не работает"; return; }
+  local tag="$1" pkg ver ip
+  pkg="$(lab_image)" || { fail "${tag}: нет образа из ветки (ARDTT_LAB_PACKAGE)"; return; }
+  ver="$(lab_version "$pkg")"
   ip="$(public_ip)"
-  if [ -z "$pkg" ] || [ ! -f "$pkg" ]; then
-    fail "${tag}: нет пакета из ветки (ARDTT_LAB_PACKAGE); образ собирается на GitHub, не на VPS"
-    return
-  fi
-  sha="$(sha256sum "$pkg" | awk '{print $1}')"
-  local ws="$LAB/tree-pkg"
-  as_root rm -rf "$ws"; mkdir -p "$ws"
-  tar -xzf "$pkg" -C "$ws" install.sh install-lib scripts ready.sh 2>/dev/null || true
-  local sh="$ws/install.sh"
-  [ -f "$sh" ] || sh="$ROOT/server/install.sh"
-  if run_logged "$LAB/${tag}.log" as_root env ARDTT_PUBLIC_HOST="$ip" ARDTT_AUTO_PORTS=1 \
-      ARDTT_ROLE=entry ARDTT_CASCADE_ENABLED=0 ARDTT_PACKAGE="$pkg" ARDTT_PACKAGE_SHA256="$sha" \
-      bash "$sh"; then
-    pass "${tag}: стек из ветки установлен"
+  if run_logged "$LAB/${tag}.log" as_root env ARDTT_PUBLIC_HOST="$ip" ARDTT_AUTO_PORTS=1 ARDTT_ROLE=entry \
+      ARDTT_CASCADE_ENABLED=0 ARDTT_DEPLOY_VERSION="$ver" ARDTT_IMAGE_FILE="$pkg" bash "$DEPLOY"; then
+    pass "${tag}: стек ${ver} установлен"
     ardtt_ready "$tag"
   else
-    fail "${tag}: установка стека из ветки не прошла"
+    fail "${tag}: установка ${ver} не прошла"
   fi
 }
 
 uninstall() {
-  local sh="$INSTALL_DIR/current/install.sh"
-  [ -f "$sh" ] || sh="$ROOT/server/install.sh"
-  if run_logged "$LAB/uninstall.log" as_root env ARDTT_ACTION=uninstall ARDTT_PURGE_DATA=1 bash "$sh"; then
+  if run_logged "$LAB/uninstall.log" as_root env ARDTT_ACTION=uninstall ARDTT_PURGE_DATA=1 bash "$DEPLOY"; then
     pass "uninstall: ARDTT снят"
   else
     fail "uninstall: снятие не прошло"
@@ -191,6 +187,7 @@ uninstall() {
   local left
   left="$(as_root docker ps -a --filter label=com.ardtt.owner=ardtt -q | wc -l)"
   [ "$left" = "0" ] && pass "uninstall: контейнеров ARDTT не осталось" || fail "uninstall: осталось контейнеров ARDTT: ${left}"
+  [ ! -e "$INSTALL_DIR" ] && pass "uninstall: ${INSTALL_DIR} удалён" || fail "uninstall: ${INSTALL_DIR} остался"
 }
 
 ardtt_subnet() {
@@ -251,31 +248,39 @@ scenario="${1:-full}"
 case "$scenario" in
   snapshot) snapshot "$LAB/snap.txt"; cat "$LAB/snap.txt" ;;
   neighbors) neighbors ;;
-  install-published) install_published ;;
-  install-tree) install_tree ;;
+  install-published) install_published_v1 ;;
+  install-tree) install_v2 install-v2 ;;
   uninstall) uninstall ;;
   cleanup) cleanup ;;
   diag) diag ;;
   full)
-    step "0. Снять соседей прошлого прогона"
+    step "0. Снять ARDTT и соседей прошлого прогона"
+    [ -e "$INSTALL_DIR" ] && uninstall >/dev/null 2>&1
     cleanup
-    step "1. Чистый сервер"
-    snapshot "$LAB/0-clean.txt"; redact <"$LAB/0-clean.txt"
-    step "2. Опубликованный стек на чистый сервер (Docker из пакета)"
-    install_published
-    step "3. Удаление опубликованного стека"
-    uninstall
-    step "4. Соседи (один держит UDP 51820)"
+    step "1. Соседи (один держит UDP 51820)"
     neighbors
     snapshot "$LAB/1-before.txt"
-    step "5. Установка стеком из ветки при занятом порте"
-    install_tree install-tree
-    snapshot "$LAB/2-after-install.txt"
-    compare install "$LAB/1-before.txt" "$LAB/2-after-install.txt"
-    neighbors_alive install
+    step "2. Деплой 1.0.57, как он стоит у пользователей"
+    install_published_v1
+    v1_instance="$(json_inst="$(cat "$INSTALL_DIR/instance.json" 2>/dev/null)"; printf '%s' "$json_inst" | tr -d '\n' | sed -n 's/.*"instanceId"[^"]*"\([^"]*\)".*/\1/p')"
+    v1_port="$(done_field "$LAB/install-v1.log" direct_port)"
+    step "3. Миграция 1.0.57 → v2 (установщик из ветки)"
+    install_v2 migrate
+    [ "$(done_field "$LAB/migrate.log" instance)" = "$v1_instance" ] && [ -n "$v1_instance" ] \
+      && pass "migrate: тот же экземпляр ${v1_instance}" || fail "migrate: экземпляр $(done_field "$LAB/migrate.log" instance) ≠ ${v1_instance:-?}"
+    [ "$(done_field "$LAB/migrate.log" direct_port)" = "$v1_port" ] \
+      && pass "migrate: тот же порт Direct ${v1_port}" || fail "migrate: порт $(done_field "$LAB/migrate.log" direct_port) ≠ ${v1_port:-?}"
+    grep -q '|admin_token=' "$LAB/migrate.log" && fail "migrate: токен администратора перевыпущен" || pass "migrate: токены сохранены"
+    for leftover in releases current staging incoming cache instance.json .env; do
+      [ -e "$INSTALL_DIR/$leftover" ] && fail "migrate: остался ${leftover} от 1.0.x"
+    done
+    snapshot "$LAB/2-after-migrate.txt"
+    compare migrate "$LAB/1-before.txt" "$LAB/2-after-migrate.txt"
+    neighbors_alive migrate
     net_before="$(ardtt_subnet)"
-    step "6. Повторное развёртывание (обновление)"
-    install_tree update
+    step "4. Повторное развёртывание v2 (обновление)"
+    install_v2 update
+    grep -q 'уже загружен\|Загрузка образа в Docker' "$LAB/update.log" && pass "update: образ из файла" || true
     snapshot "$LAB/3-after-update.txt"
     compare update "$LAB/1-before.txt" "$LAB/3-after-update.txt"
     neighbors_alive update
@@ -285,11 +290,18 @@ case "$scenario" in
     else
       fail "update: подсеть ARDTT сменилась (${net_before:-?} → ${net_after:-?})"
     fi
-    step "7. Удаление ARDTT"
+    step "5. Удаление"
     uninstall
     snapshot "$LAB/4-after-uninstall.txt"
     compare uninstall "$LAB/1-before.txt" "$LAB/4-after-uninstall.txt"
     neighbors_alive uninstall
+    step "6. Чистая установка v2 и удаление"
+    install_v2 fresh
+    grep -q '|admin_token=' "$LAB/fresh.log" && pass "fresh: новые токены выданы" || fail "fresh: нет admin_token в DONE"
+    neighbors_alive fresh
+    uninstall
+    snapshot "$LAB/5-end.txt"
+    compare end "$LAB/1-before.txt" "$LAB/5-end.txt"
     ;;
   *) echo "unknown scenario ${scenario}" >&2; exit 2 ;;
 esac

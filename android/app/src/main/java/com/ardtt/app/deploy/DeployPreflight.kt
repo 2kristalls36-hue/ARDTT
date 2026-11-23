@@ -1,13 +1,10 @@
 package com.ardtt.app.deploy
 
 /**
- * Read-only host probe over SSH. Optional UI check — install.sh is the
- * source of truth and installs Engine from the package when Docker is missing.
- * Missing Engine is OK: code=OK / docker-from-package. Missing Engine *and*
- * missing iptables is also OK: the installer takes iptables from the distro
- * repository itself (install-lib/hostdeps.sh), so preflight only reports it
- * (code=OK / docker-and-iptables-from-package). IPTABLES_MISSING only comes
- * from the installer, when that automatic package install failed.
+ * Read-only host probe over SSH before deploy v2 (server/deploy/ardtt-deploy.sh).
+ * A working Docker is used as is. Without Docker the installer takes it from
+ * the distribution repository (docker.io / moby-engine / docker): preflight
+ * only checks that such a package exists here (not on RHEL/Alma/Rocky).
  */
 data class DeployPreflightResult(
     val ok: Boolean,
@@ -41,22 +38,22 @@ object DeployPreflight {
             "echo \"ARDTT_PREFLIGHT|os_id=\$os_id\"; " +
             "echo \"ARDTT_PREFLIGHT|os_ver=\$os_ver\"; " +
             "echo \"ARDTT_PREFLIGHT|arch=\$arch\"; " +
-            "if command -v python3 >/dev/null 2>&1; then echo \"ARDTT_PREFLIGHT|python=1\"; else echo \"ARDTT_PREFLIGHT|python=0\"; fi; " +
             "if [ -e /dev/net/tun ]; then echo \"ARDTT_PREFLIGHT|tun=1\"; else echo \"ARDTT_PREFLIGHT|tun=0\"; fi; " +
             "foreign=0; " +
             "if command -v podman >/dev/null 2>&1; then foreign=1; echo \"ARDTT_PREFLIGHT|podman=1\"; fi; " +
             "if command -v kubelet >/dev/null 2>&1; then foreign=1; echo \"ARDTT_PREFLIGHT|kubelet=1\"; fi; " +
             "if [ -S /run/containerd/containerd.sock ] && ! command -v docker >/dev/null 2>&1; then foreign=1; echo \"ARDTT_PREFLIGHT|containerd=1\"; fi; " +
-            "if ! command -v python3 >/dev/null 2>&1; then echo \"ARDTT_PREFLIGHT_DONE|ok=0|code=PYTHON_MISSING|message=python3\"; exit 0; fi; " +
+            "case \"\$arch\" in x86_64|amd64|aarch64|arm64) ;; *) echo \"ARDTT_PREFLIGHT_DONE|ok=0|code=UNSUPPORTED_ARCH|message=\$arch\"; exit 0;; esac; " +
             "if ! command -v docker >/dev/null 2>&1; then " +
             "  if [ \"\$foreign\" = 1 ]; then echo \"ARDTT_PREFLIGHT_DONE|ok=0|code=UNSUPPORTED_RUNTIME|message=foreign-runtime\"; exit 0; fi; " +
-            "  if ! command -v systemctl >/dev/null 2>&1; then echo \"ARDTT_PREFLIGHT_DONE|ok=0|code=DOCKER_NOT_RUNNING|message=no-systemd\"; exit 0; fi; " +
-            // Minimal Debian/Ubuntu images ship without iptables; the installer
-            // takes it from the distro repository itself, so this is informational.
-            "  if ! command -v iptables >/dev/null 2>&1; then echo \"ARDTT_PREFLIGHT|iptables=0\"; echo \"ARDTT_PREFLIGHT|docker=missing\"; echo \"ARDTT_PREFLIGHT_DONE|ok=1|code=OK|message=docker-and-iptables-from-package\"; exit 0; fi; " +
-            "  echo \"ARDTT_PREFLIGHT|iptables=1\"; " +
+            "  pkg=; " +
+            "  if command -v apt-get >/dev/null 2>&1; then pkg=docker.io; " +
+            "  elif command -v dnf >/dev/null 2>&1 && [ \"\$os_id\" = fedora ]; then pkg=moby-engine; " +
+            "  elif command -v apk >/dev/null 2>&1 || command -v zypper >/dev/null 2>&1; then pkg=docker; fi; " +
             "  echo \"ARDTT_PREFLIGHT|docker=missing\"; " +
-            "  echo \"ARDTT_PREFLIGHT_DONE|ok=1|code=OK|message=docker-from-package\"; exit 0; " +
+            "  if [ -z \"\$pkg\" ]; then echo \"ARDTT_PREFLIGHT_DONE|ok=0|code=DOCKER_MISSING|message=no-distro-docker\"; exit 0; fi; " +
+            "  echo \"ARDTT_PREFLIGHT|docker_pkg=\$pkg\"; " +
+            "  echo \"ARDTT_PREFLIGHT_DONE|ok=1|code=OK|message=docker-from-distro\"; exit 0; " +
             "fi; " +
             "echo \"ARDTT_PREFLIGHT|docker=present\"; " +
             "info=\$(docker info 2>&1); " +
@@ -138,25 +135,20 @@ object DeployPreflight {
 }
 
 /**
- * Docker Engine ships inside ardtt-server-*.tar.gz as vendor/docker.tgz.
- * Install.sh unpacks it when the host has no working Engine. There is no
- * separate «Подготовить VPS» step.
+ * Deploy v2: a host without Docker gets it from the distribution repository
+ * during install (ardtt-deploy.sh). There is no separate «prepare VPS» step.
  */
 object DeployRuntimeBundle {
     const val INCLUDED = true
 
     fun canPrepare(osId: String, osVersion: String, arch: String): Boolean {
-        // Engine is installed from the same archive during install.sh, not as a
-        // separate SSH prepare job.
-        if (!INCLUDED) return false
         val linuxArch = ServerOsProbe.linuxArch(arch)
         return linuxArch == "amd64" || linuxArch == "arm64"
     }
 
     fun missingRuntimeMessage(osId: String, osVersion: String, arch: String): String {
         val label = listOf(osId, osVersion, arch).filter { it.isNotBlank() }.joinToString(" ").ifBlank { "этой ОС" }
-        return "Docker Engine для $label ставится из архива ARDTT при установке. " +
-            "Повторите «Установить»: пакет сам распакует vendor/docker.tgz. " +
-            "Существующий рабочий Docker ARDTT не обновляет и не перезапускает."
+        return "На $label нет Docker: установщик поставит его из репозитория дистрибутива. " +
+            "Работающий Docker ARDTT не обновляет и не перезапускает."
     }
 }

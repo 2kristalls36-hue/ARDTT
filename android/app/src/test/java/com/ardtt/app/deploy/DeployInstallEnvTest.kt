@@ -7,20 +7,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DeployInstallEnvTest {
-    private fun fetchCmd(
+    private fun cmd(
         role: String = "entry",
         cascadeEnabled: Boolean = false,
         autoPorts: Boolean = true,
         publicHost: String = "45.129.2.3",
         directPort: Int = 51820,
         bypassPort: Int = 56003,
-        deployVersion: String = "1.0.45",
+        deployVersion: String = "2.0.0",
         cascadePeerEndpoint: String = "",
         cascadePeerPublicKey: String = "",
         cascadePeerProvisionPort: Int = 9100,
         provisionPort: Int = 9100,
         telemetryPort: Int = 9200,
-    ): String = DeployInstallEnv.fetchAndInstallCommand(
+    ): String = DeployInstallEnv.installCommand(
         publicHost = publicHost,
         directPort = directPort,
         bypassPort = bypassPort,
@@ -36,8 +36,8 @@ class DeployInstallEnvTest {
     )
 
     @Test
-    fun fetchCommandClampsCpusForSingleCoreHost() {
-        val command = DeployInstallEnv.fetchAndInstallCommand(
+    fun commandClampsCpusForSingleCoreHost() {
+        val command = DeployInstallEnv.installCommand(
             publicHost = "45.129.2.3",
             directPort = 51820,
             bypassPort = 56003,
@@ -50,8 +50,8 @@ class DeployInstallEnvTest {
     }
 
     @Test
-    fun fetchCommandUsesTwoCpusWhenHostHasThem() {
-        val command = DeployInstallEnv.fetchAndInstallCommand(
+    fun commandUsesTwoCpusWhenHostHasThem() {
+        val command = DeployInstallEnv.installCommand(
             publicHost = "45.129.2.3",
             directPort = 51820,
             bypassPort = 56003,
@@ -64,50 +64,8 @@ class DeployInstallEnvTest {
     }
 
     @Test
-    fun fetchCommandIncludesDiskCleanupWhenRequested() {
-        val command = DeployInstallEnv.fetchAndInstallCommand(
-            publicHost = "45.129.2.3",
-            directPort = 51820,
-            bypassPort = 56003,
-            deployVersion = "1.0.49",
-            role = "entry",
-            diskCleanup = true,
-        )
-        assertTrue(command.contains("ARDTT_DISK_CLEANUP=1"))
-        assertTrue(command.contains("fetch-and-install.sh"))
-    }
-
-    @Test
-    fun fetchCommandOmitsDiskCleanupByDefault() {
-        val command = fetchCmd()
-        assertFalse(command.contains("ARDTT_DISK_CLEANUP"))
-    }
-
-    @Test
-    fun fetchCommandIncludesHostfilesOverlayWhenRequested() {
-        val command = DeployInstallEnv.fetchAndInstallCommand(
-            publicHost = "45.129.2.3",
-            directPort = 51820,
-            bypassPort = 56003,
-            deployVersion = "1.0.54",
-            role = "entry",
-            hostfilesOverlay = true,
-        )
-        assertTrue(command.contains("ARDTT_HOSTFILES_OVERLAY=1"))
-        assertTrue(command.contains("ARDTT_HOSTFILES_OVERLAY_PATH="))
-        assertTrue(command.contains(DeployInstallEnv.HOSTFILES_OVERLAY_REMOTE))
-        assertFalse(command.contains("git clone"))
-    }
-
-    @Test
-    fun fetchCommandOmitsHostfilesOverlayByDefault() {
-        val command = fetchCmd()
-        assertFalse(command.contains("ARDTT_HOSTFILES_OVERLAY"))
-    }
-
-    @Test
     fun manualPortsDisableAutoFlag() {
-        val command = fetchCmd(autoPorts = false, directPort = 51821, bypassPort = 56004)
+        val command = cmd(autoPorts = false, directPort = 51821, bypassPort = 56004)
         assertTrue(command.contains("ARDTT_AUTO_PORTS=0"))
         assertTrue(command.contains("ARDTT_DIRECT_PORT=51821"))
         assertTrue(command.contains("ARDTT_BYPASS_PORT=56004"))
@@ -117,7 +75,7 @@ class DeployInstallEnvTest {
 
     @Test
     fun exitRoleDoesNotEmbedSshPassword() {
-        val command = fetchCmd(role = "exit", cascadeEnabled = true)
+        val command = cmd(role = "exit", cascadeEnabled = true)
         assertTrue(command.contains("ARDTT_ROLE='exit'"))
         assertTrue(command.contains("ARDTT_CASCADE_ENABLED=1"))
         assertFalse(command.contains("ARDTT_CASCADE_PASSWORD"))
@@ -126,7 +84,7 @@ class DeployInstallEnvTest {
 
     @Test
     fun entryCascadePassesPeerKeyEndpointAndProvisionPort() {
-        val command = fetchCmd(
+        val command = cmd(
             cascadeEnabled = true,
             cascadePeerEndpoint = "2.26.125.160:51820",
             cascadePeerPublicKey = "abc+DEF/123=",
@@ -140,7 +98,7 @@ class DeployInstallEnvTest {
 
     @Test
     fun noGitFallbackInCommand() {
-        val command = fetchCmd()
+        val command = cmd()
         assertFalse(command.contains("ARDTT_GIT_REPO"))
         assertFalse(command.contains("ARDTT_GIT_REF"))
         assertFalse(command.contains("raw.githubusercontent.com"))
@@ -182,10 +140,39 @@ class DeployInstallEnvTest {
     }
 
     @Test
-    fun packageRemotePathUsesArch() {
-        assertEquals(
-            "/opt/ardtt/incoming/ardtt-server-1.0.45-linux-arm64.tar.gz",
-            DeployInstallEnv.packageRemotePath("1.0.45", "aarch64"),
-        )
+    fun commandRunsUploadedScriptFromHomeWithEnvAndExitCode() {
+        // Execute the real command line against a stand-in installer.
+        val home = java.nio.file.Files.createTempDirectory("ardtt-home").toFile()
+        try {
+            java.io.File(home, DeployInstallEnv.DEPLOY_SCRIPT_REMOTE).writeText(
+                "#!/bin/bash\necho \"action=${'$'}ARDTT_ACTION host=${'$'}ARDTT_PUBLIC_HOST ver=${'$'}ARDTT_DEPLOY_VERSION self=${'$'}0\"\nexit 7\n",
+            )
+            val proc = ProcessBuilder("bash", "-c", cmd(publicHost = "203.0.113.9", deployVersion = "2.0.0"))
+                .directory(home)
+                .redirectErrorStream(true)
+                .start()
+            val out = proc.inputStream.bufferedReader().readText()
+            assertEquals(out, 7, proc.waitFor())
+            assertTrue(out, out.contains("action=install host=203.0.113.9 ver=2.0.0"))
+            // Ran from a private mktemp copy, not from the user's home.
+            assertTrue(out, out.contains("self=/tmp/ardtt-deploy."))
+        } finally {
+            home.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun uninstallCommandPassesPurgeFlag() {
+        val command = DeployInstallEnv.uninstallCommand(purgeData = true)
+        assertTrue(command.contains("ARDTT_ACTION=uninstall ARDTT_PURGE_DATA=1"))
+        assertTrue(command.contains("mktemp /tmp/ardtt-deploy."))
+    }
+
+    @Test
+    fun commandHasNoLegacyDeployPieces() {
+        val command = cmd()
+        for (legacy in listOf("fetch-and-install", "HOSTFILES_OVERLAY", "ARDTT_DISK_CLEANUP", "install.sh", "ARDTT_PACKAGE")) {
+            assertFalse(legacy, command.contains(legacy))
+        }
     }
 }

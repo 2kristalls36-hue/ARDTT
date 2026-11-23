@@ -120,6 +120,26 @@ grep -q '|admin_token=' <<<"$out" && err "update must not re-issue tokens" || ok
 docker container inspect ardtt-prev >/dev/null 2>&1 && err "ardtt-prev left behind" || ok "no ardtt-prev after success"
 neighbours_alive update
 
+# The phone loses SSH mid-update: the follower dies, the update must finish on its own.
+env ARDTT_INSTALL_DIR="$DIR" ARDTT_PUBLIC_HOST=203.0.113.5 ARDTT_ROLE=entry ARDTT_DEPLOY_VERSION=9.0.1 \
+  ARDTT_IMAGE_FILE="$(img 9.0.1)" ARDTT_AUTO_PORTS=1 bash "$DEPLOY" >/dev/null 2>&1 &
+FOLLOWER=$!
+sleep 3
+kill -9 "$FOLLOWER" 2>/dev/null
+for _ in $(seq 1 60); do
+  grep -q '^VERSION=9.0.1$' "$DIR/instance.env" 2>/dev/null && break
+  sleep 2
+done
+if grep -q '^VERSION=9.0.1$' "$DIR/instance.env" && [ "$(docker inspect -f '{{.State.Running}}' ardtt)" = true ] \
+   && ! docker container inspect ardtt-prev >/dev/null 2>&1; then
+  ok "update survives a dropped SSH session"
+else
+  err "dropped SSH: $(cat "$DIR/instance.env" 2>&1 | grep VERSION) $(docker ps -a --format '{{.Names}} {{.Status}}' | tr '\n' ';')"
+fi
+sleep 3
+run ARDTT_DEPLOY_VERSION=9.0.2 ARDTT_IMAGE_FILE="$(img 9.0.2)" ARDTT_AUTO_PORTS=1
+[ "$RC" -eq 0 ] && ok "back to 9.0.2" || { err "back to 9.0.2"; echo "$out"; }
+
 run ARDTT_DEPLOY_VERSION=9.0.3 ARDTT_IMAGE_FILE="$(img 9.0.3)" ARDTT_AUTO_PORTS=1
 [ "$RC" -ne 0 ] && grep -q 'code=READINESS_FAILED' <<<"$out" && ok "broken version refused" || { err "broken version"; echo "$out"; }
 [ "$(docker inspect -f '{{index .Config.Labels "com.ardtt.deploy-version"}} {{.State.Running}}' ardtt 2>/dev/null)" = "9.0.2 true" ] \
@@ -142,6 +162,20 @@ EXIT_C="$(field container <<<"$out")"
 [ -n "$EXIT_C" ] && [ "$EXIT_C" != ardtt ] && grep -q '^ARDTT_CASCADE_PUBLIC_KEY|PUBKEYTEST=' <<<"$out" \
   && ok "exit instance beside entry ($EXIT_C)" || { err "exit instance"; echo "$out"; }
 env ARDTT_INSTALL_DIR="$W/opt-exit" ARDTT_ACTION=uninstall ARDTT_PURGE_DATA=1 bash "$DEPLOY" >/dev/null 2>&1
+# Cascade entry gets the exit's secret as a file (never on the command line).
+printf 'exit-secret-123\n' >"$W/secret"
+chmod 600 "$W/secret"
+out="$(env ARDTT_INSTALL_DIR="$W/opt-entry2" ARDTT_PUBLIC_HOST=203.0.113.7 ARDTT_ROLE=entry ARDTT_CASCADE_ENABLED=1 \
+  ARDTT_CASCADE_PEER_ENDPOINT=203.0.113.6:51820 ARDTT_CASCADE_PEER_PUBLIC_KEY=PEERKEY= ARDTT_CASCADE_SECRET_FILE="$W/secret" \
+  ARDTT_DEPLOY_VERSION=9.0.2 ARDTT_IMAGE_FILE="$(img 9.0.2)" ARDTT_AUTO_PORTS=1 bash "$DEPLOY" 2>&1)"
+if [ "$(cat "$W/opt-entry2/data/cascade.secret" 2>/dev/null)" = exit-secret-123 ] && [ ! -e "$W/secret" ] \
+   && ! grep -q '|cascade_secret=' <<<"$out"; then
+  ok "cascade secret file adopted and deleted"
+else
+  err "cascade secret file"; echo "$out" | tail -5
+fi
+env ARDTT_INSTALL_DIR="$W/opt-entry2" ARDTT_ACTION=uninstall ARDTT_PURGE_DATA=1 bash "$DEPLOY" >/dev/null 2>&1
+
 [ "$(docker inspect -f '{{.State.Running}}' ardtt)" = true ] && ok "exit uninstall leaves entry" || err "exit uninstall touched entry"
 
 run ARDTT_ACTION=uninstall

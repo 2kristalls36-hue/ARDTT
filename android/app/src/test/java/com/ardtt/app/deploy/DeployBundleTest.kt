@@ -26,7 +26,11 @@ class DeployBundleTest {
 
     @Test
     fun fallbackMatchesServerDeployVersion() {
-        assertEquals("1.0.57", DeployBundle.FALLBACK_VERSION)
+        // Unit tests run from android/app.
+        val file = listOf("../../server/DEPLOY_VERSION", "../server/DEPLOY_VERSION", "server/DEPLOY_VERSION")
+            .map { java.io.File(it) }
+            .first { it.isFile }
+        assertEquals(file.readText().trim(), DeployBundle.FALLBACK_VERSION)
     }
 
     @Test

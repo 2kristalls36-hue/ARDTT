@@ -470,11 +470,13 @@ class ServerDeployCardLogicTest {
     @Test
     fun reinstallConfirmNamesHostAndVersion() {
         assertEquals(
-            "На 10.0.0.1 будет запущен fetch-and-install: VPS сам скачает стек версии 1.0.29 из GitHub Releases и поставит его. Телефон только запускает скрипт по SSH.",
+            "На 10.0.0.1 будет установлен стек 1.0.29: VPS сам скачает образ из GitHub Releases. " +
+                "Текущая версия работает, пока новая не пройдёт проверку; если не пройдёт — вернётся обратно.",
             serverReinstallConfirmBody("10.0.0.1", "1.0.29"),
         )
         assertEquals(
-            "На VPS будет запущен fetch-and-install: VPS сам скачает стек версии 1.0.29 из GitHub Releases и поставит его. Телефон только запускает скрипт по SSH.",
+            "На VPS будет установлен стек 1.0.29: VPS сам скачает образ из GitHub Releases. " +
+                "Текущая версия работает, пока новая не пройдёт проверку; если не пройдёт — вернётся обратно.",
             serverReinstallConfirmBody("  ", "1.0.29"),
         )
     }

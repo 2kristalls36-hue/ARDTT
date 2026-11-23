@@ -8,7 +8,7 @@ import org.junit.Test
 
 class DeployIssueTest {
     @Test
-    fun insufficientDiskOffersCleanup() {
+    fun insufficientDiskShowsInstallerNumbersWithoutCleanup() {
         val issue = DeployIssue.fromInstallerLine(
             raw = "ARDTT_ERROR|code=INSUFFICIENT_DISK|Мало места на /opt/ardtt: свободно 100 Б",
             hopRole = "entry",
@@ -16,8 +16,9 @@ class DeployIssueTest {
             entryInstallStarted = false,
         )
         assertEquals(DeployIssue.INSUFFICIENT_DISK, issue.code)
-        assertTrue(DeployIssue.offersDiskCleanup(issue))
-        assertTrue(issue.summary.contains("мало места", ignoreCase = true))
+        // Deploy v2 never cleans the host: no «retry with cleanup».
+        assertFalse(DeployIssue.offersDiskCleanup(issue))
+        assertEquals("VPS1: Мало места на /opt/ardtt: свободно 100 Б", issue.summary)
     }
 
     @Test
@@ -29,7 +30,6 @@ class DeployIssueTest {
             entryInstallStarted = false,
         )
         assertEquals(DeployIssue.DISK_FULL, issue.code)
-        assertTrue(DeployIssue.offersDiskCleanup(issue))
         assertTrue(issue.summary.contains("мало места", ignoreCase = true))
     }
 
@@ -42,7 +42,7 @@ class DeployIssueTest {
             entryInstallStarted = true,
         )
         assertEquals(DeployIssue.DISK_FULL, issue.code)
-        assertTrue(DeployIssue.offersDiskCleanup(issue))
+        assertFalse(DeployIssue.offersDiskCleanup(issue))
     }
 
     @Test
@@ -80,7 +80,8 @@ class DeployIssueTest {
             entryInstallStarted = false,
         )
         assertEquals(
-            "VPS2: не удалось поставить Docker Engine из архива. Установка ARDTT на VPS1 ещё не запускалась.",
+            "VPS2: в репозиториях этой системы нет Docker (RHEL/Alma/Rocky). " +
+                "Установите Docker Engine вручную и повторите. Установка ARDTT на VPS1 ещё не запускалась.",
             issue.summary,
         )
     }
@@ -93,25 +94,37 @@ class DeployIssueTest {
             hopRole = "exit",
             entryInstallStarted = true,
         )
-        assertEquals("VPS2: не удалось поставить Docker Engine из архива.", issue.summary)
+        assertFalse(issue.summary.contains("VPS1"))
     }
 
     @Test
-    fun iptablesMissingOnExitNamesHopAndPackageCommand() {
-        val issue = DeployIssue.of(
-            code = DeployIssue.IPTABLES_MISSING,
-            message = "x",
-            hopRole = "exit",
+    fun readinessFailureKeepsSentenceAndMovesDiagnosticsToDetail() {
+        val raw = "ARDTT_ERROR|code=READINESS_FAILED|Новая версия 2.0.1 не прошла проверку готовности — " +
+            "возвращена 2.0.0. state=running exit=0 oom=false not ready: dns журнал: [warp] boot"
+        val issue = DeployIssue.fromInstallerLine(raw, hopRole = "entry", hopHost = "h", entryInstallStarted = true)
+        assertEquals(DeployIssue.READINESS_FAILED, issue.code)
+        assertEquals(
+            "VPS1: Новая версия 2.0.1 не прошла проверку готовности — возвращена 2.0.0.",
+            issue.summary,
         )
-        assertTrue(issue.summary.contains("iptables"))
-        assertTrue(issue.summary.contains("VPS2"))
-        assertTrue(issue.summary.contains("репозитори"))
-        assertTrue(issue.summary.contains("apt install iptables"))
+        assertTrue(issue.detail.contains("журнал:"))
+    }
+
+    @Test
+    fun unknownInstallerCodeShowsInstallerMessage() {
+        val issue = DeployIssue.fromInstallerLine(
+            "ARDTT_ERROR|code=PORT_BUSY|Порт 9300/tcp (telemetry) занят другим процессом.",
+            hopRole = "exit",
+            hopHost = "h",
+            entryInstallStarted = false,
+        )
+        assertEquals("PORT_BUSY", issue.code)
+        assertTrue(issue.summary.startsWith("VPS2: Порт 9300/tcp (telemetry) занят"))
     }
 
     @Test
     fun looksFailedIgnoresPlainUserSummary() {
-        val summary = "VPS2: не удалось поставить Docker Engine из архива. " +
+        val summary = "VPS2: в репозиториях этой системы нет Docker. " +
             "Установка ARDTT на VPS1 ещё не запускалась."
         assertFalse(DeployIssue.looksFailed(summary))
         assertTrue(DeployIssue.looksFailed("Ошибка: timeout"))
@@ -152,12 +165,12 @@ class DeployIssueTest {
     }
 
     @Test
-    fun runtimeBundleIsIncludedInPackage() {
+    fun dockerComesFromDistroRepository() {
         assertTrue(DeployRuntimeBundle.INCLUDED)
         assertTrue(DeployRuntimeBundle.canPrepare("ubuntu", "26.04", "x86_64"))
         assertTrue(
             DeployRuntimeBundle.missingRuntimeMessage("ubuntu", "26.04", "x86_64")
-                .contains("ставится из архива"),
+                .contains("репозитория дистрибутива"),
         )
     }
 }
