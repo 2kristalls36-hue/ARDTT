@@ -210,6 +210,15 @@ diag() {
   echo "## uptime"; uptime
   echo "## memory"; free -m
   echo "## disk"; df -h / /var/lib 2>/dev/null
+  echo "## disk: biggest dirs"
+  as_root du -xsh /var/lib/docker /var/lib/containerd /var/lib/ardtt* /opt/ardtt* /opt/* \
+    /home/*/actions-runner /home/*/actions-runner/_work /root /var/log /var/cache/apt /tmp /usr /snap 2>/dev/null \
+    | sort -rh | head -25
+  if have_docker; then
+    echo "## docker system df"; as_root docker system df 2>/dev/null
+    echo "## docker images -a"; as_root docker images -a --format '{{.Repository}}:{{.Tag}} {{.ID}} {{.Size}} {{.CreatedSince}}' 2>/dev/null
+    echo "## docker root"; as_root docker info -f '{{.DockerRootDir}}' 2>/dev/null
+  fi
   echo "## oom / kills (dmesg)"; as_root dmesg -T 2>/dev/null | grep -i -E 'oom|killed process|out of memory' | tail -20
   echo "## docker"; as_root systemctl status docker --no-pager 2>&1 | head -12
   have_docker && as_root docker ps -a --format '{{.Names}} {{.Status}} {{.Image}}'
