@@ -55,6 +55,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -75,6 +79,7 @@ import com.ardtt.app.settings.AppSettingsRepository
 import com.ardtt.app.ui.components.control.ArdttButton
 import com.ardtt.app.ui.components.control.ArdttButtonSize
 import com.ardtt.app.ui.components.control.ArdttButtonVariant
+import com.ardtt.app.ui.components.control.RisingEdgeRejectHaptic
 import com.ardtt.app.ui.components.control.RisingEdgeSuccessHaptic
 import com.ardtt.app.ui.components.control.rememberArdttHaptics
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
@@ -131,6 +136,7 @@ fun UserTunnelScreen(
     }
     RisingEdgeSuccessHaptic(haptics, ui.state == ConnState.Connected)
     RisingEdgeSuccessHaptic(haptics, ui.hasCallHash)
+    RisingEdgeRejectHaptic(haptics, ui.state == ConnState.Error)
 
     val bypassActive = wallpaperBypassActive(
         pathMode = ConnPathMode.fromSetting(pathMode),
@@ -619,7 +625,7 @@ private fun TunnelPowerToggle(
                     ),
             )
         }
-        Surface(
+        PowerFace(
             modifier = Modifier
                 .size(UserTunnelDefaults.PowerButtonSize * scale)
                 .semantics {
@@ -627,16 +633,14 @@ private fun TunnelPowerToggle(
                     this.contentDescription = contentDescription
                     stateLabel?.let { stateDescription = it }
                 }
+                .clip(CircleShape)
                 .clickable(enabled = enabled, role = Role.Button) {
                     runCatching { onClick() }
                         .onFailure { t -> AppLog.e("TunnelToggle", "toggle failed: ${t.message}") }
                 },
-            color = shellColor,
-            contentColor = accentColor,
-            border = ArdttFloatingShell.shellBorder(),
-            shape = CircleShape,
-            // A shadow graphics layer paints this translucent shell opaque for a frame.
-            shadowElevation = ArdttElevation.None,
+            diameter = UserTunnelDefaults.PowerButtonSize * scale,
+            shellColor = shellColor,
+            accentColor = accentColor,
         ) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 if (paused) {
@@ -665,6 +669,50 @@ private fun TunnelPowerToggle(
             }
         }
     }
+}
+
+/**
+ * Face of the power button. With liquid glass it is a round lens over the wallpaper in
+ * the shell colour (a thick, gently curved rim); otherwise the translucent shell.
+ */
+@Composable
+internal fun PowerFace(
+    modifier: Modifier,
+    diameter: Dp,
+    shellColor: Color,
+    accentColor: Color,
+    content: @Composable () -> Unit,
+) {
+    val glass = com.ardtt.app.ui.components.surface.LocalButtonGlass.current
+    if (glass != null && com.ardtt.app.ui.components.surface.LiquidGlass.supported) {
+        val dark = com.ardtt.app.ui.theme.isDarkSurface()
+        com.ardtt.app.ui.components.surface.LiquidGlassPanel(
+            backdrop = glass,
+            cornerRadius = diameter / 2,
+            // Shell hue, density from the «Прозрачность» setting (like the tab bar).
+            tint = shellColor.copy(alpha = (glass.veil(dark) + 0.08f).coerceAtMost(0.9f)),
+            dark = dark,
+            bezel = diameter * 0.16f,
+            // Under half the rim width: the smooth rim never folds the image.
+            depth = diameter * 0.07f,
+            blur = glass.frost(),
+            fringe = 0.8f,
+            modifier = modifier,
+        ) {
+            CompositionLocalProvider(LocalContentColor provides accentColor) { content() }
+        }
+        return
+    }
+    Surface(
+        modifier = modifier,
+        color = shellColor,
+        contentColor = accentColor,
+        border = ArdttFloatingShell.shellBorder(),
+        shape = CircleShape,
+        // A shadow graphics layer paints this translucent shell opaque for a frame.
+        shadowElevation = ArdttElevation.None,
+        content = content,
+    )
 }
 
 @Composable

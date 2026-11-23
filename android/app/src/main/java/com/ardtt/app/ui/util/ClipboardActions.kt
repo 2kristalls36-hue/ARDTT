@@ -24,6 +24,7 @@ fun copyToClipboard(
     if (text.isBlank()) return
     val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     manager.setPrimaryClip(ClipData.newPlainText(clipLabel, text))
+    com.ardtt.app.ui.motion.AppHapticsHub.perform(com.ardtt.app.ui.motion.Haptic.Confirm)
     if (toast != null) {
         Toast.makeText(context, toast, Toast.LENGTH_SHORT).show()
     }

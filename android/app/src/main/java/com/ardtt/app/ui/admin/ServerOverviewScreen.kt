@@ -382,8 +382,10 @@ private fun ServerOverviewScreen(
     refreshing: Boolean,
     onRefresh: () -> Unit,
 ) {
+    val stickyGlass = com.ardtt.app.ui.components.surface.rememberScreenGlass()
     Box(modifier = Modifier.fillMaxSize()) {
         ArdttScrollChrome(
+            screenGlass = stickyGlass,
             header = {
                 ArdttTabHeader(
                     title = server.name.ifBlank { server.host },
@@ -464,7 +466,7 @@ private fun ServerOverviewScreen(
         }
         }
 
-        ArdttStickyBottomBar {
+        ArdttStickyBottomBar(glass = stickyGlass) {
             ArdttPrimaryButton(
                 text = serverOverviewPrimaryLabel(primaryAction),
                 onClick = onPrimaryAction,

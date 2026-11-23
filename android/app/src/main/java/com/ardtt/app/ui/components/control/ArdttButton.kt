@@ -40,6 +40,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import com.ardtt.app.ui.components.surface.ArdttFloatingShell
 import com.ardtt.app.ui.theme.ArdttAlpha
 import com.ardtt.app.ui.theme.ArdttButtonLabelStyle
@@ -137,12 +138,7 @@ fun ArdttButton(
                 }
             }
             if (showsText) {
-                Text(
-                    text,
-                    style = ArdttButtonLabelStyle,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                FitText(text, style = ArdttButtonLabelStyle, maxLines = 2)
             } else if (variant == ArdttButtonVariant.Icon && icon != null) {
                 Icon(icon, contentDescription = null, modifier = Modifier.size(ArdttSize.Icon))
             }
@@ -307,6 +303,33 @@ private fun GlassFillButton(
     contentPadding: PaddingValues,
     content: @Composable () -> Unit,
 ) {
+    val glass = com.ardtt.app.ui.components.surface.LocalButtonGlass.current
+    if (glass != null && com.ardtt.app.ui.components.surface.LiquidGlass.supported) {
+        // Liquid glass in the button's own hue: the fill becomes the veil over the
+        // refracted page, so the colour stays and the edge bends like the tab bar.
+        com.ardtt.app.ui.components.surface.LiquidGlassPanel(
+            backdrop = glass,
+            cornerRadius = com.ardtt.app.ui.theme.ArdttRadius.Control,
+            tint = fill,
+            dark = com.ardtt.app.ui.theme.isDarkSurface(),
+            bezel = 12.dp,
+            depth = 5.dp,
+            blur = glass.frost(),
+            fringe = 0.6f,
+            modifier = modifier
+                .clip(ArdttShapes.Control)
+                .clickable(enabled = enabled, onClick = onClick),
+        ) {
+            CompositionLocalProvider(LocalContentColor provides label) {
+                Row(
+                    modifier = Modifier.align(Alignment.Center).padding(contentPadding),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                ) { content() }
+            }
+        }
+        return
+    }
     Box(
         modifier = modifier
             .clip(ArdttShapes.Control)

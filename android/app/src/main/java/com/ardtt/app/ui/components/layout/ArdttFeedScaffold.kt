@@ -76,6 +76,15 @@ fun ArdttFeedScaffold(
         modifier = modifier,
         fadeHeight = fadeHeight,
         header = header,
+        overlay = stickyContent?.let { sticky ->
+            {
+                ArdttStickyBottomBar(
+                    horizontalPadding = horizontalPadding,
+                    bottomPadding = stickyBottomPadding ?: ArdttBottomChrome.stickyBottomPadding(),
+                    content = sticky,
+                )
+            }
+        },
     ) { topPad ->
         val feed: @Composable (Modifier) -> Unit = { feedModifier ->
             Column(
@@ -102,18 +111,7 @@ fun ArdttFeedScaffold(
                 feed(hostModifier)
             }
         }
-        if (stickyContent == null) {
-            host(Modifier)
-        } else {
-            Box(modifier = Modifier.fillMaxSize()) {
-                host(Modifier)
-                ArdttStickyBottomBar(
-                    horizontalPadding = horizontalPadding,
-                    bottomPadding = stickyBottomPadding ?: ArdttBottomChrome.stickyBottomPadding(),
-                    content = stickyContent,
-                )
-            }
-        }
+        host(Modifier)
     }
 }
 
@@ -142,6 +140,9 @@ fun ArdttLazyFeedScaffold(
     ArdttScrollChrome(
         modifier = modifier,
         header = header,
+        overlay = stickyContent?.let { sticky ->
+            { ArdttStickyBottomBar(horizontalPadding = horizontalPadding, content = sticky) }
+        },
     ) { topPad ->
         val feed: @Composable (Modifier) -> Unit = { feedModifier ->
             LazyColumn(
@@ -170,14 +171,7 @@ fun ArdttLazyFeedScaffold(
                 feed(hostModifier)
             }
         }
-        if (stickyContent == null) {
-            host(Modifier)
-        } else {
-            Box(modifier = Modifier.fillMaxSize()) {
-                host(Modifier)
-                ArdttStickyBottomBar(horizontalPadding = horizontalPadding, content = stickyContent)
-            }
-        }
+        host(Modifier)
     }
 }
 
@@ -189,17 +183,24 @@ fun BoxScope.ArdttStickyBottomBar(
     modifier: Modifier = Modifier,
     horizontalPadding: Dp = ArdttLayout.ScreenPadding,
     bottomPadding: Dp = ArdttBottomChrome.stickyBottomPadding(),
+    /** Screen recording the bar floats over (it must not be part of it); null — inherited. */
+    glass: com.ardtt.app.ui.components.surface.GlassBackdrop? = null,
     content: @Composable BoxScope.() -> Unit,
 ) {
-    Box(
-        modifier = modifier
-            .align(Alignment.BottomCenter)
-            .fillMaxWidth()
-            .zIndex(StickyZIndex)
-            .padding(horizontal = horizontalPadding)
-            .padding(bottom = bottomPadding),
-        content = content,
-    )
+    androidx.compose.runtime.CompositionLocalProvider(
+        com.ardtt.app.ui.components.surface.LocalButtonGlass provides
+            (glass ?: com.ardtt.app.ui.components.surface.LocalButtonGlass.current),
+    ) {
+        Box(
+            modifier = modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .zIndex(StickyZIndex)
+                .padding(horizontal = horizontalPadding)
+                .padding(bottom = bottomPadding),
+            content = content,
+        )
+    }
 }
 
 /** Sticky chrome must paint above feed content and its refresh indicator. */

@@ -300,8 +300,10 @@ private fun ClientsScreen(
         }
     }
 
+    val stickyGlass = com.ardtt.app.ui.components.surface.rememberScreenGlass()
     Box(modifier = Modifier.fillMaxSize()) {
         ArdttScrollChrome(
+            screenGlass = stickyGlass,
             header = {
                 ArdttTabHeader(
                     title = "Клиенты",
@@ -427,7 +429,7 @@ private fun ClientsScreen(
         }
         }
 
-        ArdttStickyBottomBar {
+        ArdttStickyBottomBar(glass = stickyGlass) {
             ArdttPrimaryButton(
                 text = "Создать клиента",
                 onClick = {

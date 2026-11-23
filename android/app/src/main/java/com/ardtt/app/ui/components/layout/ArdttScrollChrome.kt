@@ -3,6 +3,7 @@ package com.ardtt.app.ui.components.layout
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -43,6 +44,9 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
+import com.ardtt.app.ui.components.surface.GlassBackdrop
+import com.ardtt.app.ui.components.surface.LiquidGlass
+import com.ardtt.app.ui.components.surface.rememberScreenGlass
 import com.ardtt.app.ui.theme.ArdttChrome
 import com.ardtt.app.ui.theme.ArdttSpacing
 import com.ardtt.app.ui.theme.isDarkSurface
@@ -70,9 +74,28 @@ fun ArdttScrollChrome(
     modifier: Modifier = Modifier,
     fadeHeight: Dp = ArdttChrome.FadeHeight,
     pinHeader: Boolean = false,
+    /** Screen glass shared with floating chrome of the same screen (search bar); null — own. */
+    screenGlass: GlassBackdrop? = null,
+    /**
+     * Floating chrome over the feed (sticky buttons). Drawn outside the feed recording,
+     * so with liquid glass it can refract the feed beneath it.
+     */
+    overlay: (@Composable BoxScope.() -> Unit)? = null,
     header: @Composable () -> Unit,
     content: @Composable (topContentPadding: Dp) -> Unit,
 ) {
+    val ownGlass = rememberScreenGlass()
+    val glass = screenGlass ?: ownGlass
+    if (glass != null && LiquidGlass.supported) {
+        GlassScrollChrome(
+            modifier = modifier,
+            backdrop = glass,
+            header = header,
+            overlay = overlay,
+            content = content,
+        )
+        return
+    }
     val density = LocalDensity.current
     val layoutDirection = LocalLayoutDirection.current
     val status = WindowInsets.statusBars.union(WindowInsets.displayCutout)
@@ -158,6 +181,7 @@ fun ArdttScrollChrome(
         ) {
             content(topPadding)
         }
+        overlay?.invoke(this)
 
         Column(
             modifier = Modifier

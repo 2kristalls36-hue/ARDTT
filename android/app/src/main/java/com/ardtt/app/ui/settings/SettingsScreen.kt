@@ -79,7 +79,6 @@ import com.ardtt.app.ui.components.control.DialPathChipRow
 import com.ardtt.app.ui.components.control.HideIpChipRow
 import com.ardtt.app.ui.components.control.PathModeChipRow
 import com.ardtt.app.ui.components.control.ThemeModeChipRow
-import com.ardtt.app.ui.components.control.rememberArdttHaptics
 import com.ardtt.app.ui.components.layout.ArdttBottomChrome
 import com.ardtt.app.ui.components.layout.ArdttDestinationRow
 import com.ardtt.app.ui.components.layout.ArdttFeedScaffold
@@ -108,6 +107,7 @@ import com.ardtt.app.update.updateCardCopy
 import com.ardtt.app.update.updatePrimaryActionLabel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /** Strings of the admin-mode card. */
 internal object AdminModeCopy {
@@ -189,8 +189,12 @@ fun SettingsScreen(
     val classicAppearance by settings.classicAppearanceEnabled.collectAsStateWithLifecycle(initialValue = false)
     val dynamicColors by settings.dynamicColorsFlow.collectAsStateWithLifecycle(initialValue = true)
     val uiHapticsEnabled by settings.uiHapticsEnabledFlow.collectAsStateWithLifecycle(initialValue = true)
+    val liquidGlass by settings.liquidGlassFlow.collectAsStateWithLifecycle(initialValue = false)
+    val glassTransparency by settings.glassTransparencyFlow.collectAsStateWithLifecycle(
+        initialValue = AppSettingsRepository.DEFAULT_GLASS_TRANSPARENCY,
+    )
+    val magnet by settings.magnetFlow.collectAsStateWithLifecycle(initialValue = true)
     val connUi by conn.ui.collectAsStateWithLifecycle()
-    val haptics = rememberArdttHaptics(uiHapticsEnabled)
     val openCallHash by PendingUiAction.openCallHashSettings.collectAsStateWithLifecycle()
     val callHashBringIntoView = remember { BringIntoViewRequester() }
     val openUpdateDownload by PendingUiAction.openUpdateDownload.collectAsStateWithLifecycle()
@@ -316,11 +320,9 @@ fun SettingsScreen(
                 hasCallHash = connUi.hasCallHash,
                 enabled = !vpnLocked,
                 onSelect = { mode ->
-                    haptics.tick()
                     scope.launch { commitPathMode(settings, conn, mode) }
                 },
                 onNeedCallHash = {
-                    haptics.tick()
                     scope.launch { revealSection(SettingsSection.BypassMethod, callHashBringIntoView) }
                 },
             )
@@ -337,7 +339,6 @@ fun SettingsScreen(
                     hideIp = hideIp,
                     enabled = !vpnLocked,
                     onSelect = { enabled ->
-                        haptics.tick()
                         scope.launch { commitHideIp(settings, conn, enabled) }
                     },
                 )
@@ -431,18 +432,32 @@ fun SettingsScreen(
                     checked = dynamicColors,
                     onCheckedChange = { scope.launch { settings.setDynamicColors(it) } },
                 )
+                GlassSettingsRows(
+                    enabled = liquidGlass,
+                    transparency = glassTransparency,
+                    onEnabledChange = { scope.launch { settings.setLiquidGlass(it) } },
+                    onTransparencyChange = { scope.launch { settings.setGlassTransparency(it) } },
+                )
                 ArdttSwitchRow(
-                    title = "Виброотклик",
-                    subtitle = if (uiHapticsEnabled) {
-                        "Короткая тактильная отдача на ключевых действиях интерфейса."
+                    title = "Магнит",
+                    badge = "Бета",
+                    subtitle = if (magnet) {
+                        "Вкладки и переключатели притягиваются к ближайшему положению."
                     } else {
-                        "Виброотклик отключён."
+                        "Вкладки и переключатели останавливаются без притягивания."
+                    },
+                    checked = magnet,
+                    onCheckedChange = { scope.launch { settings.setMagnet(it) } },
+                )
+                ArdttSwitchRow(
+                    title = "Вибрация",
+                    subtitle = if (uiHapticsEnabled) {
+                        "Приложение подтверждает нажатия, переключения и результаты действий вибрацией."
+                    } else {
+                        "Приложение не использует вибрацию."
                     },
                     checked = uiHapticsEnabled,
-                    onCheckedChange = {
-                        if (uiHapticsEnabled) haptics.tick()
-                        scope.launch { settings.setUiHapticsEnabled(it) }
-                    },
+                    onCheckedChange = { scope.launch { settings.setUiHapticsEnabled(it) } },
                 )
             }
             if (appearance.showClassicLook) {
@@ -938,3 +953,56 @@ private fun TrustedWifiSettingsCard(settings: AppSettingsRepository) {
     }
 }
 
+
+/** «Жидкое стекло» (beta) with its «Прозрачность» slider. */
+@Composable
+private fun GlassSettingsRows(
+    enabled: Boolean,
+    transparency: Float,
+    onEnabledChange: (Boolean) -> Unit,
+    onTransparencyChange: (Float) -> Unit,
+) {
+    val supported = com.ardtt.app.ui.components.surface.LiquidGlass.supported
+    val on = enabled && supported
+    Column(verticalArrangement = Arrangement.spacedBy(ArdttSpacing.Small)) {
+        ArdttSwitchRow(
+            title = "Жидкое стекло",
+            badge = "Бета",
+            subtitle = when {
+                !supported -> "Эффект доступен на Android 13 и новее."
+                on -> "Панель вкладок, заголовки и поиск отображаются в виде стекла."
+                else -> "Панель вкладок отображается в стандартном виде."
+            },
+            checked = on,
+            enabled = supported,
+            onCheckedChange = onEnabledChange,
+        )
+        androidx.compose.animation.AnimatedVisibility(
+            visible = on,
+            enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.expandVertically(),
+            exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.shrinkVertically(),
+        ) {
+            var dragValue by remember { mutableStateOf<Float?>(null) }
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Прозрачность",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        "${((dragValue ?: transparency) * 100).roundToInt()}%",
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                // Applies live while dragging: the tab bar below changes at once.
+                androidx.compose.material3.Slider(
+                    value = dragValue ?: transparency,
+                    onValueChange = { v -> dragValue = v; onTransparencyChange(v) },
+                    onValueChangeFinished = { dragValue = null },
+                )
+            }
+        }
+    }
+}

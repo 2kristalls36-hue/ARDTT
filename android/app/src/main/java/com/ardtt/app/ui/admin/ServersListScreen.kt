@@ -345,8 +345,10 @@ private fun ServerListScreen(
         servers.filter { it.id in selectedIds }
     }
 
+    val stickyGlass = com.ardtt.app.ui.components.surface.rememberScreenGlass()
     Box(modifier = Modifier.fillMaxSize()) {
         ArdttScrollChrome(
+            screenGlass = stickyGlass,
             header = {
                 ArdttTabHeader(
                     title = if (selectMode) "Экспорт серверов" else "Управление серверами",
@@ -467,7 +469,7 @@ private fun ServerListScreen(
         }
         }
 
-        ArdttStickyBottomBar {
+        ArdttStickyBottomBar(glass = stickyGlass) {
             ArdttPrimaryButton(
                 text = if (selectMode) "Экспортировать" else "Добавить сервер",
                 onClick = {
