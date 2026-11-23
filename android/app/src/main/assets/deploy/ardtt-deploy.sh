@@ -30,7 +30,10 @@
 #                              over the stored value; unset keeps the stored cascade)
 #   ARDTT_CASCADE_SECRET_FILE  file with the exit's cascade secret (read, then deleted;
 #                              keeps the secret out of the process list)
-#   ARDTT_PROVISION_PUBLIC=1   publish provision/telemetry on 0.0.0.0 (default 127.0.0.1)
+#   ARDTT_PROVISION_PUBLIC     provision on 0.0.0.0 (default 1: the app and client devices
+#                              reach it at the server's public IP; it needs tokens, ADR 0005);
+#                              0 keeps it on 127.0.0.1 and breaks app management
+#   ARDTT_TELEMETRY_PUBLIC=1   telemetry on 0.0.0.0 (default 127.0.0.1)
 #   ARDTT_CPUS ARDTT_MEM_LIMIT ARDTT_PIDS_LIMIT
 # Uninstall: ARDTT_PURGE_DATA=1 also removes /opt/ardtt/data.
 set -euo pipefail
@@ -286,12 +289,6 @@ stored() { # KEY → value from v2 state, else v1 .env / instance.json
     NETWORK) v="$(v1_json networkName)"; [ -n "$v" ] || v="$(kv_get "$V1_ENV" ARDTT_NETWORK_NAME)" ;;
     SUBNET) v="$(v1_json bridgeSubnet)"; [ -n "$v" ] || v="$(kv_get "$V1_ENV" ARDTT_BRIDGE_SUBNET)" ;;
     VERSION) v="$(kv_get "$V1_ENV" ARDTT_DEPLOY_VERSION)" ;;
-    PROVISION_PUBLIC)
-      case "$(kv_get "$V1_ENV" ARDTT_PROVISION_BIND)" in
-        ""|127.*|localhost) v="$(kv_get "$V1_ENV" ARDTT_PROVISION_PUBLIC)" ;;
-        *) v=1 ;;
-      esac
-      ;;
     *) v="$(kv_get "$V1_ENV" "ARDTT_${key}")" ;;
   esac
   printf '%s' "$v"
@@ -314,6 +311,7 @@ BYPASS_PORT=$BYPASS_PORT
 PROVISION_PORT=$PROVISION_PORT
 TELEMETRY_PORT=$TELEMETRY_PORT
 PROVISION_PUBLIC=$PROVISION_PUBLIC
+TELEMETRY_PUBLIC=$TELEMETRY_PUBLIC
 CASCADE_ENABLED=$CASCADE_ENABLED
 CASCADE_LISTEN_PORT=$CASCADE_LISTEN_PORT
 CASCADE_PEER_ENDPOINT=$CASCADE_PEER_ENDPOINT
@@ -633,9 +631,14 @@ resolve_params() {
   BYPASS_PORT="${ARDTT_BYPASS_PORT:-$(stored BYPASS_PORT)}";       BYPASS_PORT="${BYPASS_PORT:-56003}"
   PROVISION_PORT="${ARDTT_PROVISION_PORT:-$(stored PROVISION_PORT)}"; PROVISION_PORT="${PROVISION_PORT:-9100}"
   TELEMETRY_PORT="${ARDTT_TELEMETRY_PORT:-$(stored TELEMETRY_PORT)}"; TELEMETRY_PORT="${TELEMETRY_PORT:-9200}"
-  s="$(stored PROVISION_PUBLIC)"
-  PROVISION_PUBLIC="${ARDTT_PROVISION_PUBLIC:-${s:-0}}"
-  case "$PROVISION_PUBLIC" in 1|true|yes|on) PROVISION_PUBLIC=1 ;; *) PROVISION_PUBLIC=0 ;; esac
+  # Provision is public unless explicitly closed: the app (admin, Bearer) and the
+  # client devices (device token: profile, presence, hide-ip) call it at the
+  # server's public IP. A stored 0 is the old localhost default, not a choice.
+  PROVISION_PUBLIC="${ARDTT_PROVISION_PUBLIC:-1}"
+  case "$PROVISION_PUBLIC" in 0|false|no|off) PROVISION_PUBLIC=0 ;; *) PROVISION_PUBLIC=1 ;; esac
+  [ "$PROVISION_PUBLIC" = 1 ] || warn "provision закрыт на 127.0.0.1 (ARDTT_PROVISION_PUBLIC=0): приложение и клиенты не смогут к нему обратиться"
+  TELEMETRY_PUBLIC="${ARDTT_TELEMETRY_PUBLIC:-0}"
+  case "$TELEMETRY_PUBLIC" in 1|true|yes|on) TELEMETRY_PUBLIC=1 ;; *) TELEMETRY_PUBLIC=0 ;; esac
 
   # An explicit ARDTT_CASCADE_ENABLED (the app always sends it) wins, 0 included;
   # a manual run without it keeps the stored cascade.
@@ -762,11 +765,12 @@ resource_limits() {
 }
 
 run_container() {
-  local bind=127.0.0.1 ports=()
+  local bind=127.0.0.1 tbind=127.0.0.1 ports=()
   [ "$PROVISION_PUBLIC" = 1 ] && bind=0.0.0.0
+  [ "$TELEMETRY_PUBLIC" = 1 ] && tbind=0.0.0.0
   ports+=(-p "${DIRECT_PORT}:51820/udp")
   [ "$ROLE" = exit ] || ports+=(-p "${BYPASS_PORT}:56003/udp")
-  ports+=(-p "${bind}:${PROVISION_PORT}:9100/tcp" -p "${bind}:${TELEMETRY_PORT}:9200/tcp")
+  ports+=(-p "${bind}:${PROVISION_PORT}:9100/tcp" -p "${tbind}:${TELEMETRY_PORT}:9200/tcp")
   docker run -d --name "$CONTAINER" --hostname ardtt \
     --label "${OWNER_LABEL}=ardtt" --label "${INSTANCE_LABEL}=${INSTANCE_ID}" \
     --label "com.ardtt.role=${ROLE}" --label "com.ardtt.deploy-version=${VERSION}" \

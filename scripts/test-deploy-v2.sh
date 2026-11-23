@@ -109,6 +109,12 @@ run ARDTT_DEPLOY_VERSION=9.0.1 ARDTT_IMAGE_FILE="$(img 9.0.1)" ARDTT_AUTO_PORTS=
 [ "$(field direct_port <<<"$out")" = 51821 ] && ok "busy 51820 → 51821" || err "auto port: $(field direct_port <<<"$out")"
 grep -q '|admin_token=' <<<"$out" && ok "new admin token reported" || err "admin token missing on fresh install"
 [ "$(field provision_cert_fp <<<"$out")" = fp-9.0.1 ] && ok "provision fp from /health" || err "fp"
+binds="$(docker inspect -f '{{range $p, $b := .HostConfig.PortBindings}}{{$p}}={{range $b}}{{.HostIp}}{{end}} {{end}}' ardtt)"
+if grep -q ' 9100/tcp=0.0.0.0 ' <<<" $binds " && grep -q ' 9200/tcp=127.0.0.1 ' <<<" $binds "; then
+  ok "provision public, telemetry local"
+else
+  err "publish binds: $binds"
+fi
 SUBNET1="$(sed -n 's/^SUBNET=//p' "$DIR/instance.env")"
 neighbours_alive install
 

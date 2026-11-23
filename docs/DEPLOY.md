@@ -80,7 +80,8 @@ sudo ARDTT_PUBLIC_HOST=203.0.113.10 ARDTT_DEPLOY_VERSION=2.0.0 ARDTT_AUTO_PORTS=
 | `ARDTT_ROLE` | `entry` (по умолчанию) или `exit` |
 | `ARDTT_DIRECT_PORT`, `ARDTT_BYPASS_PORT`, `ARDTT_PROVISION_PORT`, `ARDTT_TELEMETRY_PORT` | порты на хосте |
 | `ARDTT_AUTO_PORTS=1` | занятый порт заменяется ближайшим свободным |
-| `ARDTT_PROVISION_PUBLIC=1` | публиковать provision и telemetry на `0.0.0.0` |
+| `ARDTT_PROVISION_PUBLIC=0` | закрыть provision на `127.0.0.1` (по умолчанию `0.0.0.0`; приложение и клиенты тогда не смогут к нему обратиться) |
+| `ARDTT_TELEMETRY_PUBLIC=1` | публиковать telemetry на `0.0.0.0` (по умолчанию `127.0.0.1`) |
 | `ARDTT_CASCADE_*` | параметры каскада |
 | `ARDTT_RELEASE_TAG` | релиз с образом (по умолчанию определяется через GitHub API) |
 | `ARDTT_IMAGE_FILE` | локальный файл образа вместо загрузки |
@@ -154,8 +155,10 @@ sudo ARDTT_PUBLIC_HOST=… ARDTT_DEPLOY_VERSION="$(cat server/DEPLOY_VERSION)" \
 |--------------|----------|-----------|----------------|
 | 51820 | UDP | Direct (на выходе — каскад) | да |
 | 56003 | UDP | Bypass RAW | да (кроме выхода) |
-| 9100 | TCP | provision | нет (`127.0.0.1`), да при `ARDTT_PROVISION_PUBLIC=1` |
-| 9200 | TCP | telemetry | как provision |
+| 9100 | TCP | provision | да (закрывается `ARDTT_PROVISION_PUBLIC=0`) |
+| 9200 | TCP | telemetry | нет (`127.0.0.1`), да при `ARDTT_TELEMETRY_PUBLIC=1` |
+
+Provision публикуется наружу по умолчанию: к нему по публичному адресу сервера обращаются приложение администратора (`/v1/users*`) и клиентские устройства (`/v1/profile`, `/v1/presence`, `/v1/hide-ip`, `/v1/netcheck`). В стеке 1.0.54–1.0.57 при чистой установке он публиковался только на `127.0.0.1`, из-за чего управление из приложения и клиентские функции на таких серверах не работали.
 
 Provision API: Bearer-токен обязателен для всех эндпоинтов, кроме `/health` и `/ready` ([ADR 0005](adr/0005-provision-auth-and-tls.md)). Токен администратора — `data/admin.token`. Отпечаток self-signed TLS — поле `provisionCertFp` в `/health` и `ARDTT_DONE|provision_cert_fp=`.
 
